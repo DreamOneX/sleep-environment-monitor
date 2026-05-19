@@ -16,9 +16,13 @@ use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
 #[cfg(target_arch = "riscv32")]
+use esp_hal::gpio::{Level, Output, OutputConfig};
+#[cfg(target_arch = "riscv32")]
 use esp_hal::timer::timg::TimerGroup;
 #[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
+#[cfg(target_arch = "riscv32")]
+use sleep_environment_monitor::tasks::led::heartbeat_task;
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -71,18 +75,14 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    info!("Embassy initialized!");
+    let led1 = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
+    let heartbeat = heartbeat_task(led1).expect("heartbeat task should spawn once");
+    spawner.spawn(heartbeat);
 
-    let (mut _wifi_controller, _interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default())
-            .expect("Failed to initialize Wi-Fi controller");
-
-    // TODO: Spawn some tasks
-    let _ = spawner;
+    info!("Minimal hardware bring-up initialized");
 
     loop {
-        info!("Hello world!");
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after(Duration::from_secs(60)).await;
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples

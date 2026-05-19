@@ -18,11 +18,15 @@ use esp_hal::clock::CpuClock;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::gpio::{Level, Output, OutputConfig};
 #[cfg(target_arch = "riscv32")]
+use esp_hal::i2c::master::{Config as I2cConfig, I2c};
+#[cfg(target_arch = "riscv32")]
+use esp_hal::time::Rate;
+#[cfg(target_arch = "riscv32")]
 use esp_hal::timer::timg::TimerGroup;
 #[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
-use sleep_environment_monitor::tasks::led::heartbeat_task;
+use sleep_environment_monitor::tasks::{led::heartbeat_task, sensor::sensor_task};
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -79,7 +83,15 @@ async fn main(spawner: Spawner) -> ! {
     let heartbeat = heartbeat_task(led1).expect("heartbeat task should spawn once");
     spawner.spawn(heartbeat);
 
-    info!("Minimal hardware bring-up initialized");
+    let i2c_config = I2cConfig::default().with_frequency(Rate::from_khz(100));
+    let i2c = I2c::new(peripherals.I2C0, i2c_config)
+        .expect("I2C0 configuration should be valid")
+        .with_sda(peripherals.GPIO4)
+        .with_scl(peripherals.GPIO5);
+    let sensors = sensor_task(i2c).expect("sensor task should spawn once");
+    spawner.spawn(sensors);
+
+    info!("I2C sensor bring-up initialized");
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

@@ -52,10 +52,55 @@ Expected manual check:
 - Confirm RESET still restarts the board.
 - Confirm BOOT still allows download mode.
 
-Verification commands:
+Verification:
 
 ```bash
 cargo build
 cargo test --lib
 cargo build --target riscv32imc-unknown-none-elf
+```
+
+## Milestone 3: I2C Sensor Bring-Up
+
+Commit:
+
+```text
+feat: add I2C sensor bring-up task
+```
+
+Scope:
+
+- Initialize I2C0 on the board pins:
+  - SDA: GPIO4
+  - SCL: GPIO5
+- Add hardware I2C wrappers for:
+  - SHT40 high-precision measurement command and six-byte measurement read.
+  - OPT3001 continuous-mode configuration and result-register lux read.
+- Spawn `sensor_task` alongside the LED heartbeat task.
+- Log periodic environment samples over defmt RTT.
+- Preserve host unit-test behavior by keeping pure sensor conversion tests hardware independent.
+
+Verification:
+
+```bash
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+```
+
+Hardware validation:
+
+- `probe-rs list` saw the board as `ESP JTAG -- 303a:1001`.
+- USB/JTAG access initially failed with `failed to open device (errno 13)`.
+- Reloading udev rules and re-entering the session fixed probe access.
+- `cargo run --target riscv32imc-unknown-none-elf` uploaded and ran the firmware.
+- RTT logs confirmed OPT3001 configuration and continuous SHT40/OPT3001 readings with `error_flags=0`.
+
+Observed sample:
+
+```text
+[INFO ] I2C sensor bring-up initialized
+[INFO ] OPT3001 configured at address 0x45
+[INFO ] env sample uptime_ms=374 temp_c=25.753036 rh_percent=40.75937 lux=2.59 error_flags=0
+[INFO ] env sample uptime_ms=2386 temp_c=25.739685 rh_percent=40.093693 lux=2.2 error_flags=0
 ```

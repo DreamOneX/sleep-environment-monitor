@@ -1,8 +1,11 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Sht40Error {
+    I2c,
     InvalidTemperatureCrc,
     InvalidHumidityCrc,
 }
+
+pub const CMD_MEASURE_HIGH_PRECISION: u8 = 0xfd;
 
 pub fn crc8(data: &[u8]) -> u8 {
     let mut crc = 0xff;
@@ -48,6 +51,23 @@ pub fn parse_measurement(buf: [u8; 6]) -> Result<(f32, f32), Sht40Error> {
         convert_temperature(temp_raw),
         convert_humidity(humidity_raw),
     ))
+}
+
+pub fn start_measurement<I2C>(i2c: &mut I2C, address: u8) -> Result<(), Sht40Error>
+where
+    I2C: embedded_hal::i2c::I2c,
+{
+    i2c.write(address, &[CMD_MEASURE_HIGH_PRECISION])
+        .map_err(|_| Sht40Error::I2c)
+}
+
+pub fn read_measurement<I2C>(i2c: &mut I2C, address: u8) -> Result<(f32, f32), Sht40Error>
+where
+    I2C: embedded_hal::i2c::I2c,
+{
+    let mut buf = [0_u8; 6];
+    i2c.read(address, &mut buf).map_err(|_| Sht40Error::I2c)?;
+    parse_measurement(buf)
 }
 
 #[cfg(test)]

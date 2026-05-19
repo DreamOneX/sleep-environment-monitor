@@ -9,6 +9,8 @@ name = "sleep-environment-monitor"
 path = "./src/bin/main.rs"
 
 [dependencies]
+
+[target.'cfg(target_arch = "riscv32")'.dependencies]
 esp-hal = { version = "~1.1.0", features = ["defmt", "esp32c3", "unstable"] }
 
 esp-rtos = { version = "0.3.0", features = [

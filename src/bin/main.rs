@@ -1,5 +1,5 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(target_arch = "riscv32", no_std)]
+#![cfg_attr(target_arch = "riscv32", no_main)]
 #![deny(
     clippy::mem_forget,
     reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
@@ -7,23 +7,39 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+#[cfg(target_arch = "riscv32")]
 use defmt::info;
+#[cfg(target_arch = "riscv32")]
 use embassy_executor::Spawner;
+#[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
+#[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
+#[cfg(target_arch = "riscv32")]
 use esp_hal::timer::timg::TimerGroup;
+#[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
 
+#[cfg(target_arch = "riscv32")]
 extern crate alloc;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
+#[cfg(target_arch = "riscv32")]
 esp_bootloader_esp_idf::esp_app_desc!();
+
+#[cfg(not(target_arch = "riscv32"))]
+fn main() {
+    println!(
+        "sleep-environment-monitor firmware: build with --target riscv32imc-unknown-none-elf for ESP32-C3"
+    );
+}
 
 #[allow(
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
+#[cfg(target_arch = "riscv32")]
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // generator version: 1.3.0

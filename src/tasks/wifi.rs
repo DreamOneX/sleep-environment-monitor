@@ -41,6 +41,82 @@ pub const fn backoff_seconds(attempt: u8) -> u32 {
     }
 }
 
+#[cfg(target_arch = "riscv32")]
+use defmt::{info, warn};
+#[cfg(target_arch = "riscv32")]
+use embassy_time::{Duration, Timer};
+#[cfg(target_arch = "riscv32")]
+use esp_radio::wifi::{AuthenticationMethod, Config, WifiController, sta::StationConfig};
+
+#[cfg(target_arch = "riscv32")]
+use crate::{tasks::TaskSignal, types::NetworkState};
+
+#[cfg(target_arch = "riscv32")]
+const WIFI_SSID: &str = "FZU";
+
+#[cfg(target_arch = "riscv32")]
+#[embassy_executor::task]
+pub async fn wifi_task(
+    mut controller: WifiController<'static>,
+    network_state: &'static TaskSignal<NetworkState>,
+) {
+    let mut attempt = 0_u8;
+
+    loop {
+        network_state.signal(NetworkState::Connecting);
+        info!("wifi connecting ssid={=str}", WIFI_SSID);
+
+        let station_config = Config::Station(
+            StationConfig::default()
+                .with_ssid(WIFI_SSID)
+                .with_auth_method(AuthenticationMethod::None),
+        );
+
+        let connect_result = match controller.set_config(&station_config) {
+            Ok(()) => controller.connect_async().await,
+            Err(error) => {
+                warn!("wifi set_config failed: {:?}", error);
+                Err(error)
+            }
+        };
+
+        match connect_result {
+            Ok(info) => {
+                network_state.signal(NetworkState::Connected);
+                info!(
+                    "wifi connected ssid={=str} channel={=u8} aid={=u16}",
+                    info.ssid.as_str(),
+                    info.channel,
+                    info.aid,
+                );
+
+                match controller.wait_for_disconnect_async().await {
+                    Ok(info) => warn!(
+                        "wifi disconnected reason={:?} rssi={=i8}",
+                        info.reason, info.rssi
+                    ),
+                    Err(error) => warn!("wifi disconnect wait ended: {:?}", error),
+                }
+
+                network_state.signal(NetworkState::Disconnected);
+                attempt = 1;
+            }
+            Err(error) => {
+                network_state.signal(NetworkState::Disconnected);
+                attempt = attempt.saturating_add(1).max(1);
+                warn!("wifi connect failed: {:?}", error);
+            }
+        }
+
+        let delay_seconds = backoff_seconds(attempt);
+        info!(
+            "wifi retry backoff_seconds={=u32} attempt={=u8}",
+            delay_seconds, attempt,
+        );
+        Timer::after(Duration::from_secs(delay_seconds as u64)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

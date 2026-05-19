@@ -210,3 +210,55 @@ Observed sample:
 [INFO ] measurement csv=1569,23.069351,42.266193,2.36,2661.5,6.3592453,18.5,16.067617,0,0
 [INFO ] measurement csv=2751,23.114746,42.28336,2.3799999,2658.731,4.996472,9.269043,13.973222,0,0
 ```
+
+## Milestone 6: Wi-Fi Connection Manager
+
+Commit:
+
+```text
+feat: add Wi-Fi connection manager
+```
+
+Scope:
+
+- Add a hardware `wifi_task` that owns the ESP32-C3 Wi-Fi controller.
+- Connect as a station to the open `FZU` network from `environment.md`.
+- Publish `NetworkState` through a `TaskSignal<NetworkState>`.
+- Reuse the existing Wi-Fi backoff policy after connection failures or disconnects.
+- Keep Wi-Fi independent from sensor sampling and local aggregation.
+
+Verification:
+
+```bash
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Hardware validation:
+
+- `cargo run --target riscv32imc-unknown-none-elf` uploaded and ran the firmware through the ESP32-C3 USB/JTAG probe.
+- RTT logs confirmed:
+  - Wi-Fi station connects to `FZU`.
+  - Environment and microphone sampling continue after Wi-Fi comes up.
+  - Complete `Measurement` CSV records continue while Wi-Fi is connected.
+  - A real disconnect event enters the one-second retry backoff.
+  - The Wi-Fi task reconnects automatically.
+  - Measurement output continues through disconnect, backoff, and reconnect.
+
+Observed sample:
+
+```text
+[INFO ] local measurement aggregation and Wi-Fi manager initialized
+[INFO ] wifi connecting ssid=FZU
+[INFO ] OPT3001 configured at address 0x45
+[INFO ] env sample uptime_ms=445 temp_c=23.987946 rh_percent=41.148468 lux=2.86 error_flags=0
+[INFO ] wifi connected ssid=FZU channel=1 aid=54690
+[INFO ] measurement csv=1707,23.987946,41.148468,2.86,2661.743,4.0128613,14.74292,12.069078,0,0
+[WARN ] wifi disconnected reason=DisassociatedDueToInactivity rssi=-49
+[INFO ] wifi retry backoff_seconds=1 attempt=1
+[INFO ] measurement csv=31489,25.149536,40.74983,2.87,2662.631,3.1633568,46.631104,10.002962,0,0
+[INFO ] wifi connecting ssid=FZU
+[INFO ] wifi connected ssid=FZU channel=1 aid=54690
+```

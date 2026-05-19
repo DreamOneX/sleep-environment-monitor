@@ -31,14 +31,19 @@ use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
-    tasks::{aggregator::aggregator_task, led::heartbeat_task, mic::mic_task, sensor::sensor_task},
-    types::{EnvSample, MicSample},
+    tasks::{
+        aggregator::aggregator_task, led::heartbeat_task, mic::mic_task, sensor::sensor_task,
+        wifi::wifi_task,
+    },
+    types::{EnvSample, MicSample, NetworkState},
 };
 
 #[cfg(target_arch = "riscv32")]
 static ENV_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, EnvSample> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static MIC_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, MicSample> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static NETWORK_STATE_SIGNAL: Signal<CriticalSectionRawMutex, NetworkState> = Signal::new();
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -114,7 +119,14 @@ async fn main(spawner: Spawner) -> ! {
         .expect("aggregator task should spawn once");
     spawner.spawn(aggregator);
 
-    info!("local measurement aggregation initialized");
+    let (wifi_controller, _wifi_interfaces) =
+        esp_radio::wifi::new(peripherals.WIFI, Default::default())
+            .expect("Wi-Fi controller should initialize after scheduler start");
+    let wifi =
+        wifi_task(wifi_controller, &NETWORK_STATE_SIGNAL).expect("wifi task should spawn once");
+    spawner.spawn(wifi);
+
+    info!("local measurement aggregation and Wi-Fi manager initialized");
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

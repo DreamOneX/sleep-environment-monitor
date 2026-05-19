@@ -12,6 +12,7 @@ use esp_hal::{
 #[cfg(target_arch = "riscv32")]
 use crate::{
     drivers::mic::analyze_adc_samples,
+    tasks::SampleSignal,
     types::{ErrorFlags, MicSample},
 };
 
@@ -23,16 +24,17 @@ const MIC_SAMPLE_COUNT: usize = 1000;
 pub async fn mic_task(
     mut adc: Adc<'static, ADC1<'static>, Blocking>,
     mut pin: AdcPin<GPIO3<'static>, ADC1<'static>>,
+    samples: &'static SampleSignal<MicSample>,
 ) {
-    let mut samples = [0_u16; MIC_SAMPLE_COUNT];
+    let mut window = [0_u16; MIC_SAMPLE_COUNT];
 
     loop {
-        for sample in &mut samples {
+        for sample in &mut window {
             *sample = read_sample(&mut adc, &mut pin).await;
             Timer::after(Duration::from_millis(1)).await;
         }
 
-        let sample = analyze_window(&samples);
+        let sample = analyze_window(&window);
 
         info!(
             "mic sample uptime_ms={} mean={=f32} rms={=f32} peak={=f32} db_rel={=f32} clip_count={=u32} error_flags={=u32}",
@@ -44,6 +46,7 @@ pub async fn mic_task(
             sample.clip_count,
             sample.error_flags.bits(),
         );
+        samples.signal(sample);
     }
 }
 

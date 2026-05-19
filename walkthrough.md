@@ -163,3 +163,50 @@ Notes:
 
 - The baseline microphone check was completed without human interaction.
 - The manual "sound near the microphone increases RMS/peak" check still requires a person to make sound near the board while RTT logs are observed.
+
+## Milestone 5: Local Measurement Aggregation
+
+Commit:
+
+```text
+feat: aggregate sensor and microphone measurements
+```
+
+Scope:
+
+- Add `embassy-sync` as a direct target dependency for hardware task signaling.
+- Add a `SampleSignal<T>` alias using `CriticalSectionRawMutex`.
+- Publish the latest `EnvSample` from `sensor_task`.
+- Publish the latest `MicSample` from `mic_task`.
+- Add `aggregator_task` to wait for both sample streams, merge the latest values with `merge_measurement`, and emit local CSV output through `measurement_to_csv_line`.
+- Spawn the aggregator alongside LED, I2C sensor, and microphone tasks.
+
+Verification:
+
+```bash
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Hardware validation:
+
+- `cargo run --target riscv32imc-unknown-none-elf` uploaded and ran the firmware through the ESP32-C3 USB/JTAG probe.
+- RTT logs confirmed:
+  - Aggregation starts after boot.
+  - Environment and microphone samples continue to be produced.
+  - Complete `Measurement` CSV records are emitted continuously without Wi-Fi.
+  - Latest environment values are reused between slower I2C updates and faster microphone windows.
+  - `error_flags=0` during the validation run.
+
+Observed sample:
+
+```text
+[INFO ] local measurement aggregation initialized
+[INFO ] OPT3001 configured at address 0x45
+[INFO ] env sample uptime_ms=318 temp_c=23.069351 rh_percent=42.266193 lux=2.36 error_flags=0
+[INFO ] mic sample uptime_ms=1569 mean=2661.5 rms=6.3592453 peak=18.5 db_rel=16.067617 clip_count=0 error_flags=0
+[INFO ] measurement csv=1569,23.069351,42.266193,2.36,2661.5,6.3592453,18.5,16.067617,0,0
+[INFO ] measurement csv=2751,23.114746,42.28336,2.3799999,2658.731,4.996472,9.269043,13.973222,0,0
+```

@@ -12,6 +12,8 @@ use defmt::info;
 #[cfg(target_arch = "riscv32")]
 use embassy_executor::Spawner;
 #[cfg(target_arch = "riscv32")]
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+#[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
@@ -28,7 +30,15 @@ use esp_hal::timer::timg::TimerGroup;
 #[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
-use sleep_environment_monitor::tasks::{led::heartbeat_task, mic::mic_task, sensor::sensor_task};
+use sleep_environment_monitor::{
+    tasks::{aggregator::aggregator_task, led::heartbeat_task, mic::mic_task, sensor::sensor_task},
+    types::{EnvSample, MicSample},
+};
+
+#[cfg(target_arch = "riscv32")]
+static ENV_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, EnvSample> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static MIC_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, MicSample> = Signal::new();
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -90,16 +100,21 @@ async fn main(spawner: Spawner) -> ! {
         .expect("I2C0 configuration should be valid")
         .with_sda(peripherals.GPIO4)
         .with_scl(peripherals.GPIO5);
-    let sensors = sensor_task(i2c).expect("sensor task should spawn once");
+    let sensors = sensor_task(i2c, &ENV_SAMPLE_SIGNAL).expect("sensor task should spawn once");
     spawner.spawn(sensors);
 
     let mut adc1_config = AdcConfig::new();
     let mic_pin = adc1_config.enable_pin(peripherals.GPIO3, Attenuation::_11dB);
     let adc1 = Adc::new(peripherals.ADC1, adc1_config);
-    let mic = mic_task(adc1, mic_pin).expect("microphone task should spawn once");
+    let mic =
+        mic_task(adc1, mic_pin, &MIC_SAMPLE_SIGNAL).expect("microphone task should spawn once");
     spawner.spawn(mic);
 
-    info!("sensor and microphone bring-up initialized");
+    let aggregator = aggregator_task(&ENV_SAMPLE_SIGNAL, &MIC_SAMPLE_SIGNAL)
+        .expect("aggregator task should spawn once");
+    spawner.spawn(aggregator);
+
+    info!("local measurement aggregation initialized");
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

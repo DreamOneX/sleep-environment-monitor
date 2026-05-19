@@ -15,6 +15,45 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
     }
 }
 
+#[cfg(target_arch = "riscv32")]
+use super::{SampleSignal, upload::measurement_to_csv_line};
+#[cfg(target_arch = "riscv32")]
+use defmt::{info, warn};
+
+#[cfg(target_arch = "riscv32")]
+#[embassy_executor::task]
+pub async fn aggregator_task(
+    env_samples: &'static SampleSignal<EnvSample>,
+    mic_samples: &'static SampleSignal<MicSample>,
+) {
+    let mut latest_env = env_samples.wait().await;
+    let mut latest_mic = mic_samples.wait().await;
+
+    loop {
+        if let Some(env) = env_samples.try_take() {
+            latest_env = env;
+        }
+
+        let measurement = merge_measurement(latest_env, latest_mic);
+        log_measurement(&measurement);
+
+        latest_mic = mic_samples.wait().await;
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn log_measurement(measurement: &Measurement) {
+    let mut line = [0_u8; 192];
+
+    match measurement_to_csv_line(measurement, &mut line) {
+        Ok(len) => match core::str::from_utf8(&line[..len]) {
+            Ok(csv) => info!("measurement csv={=str}", csv),
+            Err(_) => warn!("measurement csv output was not utf-8"),
+        },
+        Err(_) => warn!("measurement csv buffer too small"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

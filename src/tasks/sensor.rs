@@ -9,12 +9,16 @@ use esp_hal::{Blocking, i2c::master::I2c};
 use crate::{
     board::{I2C_ADDR_OPT3001, I2C_ADDR_SHT40},
     drivers::{opt3001, sht40},
+    tasks::SampleSignal,
     types::{EnvSample, ErrorFlags},
 };
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
-pub async fn sensor_task(mut i2c: I2c<'static, Blocking>) {
+pub async fn sensor_task(
+    mut i2c: I2c<'static, Blocking>,
+    samples: &'static SampleSignal<EnvSample>,
+) {
     match opt3001::configure_continuous(&mut i2c, I2C_ADDR_OPT3001) {
         Ok(()) => info!("OPT3001 configured at address 0x45"),
         Err(_) => warn!("OPT3001 configuration failed at address 0x45"),
@@ -31,6 +35,7 @@ pub async fn sensor_task(mut i2c: I2c<'static, Blocking>) {
             sample.lux.unwrap_or(f32::NAN),
             sample.error_flags.bits(),
         );
+        samples.signal(sample);
 
         Timer::after(Duration::from_secs(2)).await;
     }

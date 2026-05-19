@@ -104,3 +104,62 @@ Observed sample:
 [INFO ] env sample uptime_ms=374 temp_c=25.753036 rh_percent=40.75937 lux=2.59 error_flags=0
 [INFO ] env sample uptime_ms=2386 temp_c=25.739685 rh_percent=40.093693 lux=2.2 error_flags=0
 ```
+
+## Milestone 4: Microphone ADC Bring-Up
+
+Commit:
+
+```text
+feat: add microphone ADC sampling task
+```
+
+Scope:
+
+- Initialize ADC1 on the board microphone input:
+  - Microphone ADC: GPIO3 / ADC1_CH3
+  - Attenuation: 11 dB
+- Add `tasks::mic::mic_task` for periodic microphone sampling.
+- Sample 1000 ADC values with 1 ms spacing per window.
+- Reuse `drivers::mic::analyze_adc_samples` to produce `MicSample` fields:
+  - mean
+  - RMS
+  - peak
+  - relative dB
+  - clip count
+- Spawn the microphone task alongside LED heartbeat and I2C sensor sampling.
+- Keep host-side tests hardware independent by compiling the hardware task only for `riscv32`.
+
+Verification:
+
+```bash
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+```
+
+Hardware validation:
+
+- `probe-rs list` saw the board as `ESP JTAG -- 303a:1001`.
+- `cargo run --target riscv32imc-unknown-none-elf` initially failed inside the sandbox with `device not found (errno 2)` while opening the probe.
+- Re-running the same upload command outside the sandbox opened the USB/JTAG probe, flashed the board, and streamed RTT logs.
+- RTT logs confirmed:
+  - Firmware starts with sensor and microphone tasks active.
+  - SHT40 and OPT3001 sampling continue while the ADC task runs.
+  - Microphone `mean` stays within the 12-bit ADC range.
+  - `clip_count` remains zero during baseline observation.
+  - `error_flags=0` for both environment and microphone samples.
+
+Observed sample:
+
+```text
+[INFO ] sensor and microphone bring-up initialized
+[INFO ] OPT3001 configured at address 0x45
+[INFO ] env sample uptime_ms=373 temp_c=24.03601 rh_percent=46.872513 lux=2.1499999 error_flags=0
+[INFO ] mic sample uptime_ms=1620 mean=2662.224 rms=2.905139 peak=8.224121 db_rel=9.263338 clip_count=0 error_flags=0
+[INFO ] mic sample uptime_ms=2800 mean=2663.331 rms=1.7359304 peak=8.331055 db_rel=4.790646 clip_count=0 error_flags=0
+```
+
+Notes:
+
+- The baseline microphone check was completed without human interaction.
+- The manual "sound near the microphone increases RMS/peak" check still requires a person to make sound near the board while RTT logs are observed.

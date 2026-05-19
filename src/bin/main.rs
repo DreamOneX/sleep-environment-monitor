@@ -14,6 +14,8 @@ use embassy_executor::Spawner;
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
+use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
+#[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::gpio::{Level, Output, OutputConfig};
@@ -26,7 +28,7 @@ use esp_hal::timer::timg::TimerGroup;
 #[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
-use sleep_environment_monitor::tasks::{led::heartbeat_task, sensor::sensor_task};
+use sleep_environment_monitor::tasks::{led::heartbeat_task, mic::mic_task, sensor::sensor_task};
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -91,7 +93,13 @@ async fn main(spawner: Spawner) -> ! {
     let sensors = sensor_task(i2c).expect("sensor task should spawn once");
     spawner.spawn(sensors);
 
-    info!("I2C sensor bring-up initialized");
+    let mut adc1_config = AdcConfig::new();
+    let mic_pin = adc1_config.enable_pin(peripherals.GPIO3, Attenuation::_11dB);
+    let adc1 = Adc::new(peripherals.ADC1, adc1_config);
+    let mic = mic_task(adc1, mic_pin).expect("microphone task should spawn once");
+    spawner.spawn(mic);
+
+    info!("sensor and microphone bring-up initialized");
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

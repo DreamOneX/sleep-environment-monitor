@@ -208,6 +208,22 @@ Responsibilities:
 
 This module must be fully unit tested.
 
+LED2 policy:
+
+| Priority | Condition | LED2 pattern | Meaning |
+|---:|---|---|---|
+| 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone failure |
+| 2 | Upload result is failed or `ErrorFlags::UPLOAD` is set | `On` | Measurement upload is failing |
+| 3 | Wi-Fi is disconnected or `ErrorFlags::WIFI` is set | `SlowBlink` | Network is not ready |
+| 4 | No current error and Wi-Fi is connected | `Off` | Normal operation |
+
+Timing:
+
+- LED outputs are active-low: `LOW = on`, `HIGH = off`.
+- `FastBlink` toggles every 100 ms.
+- `SlowBlink` toggles every 500 ms.
+- LED1 is a separate runtime heartbeat: 100 ms on, 900 ms off.
+
 ---
 
 ## `tasks/sensor.rs`

@@ -332,6 +332,7 @@ Scope:
 - Add a LED2 status task driven by the existing `status_to_leds` mapping.
 - Publish latest measurement error flags from aggregation to the status task.
 - Fold upload failures into status error flags so upload errors are visible through LED2.
+- Document the LED2 priority table and blink timing in `architecture.md`.
 - Replace firmware startup `.expect` calls with logged failures and fallback status/sample signals where the firmware can continue.
 - Bound microphone ADC read retries so the microphone task cannot loop forever on repeated ADC failures.
 - Reduce normal RTT log volume for environment, microphone, measurement, and upload-success logs while keeping warnings immediate.

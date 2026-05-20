@@ -16,7 +16,7 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
 }
 
 #[cfg(target_arch = "riscv32")]
-use super::{SampleSignal, upload::measurement_to_csv_line};
+use super::{MeasurementQueue, SampleSignal, upload::measurement_to_csv_line};
 #[cfg(target_arch = "riscv32")]
 use defmt::{info, warn};
 
@@ -25,6 +25,7 @@ use defmt::{info, warn};
 pub async fn aggregator_task(
     env_samples: &'static SampleSignal<EnvSample>,
     mic_samples: &'static SampleSignal<MicSample>,
+    measurements: &'static MeasurementQueue,
 ) {
     let mut latest_env = env_samples.wait().await;
     let mut latest_mic = mic_samples.wait().await;
@@ -36,6 +37,7 @@ pub async fn aggregator_task(
 
         let measurement = merge_measurement(latest_env, latest_mic);
         log_measurement(&measurement);
+        enqueue_measurement(measurements, measurement);
 
         latest_mic = mic_samples.wait().await;
     }
@@ -52,6 +54,19 @@ fn log_measurement(measurement: &Measurement) {
         },
         Err(_) => warn!("measurement csv buffer too small"),
     }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn enqueue_measurement(measurements: &MeasurementQueue, measurement: Measurement) {
+    measurements.lock(|cell| {
+        let mut queue = cell.borrow_mut();
+        if queue.push(measurement).is_some() {
+            warn!(
+                "measurement queue full; dropped oldest len={=usize}",
+                queue.len()
+            );
+        }
+    });
 }
 
 #[cfg(test)]

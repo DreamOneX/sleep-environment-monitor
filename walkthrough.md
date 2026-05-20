@@ -262,3 +262,53 @@ Observed sample:
 [INFO ] wifi connecting ssid=FZU
 [INFO ] wifi connected ssid=FZU channel=1 aid=54690
 ```
+
+## Milestone 7: Measurement Upload With Offline Queue
+
+Development phase:
+
+```text
+Phase 14: Upload Task
+```
+
+Scope:
+
+- Add a shared `MeasurementQueue` between aggregation and upload.
+- Keep `aggregator_task` responsible only for producing and enqueueing `Measurement` records.
+- Add an `embassy-net` runner for the ESP32-C3 Wi-Fi station interface.
+- Add `uploader_task` that waits for DHCP network configuration, posts CSV payloads to `10.133.56.218:8080/measurements`, and retries failures.
+- Preserve queued data on upload failure, remove the oldest record only after a successful 2xx HTTP response, and drop the oldest record when the queue is full.
+- Add a minimal `post_receiver.py` for manual POST receiver checks.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Hardware validation:
+
+- `python3 post_receiver.py` starts a local POST receiver on `0.0.0.0:8080`.
+- `cargo run --target riscv32imc-unknown-none-elf` uploaded and ran the firmware through the ESP32-C3 USB/JTAG probe after the board was manually reset and reattached through usbipd.
+- RTT logs confirmed:
+  - Wi-Fi station connects to `FZU`.
+  - DHCP config is obtained: board address `10.133.20.144/16`, gateway `10.133.255.254`, DNS `114.114.114.114` and `210.34.48.34`.
+  - Sensor and microphone sampling continue while the uploader is retrying.
+  - Measurements are enqueued while upload is unavailable.
+  - Queue length reaches 16 and then drops the oldest records, preserving the newest samples.
+- The local WSL receiver did not receive POST requests from the ESP32-C3.
+- Upload attempts to `10.133.56.218:8080` returned `ConnectReset`, which indicates the network route exists but the Windows host address/port is not accepting the connection from the board. Final upload-success validation requires a receiver actually listening on the Windows host network address `10.133.56.218:8080`, or an equivalent port proxy/firewall rule from that address to WSL.
+
+Observed sample:
+
+```text
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.20.144/16, gateway: Some(10.133.255.254), dns_servers: [114.114.114.114, 210.34.48.34] }
+[INFO ] measurement csv=11685,31.961548,32.300144,9.889999,2654.151,12.112822,25.849121,21.664906,0,0
+[WARN ] upload failed error=ConnectReset queue_len=9
+[WARN ] measurement queue full; dropped oldest len=16
+[WARN ] upload failed error=ConnectReset queue_len=16
+```

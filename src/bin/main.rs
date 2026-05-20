@@ -12,7 +12,12 @@ use defmt::info;
 #[cfg(target_arch = "riscv32")]
 use embassy_executor::Spawner;
 #[cfg(target_arch = "riscv32")]
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embassy_net::StackResources;
+#[cfg(target_arch = "riscv32")]
+use embassy_sync::{
+    blocking_mutex::{Mutex, raw::CriticalSectionRawMutex},
+    signal::Signal,
+};
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
@@ -24,6 +29,8 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 #[cfg(target_arch = "riscv32")]
+use esp_hal::rng::Rng;
+#[cfg(target_arch = "riscv32")]
 use esp_hal::time::Rate;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::timer::timg::TimerGroup;
@@ -32,10 +39,11 @@ use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     tasks::{
-        aggregator::aggregator_task, led::heartbeat_task, mic::mic_task, sensor::sensor_task,
-        wifi::wifi_task,
+        MeasurementQueue, aggregator::aggregator_task, led::heartbeat_task, mic::mic_task,
+        net::net_task, sensor::sensor_task, upload::uploader_task, wifi::wifi_task,
     },
-    types::{EnvSample, MicSample, NetworkState},
+    types::{EnvSample, MicSample, NetworkState, UploadResult},
+    util::queue::DropOldestQueue,
 };
 
 #[cfg(target_arch = "riscv32")]
@@ -44,6 +52,13 @@ static ENV_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, EnvSample> = Signal::n
 static MIC_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, MicSample> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static NETWORK_STATE_SIGNAL: Signal<CriticalSectionRawMutex, NetworkState> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static UPLOAD_RESULT_SIGNAL: Signal<CriticalSectionRawMutex, UploadResult> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static MEASUREMENT_QUEUE: MeasurementQueue =
+    Mutex::new(core::cell::RefCell::new(DropOldestQueue::new()));
+#[cfg(target_arch = "riscv32")]
+static NET_RESOURCES: static_cell::StaticCell<StackResources<3>> = static_cell::StaticCell::new();
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -115,18 +130,33 @@ async fn main(spawner: Spawner) -> ! {
         mic_task(adc1, mic_pin, &MIC_SAMPLE_SIGNAL).expect("microphone task should spawn once");
     spawner.spawn(mic);
 
-    let aggregator = aggregator_task(&ENV_SAMPLE_SIGNAL, &MIC_SAMPLE_SIGNAL)
+    let aggregator = aggregator_task(&ENV_SAMPLE_SIGNAL, &MIC_SAMPLE_SIGNAL, &MEASUREMENT_QUEUE)
         .expect("aggregator task should spawn once");
     spawner.spawn(aggregator);
 
-    let (wifi_controller, _wifi_interfaces) =
+    let (wifi_controller, wifi_interfaces) =
         esp_radio::wifi::new(peripherals.WIFI, Default::default())
             .expect("Wi-Fi controller should initialize after scheduler start");
+    let net_config = embassy_net::Config::dhcpv4(Default::default());
+    let random_seed = Rng::new().random() as u64;
+    let (stack, runner) = embassy_net::new(
+        wifi_interfaces.station,
+        net_config,
+        NET_RESOURCES.init(StackResources::new()),
+        random_seed,
+    );
+    let network = net_task(runner).expect("network task should spawn once");
+    spawner.spawn(network);
+
     let wifi =
         wifi_task(wifi_controller, &NETWORK_STATE_SIGNAL).expect("wifi task should spawn once");
     spawner.spawn(wifi);
 
-    info!("local measurement aggregation and Wi-Fi manager initialized");
+    let uploader = uploader_task(stack, &MEASUREMENT_QUEUE, &UPLOAD_RESULT_SIGNAL)
+        .expect("uploader task should spawn once");
+    spawner.spawn(uploader);
+
+    info!("measurement aggregation, Wi-Fi manager, and uploader initialized");
 
     loop {
         Timer::after(Duration::from_secs(60)).await;

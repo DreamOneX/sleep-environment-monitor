@@ -1,6 +1,16 @@
 use core::fmt::{self, Write};
 
 use crate::types::Measurement;
+use crate::util::queue::DropOldestQueue;
+
+#[cfg(target_arch = "riscv32")]
+const UPLOAD_HOST_HEADER: &str = "10.133.56.218:8080";
+#[cfg(target_arch = "riscv32")]
+const UPLOAD_PATH: &str = "/measurements";
+#[cfg(target_arch = "riscv32")]
+const UPLOAD_PORT: u16 = 8080;
+#[cfg(target_arch = "riscv32")]
+const UPLOAD_RETRY_DELAY_SECS: u64 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EncodeError {
@@ -35,6 +45,58 @@ pub fn measurement_to_csv_line(m: &Measurement, out: &mut [u8]) -> Result<usize,
     Ok(writer.len())
 }
 
+pub fn build_http_post_request(
+    host: &str,
+    path: &str,
+    body: &[u8],
+    out: &mut [u8],
+) -> Result<usize, EncodeError> {
+    let mut writer = FixedBufferWriter::new(out);
+
+    write!(writer, "POST {path} HTTP/1.1\r\n").map_err(|_| EncodeError::BufferTooSmall)?;
+    write!(writer, "Host: {host}\r\n").map_err(|_| EncodeError::BufferTooSmall)?;
+    writer
+        .write_str("User-Agent: sleep-environment-monitor/0.1\r\n")
+        .map_err(|_| EncodeError::BufferTooSmall)?;
+    writer
+        .write_str("Content-Type: text/csv\r\n")
+        .map_err(|_| EncodeError::BufferTooSmall)?;
+    write!(writer, "Content-Length: {}\r\n", body.len())
+        .map_err(|_| EncodeError::BufferTooSmall)?;
+    writer
+        .write_str("Connection: close\r\n\r\n")
+        .map_err(|_| EncodeError::BufferTooSmall)?;
+    writer
+        .write_bytes(body)
+        .map_err(|_| EncodeError::BufferTooSmall)?;
+
+    Ok(writer.len())
+}
+
+pub fn http_response_is_success(response: &[u8]) -> bool {
+    let Some(status) = response.get(9..12) else {
+        return false;
+    };
+
+    response.starts_with(b"HTTP/1.")
+        && status[0] == b'2'
+        && status[1].is_ascii_digit()
+        && status[2].is_ascii_digit()
+}
+
+pub fn queue_measurement<const N: usize>(
+    queue: &mut DropOldestQueue<Measurement, N>,
+    measurement: Measurement,
+) -> bool {
+    queue.push(measurement).is_some()
+}
+
+pub fn mark_upload_success<const N: usize>(
+    queue: &mut DropOldestQueue<Measurement, N>,
+) -> Option<Measurement> {
+    queue.pop()
+}
+
 fn write_optional_f32(writer: &mut FixedBufferWriter<'_>, value: Option<f32>) -> fmt::Result {
     match value {
         Some(value) if value.is_nan() => writer.write_str("nan"),
@@ -56,6 +118,16 @@ impl<'a> FixedBufferWriter<'a> {
     fn len(&self) -> usize {
         self.len
     }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> fmt::Result {
+        let end = self.len.checked_add(bytes.len()).ok_or(fmt::Error)?;
+        let destination = self.buf.get_mut(self.len..end).ok_or(fmt::Error)?;
+
+        destination.copy_from_slice(bytes);
+        self.len = end;
+
+        Ok(())
+    }
 }
 
 impl Write for FixedBufferWriter<'_> {
@@ -68,6 +140,151 @@ impl Write for FixedBufferWriter<'_> {
         self.len = end;
 
         Ok(())
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+use crate::{
+    tasks::{MeasurementQueue, TaskSignal},
+    types::UploadResult,
+};
+#[cfg(target_arch = "riscv32")]
+use defmt::{info, warn};
+#[cfg(target_arch = "riscv32")]
+use embassy_net::{
+    IpAddress, IpEndpoint, Stack,
+    tcp::{ConnectError, TcpSocket},
+};
+#[cfg(target_arch = "riscv32")]
+use embassy_time::{Duration, Timer, with_timeout};
+#[cfg(target_arch = "riscv32")]
+use embedded_io_async::Write as _;
+
+#[cfg(target_arch = "riscv32")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, defmt::Format)]
+enum UploadError {
+    Encode,
+    ConnectInvalidState,
+    ConnectReset,
+    ConnectTimedOut,
+    NoRoute,
+    Write,
+    Read,
+    Timeout,
+    Response,
+}
+
+#[cfg(target_arch = "riscv32")]
+#[embassy_executor::task]
+pub async fn uploader_task(
+    stack: Stack<'static>,
+    measurements: &'static MeasurementQueue,
+    upload_result: &'static TaskSignal<UploadResult>,
+) {
+    let mut logged_network_config = false;
+
+    loop {
+        stack.wait_config_up().await;
+        if !logged_network_config {
+            if let Some(config) = stack.config_v4() {
+                info!("network ipv4 config={:?}", config);
+                logged_network_config = true;
+            }
+        }
+
+        let Some(measurement) = peek_measurement(measurements) else {
+            Timer::after(Duration::from_millis(250)).await;
+            continue;
+        };
+
+        match post_measurement(stack, &measurement).await {
+            Ok(()) => {
+                let queue_len = measurements.lock(|cell| {
+                    let mut queue = cell.borrow_mut();
+                    mark_upload_success(&mut queue);
+                    queue.len()
+                });
+                upload_result.signal(UploadResult::Success);
+                info!(
+                    "upload success uptime_ms={=u64} queue_len={=usize}",
+                    measurement.uptime_ms, queue_len
+                );
+            }
+            Err(error) => {
+                let queue_len = measurements.lock(|cell| cell.borrow().len());
+                upload_result.signal(UploadResult::Failed);
+                warn!(
+                    "upload failed error={:?} queue_len={=usize}",
+                    error, queue_len
+                );
+                Timer::after(Duration::from_secs(UPLOAD_RETRY_DELAY_SECS)).await;
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn peek_measurement(measurements: &MeasurementQueue) -> Option<Measurement> {
+    measurements.lock(|cell| cell.borrow().front().copied())
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn post_measurement(
+    stack: Stack<'static>,
+    measurement: &Measurement,
+) -> Result<(), UploadError> {
+    let mut rx_buffer = [0_u8; 512];
+    let mut tx_buffer = [0_u8; 512];
+    let mut csv = [0_u8; 192];
+    let mut request = [0_u8; 512];
+    let mut response = [0_u8; 128];
+
+    let csv_len =
+        measurement_to_csv_line(measurement, &mut csv).map_err(|_| UploadError::Encode)?;
+    let request_len = build_http_post_request(
+        UPLOAD_HOST_HEADER,
+        UPLOAD_PATH,
+        &csv[..csv_len],
+        &mut request,
+    )
+    .map_err(|_| UploadError::Encode)?;
+
+    let endpoint = IpEndpoint::new(IpAddress::v4(10, 133, 56, 218), UPLOAD_PORT);
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    socket.set_timeout(Some(Duration::from_secs(10)));
+
+    socket.connect(endpoint).await.map_err(map_connect_error)?;
+    socket
+        .write_all(&request[..request_len])
+        .await
+        .map_err(|_| UploadError::Write)?;
+    socket.flush().await.map_err(|_| UploadError::Write)?;
+
+    let read_result = with_timeout(Duration::from_secs(10), socket.read(&mut response))
+        .await
+        .map_err(|_| UploadError::Timeout)?
+        .map_err(|_| UploadError::Read)?;
+
+    socket.close();
+
+    if read_result == 0 {
+        return Err(UploadError::Response);
+    }
+
+    if http_response_is_success(&response[..read_result]) {
+        Ok(())
+    } else {
+        Err(UploadError::Response)
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn map_connect_error(error: ConnectError) -> UploadError {
+    match error {
+        ConnectError::InvalidState => UploadError::ConnectInvalidState,
+        ConnectError::ConnectionReset => UploadError::ConnectReset,
+        ConnectError::TimedOut => UploadError::ConnectTimedOut,
+        ConnectError::NoRoute => UploadError::NoRoute,
     }
 }
 
@@ -149,5 +366,82 @@ mod tests {
             let mut out = [0_u8; 8];
             let _ = measurement_to_csv_line(&complete_measurement(), &mut out[..size]);
         }
+    }
+
+    #[test]
+    fn http_post_request_wraps_csv_body() {
+        let mut body = [0_u8; 128];
+        let mut request = [0_u8; 512];
+        let body_len = measurement_to_csv_line(&complete_measurement(), &mut body).unwrap();
+
+        let request_len = build_http_post_request(
+            "10.133.56.218:8080",
+            "/measurements",
+            &body[..body_len],
+            &mut request,
+        )
+        .unwrap();
+        let request = core::str::from_utf8(&request[..request_len]).unwrap();
+
+        assert!(request.starts_with("POST /measurements HTTP/1.1\r\n"));
+        assert!(request.contains("Host: 10.133.56.218:8080\r\n"));
+        assert!(request.contains("Content-Type: text/csv\r\n"));
+        assert!(request.contains(&format!("Content-Length: {body_len}\r\n")));
+        assert!(request.ends_with("1234,21.5,45.25,9.75,2048,10.5,99,20.4,2,17"));
+    }
+
+    #[test]
+    fn http_post_request_reports_small_buffer() {
+        let mut request = [0_u8; 16];
+
+        assert_eq!(
+            build_http_post_request("host", "/measurements", b"1,2,3", &mut request),
+            Err(EncodeError::BufferTooSmall)
+        );
+    }
+
+    #[test]
+    fn http_response_success_accepts_2xx_only() {
+        assert!(http_response_is_success(b"HTTP/1.1 200 OK\r\n\r\n"));
+        assert!(http_response_is_success(b"HTTP/1.0 204 No Content\r\n\r\n"));
+        assert!(!http_response_is_success(
+            b"HTTP/1.1 500 Internal Server Error\r\n\r\n"
+        ));
+        assert!(!http_response_is_success(b"HTTP/1.1 302 Found\r\n\r\n"));
+        assert!(!http_response_is_success(b"bad response"));
+    }
+
+    #[test]
+    fn queue_measurement_drops_oldest_when_full() {
+        let mut queue = DropOldestQueue::<Measurement, 2>::new();
+        let mut first = complete_measurement();
+        let mut second = complete_measurement();
+        let mut third = complete_measurement();
+        first.uptime_ms = 1;
+        second.uptime_ms = 2;
+        third.uptime_ms = 3;
+
+        assert!(!queue_measurement(&mut queue, first));
+        assert!(!queue_measurement(&mut queue, second));
+        assert!(queue_measurement(&mut queue, third));
+
+        assert_eq!(queue.pop().unwrap().uptime_ms, 2);
+        assert_eq!(queue.pop().unwrap().uptime_ms, 3);
+    }
+
+    #[test]
+    fn successful_upload_removes_only_oldest_record() {
+        let mut queue = DropOldestQueue::<Measurement, 2>::new();
+        let mut first = complete_measurement();
+        let mut second = complete_measurement();
+        first.uptime_ms = 10;
+        second.uptime_ms = 20;
+
+        queue_measurement(&mut queue, first);
+        queue_measurement(&mut queue, second);
+
+        assert_eq!(queue.front().unwrap().uptime_ms, 10);
+        assert_eq!(mark_upload_success(&mut queue).unwrap().uptime_ms, 10);
+        assert_eq!(queue.front().unwrap().uptime_ms, 20);
     }
 }

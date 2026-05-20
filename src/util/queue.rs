@@ -5,9 +5,9 @@ pub struct DropOldestQueue<T, const N: usize> {
 }
 
 impl<T, const N: usize> DropOldestQueue<T, N> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            buf: core::array::from_fn(|_| None),
+            buf: [const { None }; N],
             head: 0,
             len: 0,
         }
@@ -56,6 +56,14 @@ impl<T, const N: usize> DropOldestQueue<T, N> {
         self.len -= 1;
         item
     }
+
+    pub fn front(&self) -> Option<&T> {
+        if self.len == 0 || N == 0 {
+            return None;
+        }
+
+        self.buf[self.head].as_ref()
+    }
 }
 
 impl<T, const N: usize> Default for DropOldestQueue<T, N> {
@@ -87,6 +95,21 @@ mod tests {
         assert_eq!(queue.pop(), Some(2));
         assert_eq!(queue.pop(), Some(3));
         assert_eq!(queue.pop(), None);
+    }
+
+    #[test]
+    fn front_returns_oldest_without_removing_it() {
+        let mut queue = DropOldestQueue::<u8, 2>::new();
+
+        assert_eq!(queue.front(), None);
+
+        queue.push(1);
+        queue.push(2);
+
+        assert_eq!(queue.front(), Some(&1));
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.pop(), Some(1));
+        assert_eq!(queue.front(), Some(&2));
     }
 
     #[test]

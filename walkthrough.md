@@ -863,3 +863,71 @@ Notes:
 - The receiver-offline run confirmed an explicit full-spool transition on hardware: `pending=32` with `dropped_oldest` increasing.
 - `timeout` terminated `probe-rs run` at the configured limit and printed SIGTERM stack frames; this was the host command ending the debug session, not a firmware panic.
 - Phase 20 still has human/physical close-loop checks remaining: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.
+
+## Milestone 16: Receiver-Offline Reset Recovery With Metrics
+
+Phase 20 hardware validation update:
+
+- Re-ran the receiver-offline reset and receiver-return flow with the Phase 20 storage metrics enabled.
+- Used elevated `probe-rs attach` for RTT capture in the WSL/USBIP environment; non-elevated attach can fail with transient USB open errors even when `probe-rs list` sees the probe.
+- The `flash-smoke` feature was not enabled.
+- Normal firmware startup may program the application image in the app region, but persistent measurement writes in this validation were exercised only through `storage_task` in the measurement spool region:
+
+```text
+0x003c_0000..0x0040_0000
+```
+
+Commands used:
+
+```bash
+timeout 45s probe-rs attach --chip esp32c3 target/riscv32imc-unknown-none-elf/debug/sleep-environment-monitor
+probe-rs reset --chip esp32c3
+timeout 45s probe-rs attach --chip esp32c3 target/riscv32imc-unknown-none-elf/debug/sleep-environment-monitor
+python3 post_receiver.py
+```
+
+Receiver-offline attach observation before reset:
+
+```text
+[WARN ] upload failed error=ConnectReset sequence=2667
+[INFO ] storage metrics pending=20 recovered=0 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] storage metrics pending=32 recovered=0 dropped_oldest=1 corrupt=0 last_error=none
+[INFO ] storage metrics pending=32 recovered=0 dropped_oldest=36 corrupt=0 last_error=none
+```
+
+Receiver-offline recovery observation after reset:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=32
+[INFO ] storage metrics pending=32 recovered=32 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] storage metrics pending=32 recovered=32 dropped_oldest=1 corrupt=0 last_error=none
+[WARN ] upload failed error=ConnectReset sequence=2740
+```
+
+Receiver-return upload observation:
+
+```text
+[INFO ] upload success sequence=2769 acked=true
+[INFO ] storage metrics pending=29 recovered=32 dropped_oldest=29 corrupt=0 last_error=none
+[INFO ] storage metrics pending=13 recovered=32 dropped_oldest=29 corrupt=0 last_error=none
+[INFO ] storage metrics pending=1 recovered=32 dropped_oldest=29 corrupt=0 last_error=none
+```
+
+The local receiver accepted reset-recovered records after coming back online. The first rows included pre-reset high-uptime records followed by post-reset low-uptime records:
+
+```text
+204243
+205439
+206636
+1907
+3112
+4318
+```
+
+Notes:
+
+- Reset while receiver was offline recovered a full pending backlog with explicit metrics: `pending=32 recovered=32`.
+- Receiver return drained the recovered backlog and ACKed successful uploads.
+- Full-spool oldest-drop behavior remained visible through `dropped_oldest` during both pre-reset and post-reset offline windows.
+- Remaining Phase 20 physical checks: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.

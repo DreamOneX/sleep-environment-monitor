@@ -382,3 +382,33 @@ Observed sample:
 10.133.20.144 /measurements 1791,32.124435,32.008316,4.39,2654.089,4.955911,17.089111,13.902428,0,0
 10.133.20.144 /measurements 3112,32.129776,32.111313,5.85,2653.121,4.0423193,14.121094,12.132611,0,0
 ```
+
+## Milestone 9: Persistent SPI Flash Spool Plan
+
+Development phase:
+
+```text
+Phase 16-20 planning: Internal SPI flash persistent spool
+```
+
+Scope:
+
+- Update `architecture.md` to add a two-level measurement backlog: RAM hot queue plus internal SPI flash persistent spool.
+- Document that the ESP32-C3-WROOM-02-N4 4 MB internal SPI flash may be used only through a dedicated spool region that must not overlap bootloader, partition table, app image, or calibration data.
+- Add planned `drivers/flash.rs`, `storage/spool.rs`, and `tasks/storage.rs` responsibilities.
+- Define the persistent record format with magic, version, sequence, payload length, and CRC.
+- Specify FIFO upload, HTTP-2xx-only acknowledgement, cross-reset recovery, corrupt-record handling, and drop-oldest behavior when storage is full.
+- Extend `development_plan.md` with Phase 16 through Phase 20 for spool pure logic, flash model tests, ESP32-C3 flash bring-up, storage task integration, and recovery/soak validation.
+- Extend the final hardware-free unit test checklist for spool and flash model behavior.
+
+Verification:
+
+```bash
+git diff --check
+```
+
+Hardware validation:
+
+- Not required for this documentation milestone.
+- Phase 18 will require ESP32-C3 hardware validation for internal SPI flash read/erase/write/readback.
+- Phase 19 and Phase 20 will require manual reset or power interruption checks to prove cross-reset recovery.

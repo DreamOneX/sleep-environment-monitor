@@ -37,6 +37,8 @@ The final firmware should provide:
 - Aggregated `Measurement` records.
 - Wi-Fi connection and reconnection.
 - Upload queue with "drop oldest when full" behavior.
+- Internal SPI flash persistent spool for measurements that cannot be uploaded immediately.
+- Recovery of pending measurements after reset or power loss.
 - Status LEDs:
   - LED1: runtime heartbeat
   - LED2: error / Wi-Fi / upload status
@@ -51,6 +53,8 @@ The final firmware should provide:
 ```text
 ESP32-C3-WROOM-02-N4
 ```
+
+The module includes 4 MB internal SPI flash. Firmware may use a dedicated flash storage region for persisted measurement spooling, but must not write into bootloader, partition table, app image, or RF/calibration data regions.
 
 ## Pin Mapping
 
@@ -91,12 +95,17 @@ src
 │   ├── mod.rs
 │   ├── sht40.rs
 │   ├── opt3001.rs
-│   └── mic.rs
+│   ├── mic.rs
+│   └── flash.rs
+├── storage
+│   ├── mod.rs
+│   └── spool.rs
 ├── tasks
 │   ├── mod.rs
 │   ├── sensor.rs
 │   ├── mic.rs
 │   ├── aggregator.rs
+│   ├── storage.rs
 │   ├── wifi.rs
 │   ├── upload.rs
 │   └── led.rs
@@ -125,7 +134,12 @@ pub const PIN_LED2: u8 = 1;
 
 pub const I2C_ADDR_SHT40: u8 = 0x44;
 pub const I2C_ADDR_OPT3001: u8 = 0x45;
+
+pub const FLASH_SPOOL_REGION_OFFSET: u32 = 0; // Set after partition layout is defined.
+pub const FLASH_SPOOL_REGION_SIZE: u32 = 0;   // Set after partition layout is defined.
 ```
+
+Flash spool constants must be resolved before flash writes are enabled. Placeholder zero values are invalid at runtime.
 
 ---
 
@@ -185,6 +199,58 @@ Responsibilities:
   - clip count
 
 Pure sample analysis must be testable without ADC.
+
+---
+
+## `drivers/flash.rs`
+
+ESP32-C3 internal SPI flash adapter.
+
+Responsibilities:
+
+- Expose a bounded storage region for the measurement spool.
+- Use an `embedded-storage` style read/write/erase interface.
+- Refuse out-of-range access.
+- Keep partition or fixed-region selection outside business logic.
+
+This module may require hardware for full validation, but address arithmetic and range checks should be unit tested where possible.
+
+---
+
+## `storage/spool.rs`
+
+Hardware-independent persistent measurement spool logic.
+
+Responsibilities:
+
+- Encode and decode flash records.
+- Maintain FIFO append / peek / acknowledge semantics.
+- Recover valid records after reset by scanning the storage region.
+- Drop oldest records when the spool is full.
+- Detect corrupt or incomplete records through CRC and record headers.
+
+Record format:
+
+```text
+magic:u32
+version:u8
+flags:u8
+header_len:u16
+sequence:u64
+payload_len:u16
+payload_crc:u32
+payload: CSV Measurement bytes
+padding: erase/write alignment as needed
+```
+
+Rules:
+
+- `sequence` is monotonic and used only for ordering/recovery.
+- A record is uploadable only after its CRC validates.
+- A record is removed from the spool only after upload returns HTTP 2xx.
+- If the storage region is full, delete the oldest acknowledged or pending record required to make room, preserving the newest measurements.
+- A corrupt tail record is ignored during recovery; earlier valid records remain uploadable.
+- A corrupt middle record is skipped and reported through storage error status; later valid records may still be recovered if scanning can resynchronize on `magic`.
 
 ---
 
@@ -259,9 +325,27 @@ Responsibilities:
 
 - Merge `EnvSample` and `MicSample`.
 - Produce `Measurement`.
-- Push into upload queue.
+- Submit `Measurement` records to the storage path.
 
 Pure merge logic should be unit tested.
+
+---
+
+## `tasks/storage.rs`
+
+Embassy task for persistent measurement spooling.
+
+Responsibilities:
+
+- Receive measurements from aggregation.
+- Append records to the RAM hot queue and internal SPI flash spool.
+- Recover pending records from flash at boot.
+- Serve the oldest pending record to the uploader.
+- Acknowledge records only after successful upload.
+- Serialize flash access so sensor and upload tasks do not directly block on erase/write operations.
+- Report storage errors without stopping sampling.
+
+The task should keep flash operations short and bounded. Long erase/write work must not run inside sensor sampling tasks.
 
 ---
 
@@ -286,8 +370,9 @@ Embassy task for upload.
 
 Responsibilities:
 
-- Pop `Measurement` from queue.
+- Read the oldest pending `Measurement` from the spool.
 - Upload when network is available.
+- Acknowledge the record only after HTTP 2xx.
 - Do not block sensor sampling.
 - Report upload errors.
 
@@ -313,11 +398,18 @@ LED status mapping should be tested in `util/status.rs`.
 
 ```text
 sensor_task ── EnvSample ┐
-                         ├── aggregator_task ── MeasurementQueue ── uploader_task ── Wi-Fi
+                         ├── aggregator_task ── storage_task ── MeasurementSpool ── uploader_task ── Wi-Fi
 mic_task ───── MicSample ┘
 
 wifi_task ── NetworkState
 led_task  ── BoardStatus / ErrorFlags
+```
+
+`MeasurementSpool` is a two-level buffer:
+
+```text
+RAM hot queue: short-term queue for fresh measurements and quick uploader access
+Internal SPI flash spool: persistent FIFO log that survives reset and power loss
 ```
 
 Rules:
@@ -326,8 +418,22 @@ Rules:
 sensor_task does not depend on Wi-Fi
 mic_task does not depend on Wi-Fi
 aggregator_task does not upload
+aggregator_task does not write flash directly
+storage_task is the only task that writes the measurement flash region
 uploader_task does not read sensors
+uploader_task does not erase flash except through storage/spool acknowledgement
 wifi_task does not process sensor data
+```
+
+Persistence rules:
+
+```text
+append measurement before treating it as durable
+upload oldest valid record first
+acknowledge only after HTTP 2xx
+preserve pending records across reset
+drop oldest when the configured persistent spool is full
+never write outside the configured flash spool region
 ```
 
 ---
@@ -370,6 +476,11 @@ merge_measurement
 measurement_to_csv_line or measurement_to_json
 Wi-Fi state transition
 Wi-Fi backoff calculation
+Spool record encode / decode
+Spool CRC validation
+Spool append / peek / acknowledge
+Spool recovery after partial write
+Spool full behavior drops oldest
 ```
 
 Do not unit test these:
@@ -382,6 +493,7 @@ Real OPT3001 read
 Real ADC microphone response
 Real Wi-Fi connection
 Real HTTP request
+Real internal SPI flash erase / write
 USB enumeration
 Button behavior
 ```
@@ -406,6 +518,9 @@ Wi-Fi connects
 Upload succeeds
 Wi-Fi disconnect does not stop sampling
 Queue keeps latest data when upload is unavailable
+Pending data survives reset and uploads after reconnect
+Flash spool full condition drops oldest records
+Interrupted write does not cause reset loop
 ```
 
 These tests may require hardware, but they are not unit tests.

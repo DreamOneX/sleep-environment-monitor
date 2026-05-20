@@ -704,6 +704,280 @@ fix: harden runtime error handling and status reporting
 
 ---
 
+# Phase 16: Persistent Spool Design
+
+## Goal
+
+Define a hardware-independent persistent measurement spool for internal SPI flash.
+
+The spool must survive reset and power loss, preserve upload order, and keep the newest data when storage is full.
+
+## Work Items
+
+- Add `storage/spool.rs`.
+- Define the flash record header:
+  - magic
+  - version
+  - flags
+  - header length
+  - sequence
+  - payload length
+  - payload CRC
+- Encode `Measurement` payloads using the existing CSV payload encoder.
+- Add pure append / peek / acknowledge state logic.
+- Add CRC validation and corrupt-record handling.
+- Add full-spool behavior that drops oldest records to make room for newest records.
+- Add explicit storage status/error representation.
+
+## Unit Tests
+
+All tests must run on host without ESP32 hardware.
+
+Add tests for:
+
+```text
+spool record encodes and decodes
+spool rejects bad magic
+spool rejects unsupported version
+spool rejects bad CRC
+append preserves FIFO order
+ack removes only the oldest uploaded record
+full spool drops oldest records
+partial tail record is ignored during recovery
+corrupt middle record can be skipped or reported without panic
+sequence wrap handling is defined and tested
+```
+
+## Manual Integration Checks
+
+None. This phase is pure logic only.
+
+## Done When
+
+- The persistent spool format is documented in code and architecture.
+- Recovery and full-storage behavior are deterministic.
+- Host tests cover the record format and queue state transitions.
+
+## Git Commit Message
+
+```text
+test: add persistent spool record logic
+```
+
+---
+
+# Phase 17: Flash Storage Model
+
+## Goal
+
+Model SPI flash constraints before touching hardware flash.
+
+## Work Items
+
+- Add an in-memory flash model for tests.
+- Enforce flash-like behavior:
+  - erased bytes read as `0xff`
+  - writes may only clear bits
+  - erase works at sector granularity
+  - reads/writes outside the configured region fail
+- Implement the spool over the storage model.
+- Recover head/tail pointers by scanning the modeled flash region.
+- Keep all storage logic independent of Embassy tasks.
+
+## Unit Tests
+
+Add tests for:
+
+```text
+write requires erased space
+erase resets a sector to 0xff
+out-of-range read/write/erase fails
+append across sector boundary
+recover multiple records after simulated reboot
+recover after interrupted append
+drop oldest after modeled flash fills
+ack persists across simulated reboot
+```
+
+## Manual Integration Checks
+
+None. This phase is pure logic only.
+
+## Done When
+
+- The spool works against a flash-like storage model.
+- Reboot recovery is covered by host tests.
+- No ESP32 flash writes are needed for this phase.
+
+## Git Commit Message
+
+```text
+test: model persistent measurement flash spool
+```
+
+---
+
+# Phase 18: ESP32-C3 Flash Region Bring-Up
+
+## Goal
+
+Safely access a dedicated internal SPI flash region on the ESP32-C3.
+
+## Work Items
+
+- Decide and document the flash spool region or partition layout for the 4 MB module.
+- Add board constants for spool offset and size.
+- Add `drivers/flash.rs` as the ESP32-C3 flash-region adapter.
+- Refuse runtime flash access if the configured region is zero-sized or out of bounds.
+- Add a hardware-only smoke path that can:
+  - read the region
+  - erase one test sector
+  - write one test record
+  - read it back
+- Ensure the smoke path cannot run against bootloader, partition table, app, or calibration regions.
+
+## Unit Tests
+
+Host tests should cover:
+
+```text
+flash region range validation
+sector alignment validation
+storage region rejects zero size
+storage region rejects app-overlap configuration
+```
+
+No host unit test should require real flash.
+
+## Manual Integration Checks
+
+- Build for ESP32-C3.
+- Upload to the board with USB/JTAG.
+- Run the flash smoke test.
+- Confirm RTT logs show successful erase/write/readback.
+- Confirm the board still boots after reset.
+
+## Done When
+
+- The firmware can safely read/write a dedicated internal SPI flash region.
+- The flash smoke test passes on hardware.
+- No application or bootloader flash region is touched.
+
+## Git Commit Message
+
+```text
+feat: bring up internal flash spool region
+```
+
+---
+
+# Phase 19: Persistent Spool Task Integration
+
+## Goal
+
+Use the persistent spool as the upload backlog.
+
+## Work Items
+
+- Add `tasks/storage.rs`.
+- Replace direct aggregator-to-uploader queue ownership with a storage task interface.
+- On boot, recover pending records from internal SPI flash before normal upload draining.
+- Append each new `Measurement` to the persistent spool.
+- Keep a RAM hot queue for fresh records and quick upload access.
+- Make `uploader_task` read the oldest pending record from storage.
+- Acknowledge records only after HTTP 2xx.
+- Preserve records on upload failure, Wi-Fi disconnect, or reset.
+- Report storage errors through status output and LED2 policy.
+
+## Unit Tests
+
+Existing tests must pass.
+
+Add host tests for:
+
+```text
+storage task model appends measurements in order
+upload success acknowledges exactly one record
+upload failure preserves record
+recovered records upload before newly appended records
+full persistent spool drops oldest record
+storage error sets error status
+```
+
+No real HTTP/Wi-Fi/flash unit tests.
+
+## Manual Integration Checks
+
+- Run with upload receiver available; queue drains.
+- Stop upload receiver; measurements continue and persist.
+- Reset board while receiver is stopped.
+- Restart receiver; recovered records upload first.
+- Disconnect Wi-Fi; sampling and storage continue.
+- Reconnect Wi-Fi; backlog drains.
+
+## Done When
+
+- Pending measurements survive reset.
+- Upload acknowledgement is tied to HTTP 2xx only.
+- Wi-Fi/upload failure does not stop sampling or persistent storage.
+
+## Git Commit Message
+
+```text
+feat: persist measurement backlog in internal flash
+```
+
+---
+
+# Phase 20: Persistent Storage Recovery And Soak
+
+## Goal
+
+Validate the persistent spool under realistic overnight failure modes.
+
+## Work Items
+
+- Add storage metrics to RTT/status output:
+  - pending record count
+  - dropped-oldest count
+  - recovered record count
+  - corrupt record count
+  - last storage error
+- Reduce storage metrics log volume for overnight runs.
+- Document manual recovery procedures in `walkthrough.md`.
+- Harden any observed blocking or reset-loop paths.
+
+## Unit Tests
+
+All previous tests must pass.
+
+Add tests only if new pure logic is introduced.
+
+## Manual Integration Checks
+
+- Run for several hours with receiver online.
+- Run with receiver offline long enough to fill part of the flash spool.
+- Reset board while receiver is offline.
+- Confirm pending records upload after receiver returns.
+- Force at least one full-spool condition and confirm oldest records are dropped.
+- Interrupt power during or near a write and confirm the next boot recovers without reset loop.
+- Confirm LED2/status output reports storage or upload failures.
+
+## Done When
+
+- Firmware can run overnight with persistent upload backlog.
+- Reset does not lose already persisted pending records.
+- Corrupt or partial records do not crash firmware.
+- Failure modes are visible through status output or LEDs.
+
+## Git Commit Message
+
+```text
+fix: harden persistent spool recovery
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.
@@ -730,4 +1004,14 @@ All must be automated and hardware-free.
 [ ] measurement_to_csv_line buffer too small
 [ ] wifi state transition
 [ ] wifi backoff calculation
+[ ] spool record encode / decode
+[ ] spool bad magic / bad version rejection
+[ ] spool CRC failure handling
+[ ] spool append / peek / acknowledge order
+[ ] spool recovery after simulated reboot
+[ ] spool interrupted append recovery
+[ ] spool full behavior drops oldest
+[ ] flash model erased-byte behavior
+[ ] flash model write-without-erase failure
+[ ] flash region range validation
 ```

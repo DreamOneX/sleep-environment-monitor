@@ -412,3 +412,42 @@ Hardware validation:
 - Not required for this documentation milestone.
 - Phase 18 will require ESP32-C3 hardware validation for internal SPI flash read/erase/write/readback.
 - Phase 19 and Phase 20 will require manual reset or power interruption checks to prove cross-reset recovery.
+
+## Milestone 10: Persistent Spool Record Logic
+
+Development phase:
+
+```text
+Phase 16: Persistent Spool Design
+```
+
+Scope:
+
+- Add `src/storage/spool.rs` and expose the new `storage` module from `src/lib.rs`.
+- Define the persistent record header with magic, version, flags, header length, sequence, payload length, and CRC.
+- Implement `encode_record` / `decode_record` for CSV payload bytes.
+- Add CRC32 validation using the standard `123456789` check vector.
+- Add `PersistentSpool` pure FIFO state with append, peek, acknowledge, sequence tracking, and drop-oldest behavior.
+- Add recovery scanning for erased flash tails, bad-magic resynchronization, and partial-tail handling.
+- Keep this phase hardware-independent; actual flash modeling and flash writes are deferred to Phase 17 and Phase 18.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Unit test result:
+
+```text
+76 passed
+```
+
+Hardware validation:
+
+- Not required for this pure-logic milestone.
+- No internal SPI flash erase/write/readback was attempted in this phase.

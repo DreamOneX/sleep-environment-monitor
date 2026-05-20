@@ -660,13 +660,93 @@ storage error sets error status
 
 Hardware validation:
 
-- Not yet run for this milestone.
-- No firmware was flashed during this milestone.
-- No real persistent measurement retention across reset has been validated yet.
-- The next hardware validation must exercise the full spool range only through the normal storage task path:
+- Completed a focused hardware recovery check on the ESP32-C3 board using the normal firmware path only.
+- The `flash-smoke` feature was not enabled.
+- Normal firmware startup may program the application image in the reserved app region, but persistent measurement writes were exercised only through `storage_task` in the measurement spool region:
 
 ```text
 0x003c_0000..0x0040_0000
 ```
 
-- Required checks remain: receiver offline persistence, manual reset while receiver is stopped, recovered-record upload before new records, Wi-Fi disconnect preservation, reconnect drain, and full-spool oldest-record drop behavior.
+Commands used:
+
+```bash
+python3 post_receiver.py
+timeout 90s cargo run --target riscv32imc-unknown-none-elf
+probe-rs reset --chip esp32c3
+timeout 60s cargo run --target riscv32imc-unknown-none-elf
+```
+
+Observed online startup and upload:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=0
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.4.241/16, ... }
+[INFO ] upload success sequence=0 acked=true
+```
+
+The local receiver accepted repeated POSTs from:
+
+```text
+10.133.4.241 /measurements ...
+```
+
+Receiver-offline behavior:
+
+```text
+[WARN ] upload failed error=ConnectReset sequence=41
+[INFO ] storage append pending_len=8
+```
+
+Reset/recovery behavior:
+
+- The receiver was stopped while firmware continued sampling.
+- `probe-rs reset --chip esp32c3` was executed while the receiver remained offline.
+- A subsequent default firmware run, still without `flash-smoke`, recovered a full pending backlog:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=32
+[INFO ] storage append pending_len=32
+```
+
+Receiver-return behavior:
+
+- After the receiver was restarted, recovered records uploaded before newly appended records.
+- The first receiver records after return were pre-reset high-uptime measurements:
+
+```text
+59381
+60596
+61812
+63005
+64251
+65450
+66644
+67846
+69041
+70234
+```
+
+- They were followed by post-reset low-uptime measurements:
+
+```text
+1848
+3041
+4331
+5544
+6747
+```
+
+- RTT also showed successful acknowledgement after receiver return:
+
+```text
+[INFO ] upload success sequence=114 acked=true
+```
+
+Notes:
+
+- This validates persistent measurement retention across reset and recovered-before-new upload ordering on hardware.
+- The pending queue reached its configured capacity of 32 during the offline interval. Because Phase 20 storage metrics are not implemented yet, oldest-drop behavior was observed only indirectly and still needs explicit dropped-oldest metrics.
+- Remaining Phase 20 checks: multi-hour/overnight soak, Wi-Fi disconnect preservation, LED2 visual confirmation for storage/upload failure, forced full-spool oldest-drop confirmation with metrics, and power interruption during or near a flash write.

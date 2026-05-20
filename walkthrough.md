@@ -300,8 +300,9 @@ Hardware validation:
   - Sensor and microphone sampling continue while the uploader is retrying.
   - Measurements are enqueued while upload is unavailable.
   - Queue length reaches 16 and then drops the oldest records, preserving the newest samples.
-- The local WSL receiver did not receive POST requests from the ESP32-C3.
-- Upload attempts to `10.133.56.218:8080` returned `ConnectReset`, which indicates the network route exists but the Windows host address/port is not accepting the connection from the board. Final upload-success validation requires a receiver actually listening on the Windows host network address `10.133.56.218:8080`, or an equivalent port proxy/firewall rule from that address to WSL.
+- Initial upload attempts to `10.133.56.218:8080` returned `ConnectReset` while the Windows host was not accepting inbound TCP/8080 traffic from the board.
+- After the Windows inbound TCP/8080 rule was enabled, the same firmware successfully posted real `Measurement` CSV payloads from the ESP32-C3 to the local receiver.
+- The uploader reported repeated success with `queue_len=0`, confirming that the queue drains after successful HTTP 2xx responses.
 
 Observed sample:
 
@@ -311,4 +312,9 @@ Observed sample:
 [WARN ] upload failed error=ConnectReset queue_len=9
 [WARN ] measurement queue full; dropped oldest len=16
 [WARN ] upload failed error=ConnectReset queue_len=16
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.20.144/16, gateway: Some(10.133.255.254), dns_servers: [114.114.114.114, 210.34.48.34] }
+[INFO ] upload success uptime_ms=1844 queue_len=0
+[INFO ] upload success uptime_ms=3148 queue_len=0
+10.133.20.144 /measurements 1844,32.986954,33.627678,13.98,2651.469,1.966991,13.468994,5.876047,0,0
+10.133.20.144 /measurements 3148,32.981613,33.373997,14.04,2656.915,5.4669895,10.084961,14.754845,0,0
 ```

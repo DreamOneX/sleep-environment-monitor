@@ -1,4 +1,4 @@
-use crate::types::ErrorFlags;
+use crate::types::{ErrorFlags, UploadResult};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LedPattern {
@@ -30,6 +30,19 @@ pub fn status_to_leds(flags: ErrorFlags, wifi_connected: bool) -> LedState {
         led1: LedPattern::Heartbeat,
         led2,
     }
+}
+
+pub fn status_error_flags(
+    measurement_flags: ErrorFlags,
+    upload_result: UploadResult,
+) -> ErrorFlags {
+    let mut flags = measurement_flags;
+
+    if upload_result == UploadResult::Failed {
+        flags.insert(ErrorFlags::UPLOAD);
+    }
+
+    flags
 }
 
 #[cfg(test)]
@@ -80,6 +93,25 @@ mod tests {
             )
             .led2,
             LedPattern::FastBlink
+        );
+    }
+
+    #[test]
+    fn upload_failure_adds_upload_flag() {
+        assert!(
+            status_error_flags(ErrorFlags::NONE, UploadResult::Failed).contains(ErrorFlags::UPLOAD)
+        );
+    }
+
+    #[test]
+    fn upload_success_does_not_add_upload_flag() {
+        assert!(
+            !status_error_flags(ErrorFlags::SHT40, UploadResult::Success)
+                .contains(ErrorFlags::UPLOAD)
+        );
+        assert!(
+            status_error_flags(ErrorFlags::SHT40, UploadResult::Success)
+                .contains(ErrorFlags::SHT40)
         );
     }
 }

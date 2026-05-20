@@ -11,6 +11,8 @@ const UPLOAD_PATH: &str = "/measurements";
 const UPLOAD_PORT: u16 = 8080;
 #[cfg(target_arch = "riscv32")]
 const UPLOAD_RETRY_DELAY_SECS: u64 = 2;
+#[cfg(target_arch = "riscv32")]
+const UPLOAD_SUCCESS_LOG_EVERY: u32 = 60;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EncodeError {
@@ -182,6 +184,7 @@ pub async fn uploader_task(
     upload_result: &'static TaskSignal<UploadResult>,
 ) {
     let mut logged_network_config = false;
+    let mut upload_success_count = 0_u32;
 
     loop {
         stack.wait_config_up().await;
@@ -205,10 +208,16 @@ pub async fn uploader_task(
                     queue.len()
                 });
                 upload_result.signal(UploadResult::Success);
-                info!(
-                    "upload success uptime_ms={=u64} queue_len={=usize}",
-                    measurement.uptime_ms, queue_len
-                );
+                if queue_len > 0
+                    || upload_success_count == 0
+                    || upload_success_count % UPLOAD_SUCCESS_LOG_EVERY == 0
+                {
+                    info!(
+                        "upload success uptime_ms={=u64} queue_len={=usize}",
+                        measurement.uptime_ms, queue_len
+                    );
+                }
+                upload_success_count = upload_success_count.wrapping_add(1);
             }
             Err(error) => {
                 let queue_len = measurements.lock(|cell| cell.borrow().len());

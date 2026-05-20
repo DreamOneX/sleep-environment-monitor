@@ -8,9 +8,9 @@
 #![deny(clippy::large_stack_frames)]
 
 #[cfg(target_arch = "riscv32")]
-use defmt::info;
+use defmt::{info, warn};
 #[cfg(target_arch = "riscv32")]
-use embassy_executor::Spawner;
+use embassy_executor::{SpawnError, SpawnToken, Spawner};
 #[cfg(target_arch = "riscv32")]
 use embassy_net::StackResources;
 #[cfg(target_arch = "riscv32")]
@@ -39,10 +39,16 @@ use panic_rtt_target as _;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     tasks::{
-        MeasurementQueue, aggregator::aggregator_task, led::heartbeat_task, mic::mic_task,
-        net::net_task, sensor::sensor_task, upload::uploader_task, wifi::wifi_task,
+        MeasurementQueue,
+        aggregator::aggregator_task,
+        led::{heartbeat_task, status_task},
+        mic::mic_task,
+        net::net_task,
+        sensor::sensor_task,
+        upload::uploader_task,
+        wifi::wifi_task,
     },
-    types::{EnvSample, MicSample, NetworkState, UploadResult},
+    types::{EnvSample, ErrorFlags, MicSample, NetworkState, UploadResult},
     util::queue::DropOldestQueue,
 };
 
@@ -54,6 +60,8 @@ static MIC_SAMPLE_SIGNAL: Signal<CriticalSectionRawMutex, MicSample> = Signal::n
 static NETWORK_STATE_SIGNAL: Signal<CriticalSectionRawMutex, NetworkState> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static UPLOAD_RESULT_SIGNAL: Signal<CriticalSectionRawMutex, UploadResult> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static ERROR_FLAGS_SIGNAL: Signal<CriticalSectionRawMutex, ErrorFlags> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static MEASUREMENT_QUEUE: MeasurementQueue =
     Mutex::new(core::cell::RefCell::new(DropOldestQueue::new()));
@@ -73,6 +81,24 @@ fn main() {
     println!(
         "sleep-environment-monitor firmware: build with --target riscv32imc-unknown-none-elf for ESP32-C3"
     );
+}
+
+#[cfg(target_arch = "riscv32")]
+fn spawn_task<S>(
+    spawner: &Spawner,
+    task: Result<SpawnToken<S>, SpawnError>,
+    name: &'static str,
+) -> bool {
+    match task {
+        Ok(token) => {
+            spawner.spawn(token);
+            true
+        }
+        Err(error) => {
+            warn!("task spawn failed name={=str} error={:?}", name, error);
+            false
+        }
+    }
 }
 
 #[allow(
@@ -112,49 +138,102 @@ async fn main(spawner: Spawner) -> ! {
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
     let led1 = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
-    let heartbeat = heartbeat_task(led1).expect("heartbeat task should spawn once");
-    spawner.spawn(heartbeat);
+    spawn_task(&spawner, heartbeat_task(led1), "heartbeat");
+
+    let led2 = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
+    spawn_task(
+        &spawner,
+        status_task(
+            led2,
+            &ERROR_FLAGS_SIGNAL,
+            &NETWORK_STATE_SIGNAL,
+            &UPLOAD_RESULT_SIGNAL,
+        ),
+        "status",
+    );
 
     let i2c_config = I2cConfig::default().with_frequency(Rate::from_khz(100));
-    let i2c = I2c::new(peripherals.I2C0, i2c_config)
-        .expect("I2C0 configuration should be valid")
-        .with_sda(peripherals.GPIO4)
-        .with_scl(peripherals.GPIO5);
-    let sensors = sensor_task(i2c, &ENV_SAMPLE_SIGNAL).expect("sensor task should spawn once");
-    spawner.spawn(sensors);
+    match I2c::new(peripherals.I2C0, i2c_config) {
+        Ok(i2c) => {
+            let i2c = i2c.with_sda(peripherals.GPIO4).with_scl(peripherals.GPIO5);
+            if !spawn_task(&spawner, sensor_task(i2c, &ENV_SAMPLE_SIGNAL), "sensor") {
+                let flags = ErrorFlags::SHT40 | ErrorFlags::OPT3001;
+                ENV_SAMPLE_SIGNAL.signal(EnvSample {
+                    error_flags: flags,
+                    ..EnvSample::default()
+                });
+                ERROR_FLAGS_SIGNAL.signal(flags);
+            }
+        }
+        Err(_) => {
+            let flags = ErrorFlags::SHT40 | ErrorFlags::OPT3001;
+            warn!("I2C0 configuration failed; sensor task disabled");
+            ENV_SAMPLE_SIGNAL.signal(EnvSample {
+                error_flags: flags,
+                ..EnvSample::default()
+            });
+            ERROR_FLAGS_SIGNAL.signal(flags);
+        }
+    }
 
     let mut adc1_config = AdcConfig::new();
     let mic_pin = adc1_config.enable_pin(peripherals.GPIO3, Attenuation::_11dB);
     let adc1 = Adc::new(peripherals.ADC1, adc1_config);
-    let mic =
-        mic_task(adc1, mic_pin, &MIC_SAMPLE_SIGNAL).expect("microphone task should spawn once");
-    spawner.spawn(mic);
+    if !spawn_task(&spawner, mic_task(adc1, mic_pin, &MIC_SAMPLE_SIGNAL), "mic") {
+        MIC_SAMPLE_SIGNAL.signal(MicSample {
+            error_flags: ErrorFlags::MIC,
+            ..MicSample::default()
+        });
+        ERROR_FLAGS_SIGNAL.signal(ErrorFlags::MIC);
+    }
 
-    let aggregator = aggregator_task(&ENV_SAMPLE_SIGNAL, &MIC_SAMPLE_SIGNAL, &MEASUREMENT_QUEUE)
-        .expect("aggregator task should spawn once");
-    spawner.spawn(aggregator);
-
-    let (wifi_controller, wifi_interfaces) =
-        esp_radio::wifi::new(peripherals.WIFI, Default::default())
-            .expect("Wi-Fi controller should initialize after scheduler start");
-    let net_config = embassy_net::Config::dhcpv4(Default::default());
-    let random_seed = Rng::new().random() as u64;
-    let (stack, runner) = embassy_net::new(
-        wifi_interfaces.station,
-        net_config,
-        NET_RESOURCES.init(StackResources::new()),
-        random_seed,
+    spawn_task(
+        &spawner,
+        aggregator_task(
+            &ENV_SAMPLE_SIGNAL,
+            &MIC_SAMPLE_SIGNAL,
+            &MEASUREMENT_QUEUE,
+            &ERROR_FLAGS_SIGNAL,
+        ),
+        "aggregator",
     );
-    let network = net_task(runner).expect("network task should spawn once");
-    spawner.spawn(network);
 
-    let wifi =
-        wifi_task(wifi_controller, &NETWORK_STATE_SIGNAL).expect("wifi task should spawn once");
-    spawner.spawn(wifi);
+    match esp_radio::wifi::new(peripherals.WIFI, Default::default()) {
+        Ok((wifi_controller, wifi_interfaces)) => {
+            let net_config = embassy_net::Config::dhcpv4(Default::default());
+            let random_seed = Rng::new().random() as u64;
+            let (stack, runner) = embassy_net::new(
+                wifi_interfaces.station,
+                net_config,
+                NET_RESOURCES.init(StackResources::new()),
+                random_seed,
+            );
+            let net_started = spawn_task(&spawner, net_task(runner), "network");
+            let wifi_started = spawn_task(
+                &spawner,
+                wifi_task(wifi_controller, &NETWORK_STATE_SIGNAL),
+                "wifi",
+            );
 
-    let uploader = uploader_task(stack, &MEASUREMENT_QUEUE, &UPLOAD_RESULT_SIGNAL)
-        .expect("uploader task should spawn once");
-    spawner.spawn(uploader);
+            if net_started && wifi_started {
+                if !spawn_task(
+                    &spawner,
+                    uploader_task(stack, &MEASUREMENT_QUEUE, &UPLOAD_RESULT_SIGNAL),
+                    "uploader",
+                ) {
+                    UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+                }
+            } else {
+                NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
+                UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+            }
+        }
+        Err(_) => {
+            warn!("Wi-Fi controller initialization failed; network and uploader disabled");
+            NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
+            UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+        }
+    }
 
     info!("measurement aggregation, Wi-Fi manager, and uploader initialized");
 

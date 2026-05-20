@@ -1,5 +1,8 @@
 use crate::types::{EnvSample, Measurement, MicSample};
 
+#[cfg(target_arch = "riscv32")]
+const MEASUREMENT_LOG_EVERY_SAMPLES: u32 = 60;
+
 pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
     Measurement {
         uptime_ms: env.uptime_ms.max(mic.uptime_ms),
@@ -16,7 +19,9 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
 }
 
 #[cfg(target_arch = "riscv32")]
-use super::{MeasurementQueue, SampleSignal, upload::measurement_to_csv_line};
+use super::{MeasurementQueue, SampleSignal, TaskSignal, upload::measurement_to_csv_line};
+#[cfg(target_arch = "riscv32")]
+use crate::{types::ErrorFlags, util::logging::should_log_sample};
 #[cfg(target_arch = "riscv32")]
 use defmt::{info, warn};
 
@@ -26,9 +31,11 @@ pub async fn aggregator_task(
     env_samples: &'static SampleSignal<EnvSample>,
     mic_samples: &'static SampleSignal<MicSample>,
     measurements: &'static MeasurementQueue,
+    error_flags: &'static TaskSignal<ErrorFlags>,
 ) {
     let mut latest_env = env_samples.wait().await;
     let mut latest_mic = mic_samples.wait().await;
+    let mut measurement_count = 0_u32;
 
     loop {
         if let Some(env) = env_samples.try_take() {
@@ -36,9 +43,17 @@ pub async fn aggregator_task(
         }
 
         let measurement = merge_measurement(latest_env, latest_mic);
-        log_measurement(&measurement);
+        if should_log_sample(
+            measurement_count,
+            MEASUREMENT_LOG_EVERY_SAMPLES,
+            measurement.error_flags,
+        ) {
+            log_measurement(&measurement);
+        }
         enqueue_measurement(measurements, measurement);
+        error_flags.signal(measurement.error_flags);
 
+        measurement_count = measurement_count.wrapping_add(1);
         latest_mic = mic_samples.wait().await;
     }
 }

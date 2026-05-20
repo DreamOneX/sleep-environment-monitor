@@ -11,7 +11,11 @@ use crate::{
     drivers::{opt3001, sht40},
     tasks::SampleSignal,
     types::{EnvSample, ErrorFlags},
+    util::logging::should_log_sample,
 };
+
+#[cfg(target_arch = "riscv32")]
+const ENV_LOG_EVERY_SAMPLES: u32 = 30;
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
@@ -24,19 +28,24 @@ pub async fn sensor_task(
         Err(_) => warn!("OPT3001 configuration failed at address 0x45"),
     }
 
+    let mut sample_count = 0_u32;
+
     loop {
         let sample = read_env_sample(&mut i2c).await;
 
-        info!(
-            "env sample uptime_ms={} temp_c={=f32} rh_percent={=f32} lux={=f32} error_flags={=u32}",
-            sample.uptime_ms,
-            sample.temperature_c.unwrap_or(f32::NAN),
-            sample.humidity_percent.unwrap_or(f32::NAN),
-            sample.lux.unwrap_or(f32::NAN),
-            sample.error_flags.bits(),
-        );
+        if should_log_sample(sample_count, ENV_LOG_EVERY_SAMPLES, sample.error_flags) {
+            info!(
+                "env sample uptime_ms={} temp_c={=f32} rh_percent={=f32} lux={=f32} error_flags={=u32}",
+                sample.uptime_ms,
+                sample.temperature_c.unwrap_or(f32::NAN),
+                sample.humidity_percent.unwrap_or(f32::NAN),
+                sample.lux.unwrap_or(f32::NAN),
+                sample.error_flags.bits(),
+            );
+        }
         samples.signal(sample);
 
+        sample_count = sample_count.wrapping_add(1);
         Timer::after(Duration::from_secs(2)).await;
     }
 }

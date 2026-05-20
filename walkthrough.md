@@ -318,3 +318,66 @@ Observed sample:
 10.133.20.144 /measurements 1844,32.986954,33.627678,13.98,2651.469,1.966991,13.468994,5.876047,0,0
 10.133.20.144 /measurements 3148,32.981613,33.373997,14.04,2656.915,5.4669895,10.084961,14.754845,0,0
 ```
+
+## Milestone 8: Runtime Hardening And Status Reporting
+
+Development phase:
+
+```text
+Phase 15: System Hardening
+```
+
+Scope:
+
+- Add a LED2 status task driven by the existing `status_to_leds` mapping.
+- Publish latest measurement error flags from aggregation to the status task.
+- Fold upload failures into status error flags so upload errors are visible through LED2.
+- Replace firmware startup `.expect` calls with logged failures and fallback status/sample signals where the firmware can continue.
+- Bound microphone ADC read retries so the microphone task cannot loop forever on repeated ADC failures.
+- Reduce normal RTT log volume for environment, microphone, measurement, and upload-success logs while keeping warnings immediate.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Hardware validation:
+
+- `probe-rs list` found the ESP32-C3 USB/JTAG probe.
+- `python3 post_receiver.py` started a local POST receiver on `0.0.0.0:8080`.
+- `timeout 90s cargo run --target riscv32imc-unknown-none-elf` uploaded and ran the firmware through the ESP32-C3 USB/JTAG probe.
+- RTT logs confirmed:
+  - The firmware booted without a reset loop or panic.
+  - Wi-Fi station connected to `FZU`.
+  - DHCP config was obtained: board address `10.133.20.144/16`, gateway `10.133.255.254`, DNS `114.114.114.114` and `210.34.48.34`.
+  - Environment and microphone sampling still start correctly with reduced normal log volume.
+  - The upload queue drained from startup backlog to normal operation.
+  - Real `Measurement` CSV payloads reached the local receiver.
+- The run ended because the host-side `timeout` command stopped `probe-rs`; the captured stack was the idle hook, not a firmware crash.
+- Physical LED2 visual behavior and multi-hour overnight soak still require longer observation.
+
+Observed sample:
+
+```text
+[INFO ] IPv4: DOWN
+[INFO ] measurement aggregation, Wi-Fi manager, and uploader initialized
+[INFO ] wifi connecting ssid=FZU
+[INFO ] OPT3001 configured at address 0x45
+[INFO ] env sample uptime_ms=554 temp_c=32.124435 rh_percent=32.008316 lux=4.39 error_flags=0
+[INFO ] wifi connected ssid=FZU channel=1 aid=16360
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.20.144/16, gateway: Some(10.133.255.254), dns_servers: [114.114.114.114, 210.34.48.34] }
+[INFO ] mic sample uptime_ms=1791 mean=2654.089 rms=4.955911 peak=17.089111 db_rel=13.902428 clip_count=0 error_flags=0
+[INFO ] measurement csv=1791,32.124435,32.008316,4.39,2654.089,4.955911,17.089111,13.902428,0,0
+[INFO ] upload success uptime_ms=1791 queue_len=5
+[INFO ] upload success uptime_ms=3112 queue_len=4
+[INFO ] upload success uptime_ms=4311 queue_len=3
+[INFO ] upload success uptime_ms=5534 queue_len=2
+[INFO ] upload success uptime_ms=6734 queue_len=1
+10.133.20.144 /measurements 1791,32.124435,32.008316,4.39,2654.089,4.955911,17.089111,13.902428,0,0
+10.133.20.144 /measurements 3112,32.129776,32.111313,5.85,2653.121,4.0423193,14.121094,12.132611,0,0
+```

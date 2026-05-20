@@ -611,3 +611,62 @@ Notes:
 - The board was then reflashed with the default firmware without `flash-smoke`.
 - The default firmware startup log did not include `flash smoke test`, confirming normal boots do not run the destructive smoke path.
 - This validates real internal SPI flash read/erase/write/readback, but not yet persistent measurement retention across reset. Cross-reset retention belongs to Phase 19 and Phase 20 after the storage task uses the persistent spool.
+
+## Milestone 14: Persistent Spool Task Integration
+
+Development phase:
+
+```text
+Phase 19: Persistent Spool Task Integration
+```
+
+Scope:
+
+- Add `src/tasks/storage.rs` with a host-testable `StorageBacklog` model over `FlashBackedSpool`.
+- Store measurement payloads as CSV bytes in the internal flash spool with `MEASUREMENT_PAYLOAD_SIZE = 192` and `PERSISTENT_SPOOL_CAPACITY = 32`.
+- Recover pending flash records at storage task startup before upload draining.
+- Replace direct aggregator-to-uploader RAM queue ownership with a `StorageCommand` / `StorageResponse` protocol.
+- Make `aggregator_task` submit merged measurements through `StorageCommand::Append`.
+- Make `uploader_task` request `StorageCommand::Peek`, upload the oldest pending CSV payload, and issue `StorageCommand::Ack` only after HTTP 2xx.
+- Add `ErrorFlags::STORAGE` and include it in LED2 status policy as a solid-on error state.
+- Keep storage flash access isolated to `storage_task`; sensor, microphone, aggregator, and uploader tasks do not write flash directly.
+- Keep the Phase 18B flash-spool write alignment changes: records and ACK entries are 4-byte aligned, and recovery scans with small fixed buffers instead of reading the whole spool region into stack memory.
+- Update `architecture.md` with the implemented storage task protocol and persistent backlog data flow.
+
+Verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+```
+
+Unit test result:
+
+```text
+102 passed
+```
+
+Added Phase 19 host tests:
+
+```text
+storage task model appends measurements in order
+upload success acknowledges exactly one record
+upload failure preserves record
+recovered records upload before newly appended records
+full persistent spool drops oldest record
+storage error sets error status
+```
+
+Hardware validation:
+
+- Not yet run for this milestone.
+- No firmware was flashed during this milestone.
+- No real persistent measurement retention across reset has been validated yet.
+- The next hardware validation must exercise the full spool range only through the normal storage task path:
+
+```text
+0x003c_0000..0x0040_0000
+```
+
+- Required checks remain: receiver offline persistence, manual reset while receiver is stopped, recovered-record upload before new records, Wi-Fi disconnect preservation, reconnect drain, and full-spool oldest-record drop behavior.

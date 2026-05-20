@@ -1,7 +1,6 @@
 use core::fmt::{self, Write};
 
 use crate::types::Measurement;
-use crate::util::queue::DropOldestQueue;
 
 #[cfg(target_arch = "riscv32")]
 const UPLOAD_HOST_HEADER: &str = "10.133.56.218:8080";
@@ -86,19 +85,6 @@ pub fn http_response_is_success(response: &[u8]) -> bool {
         && status[2].is_ascii_digit()
 }
 
-pub fn queue_measurement<const N: usize>(
-    queue: &mut DropOldestQueue<Measurement, N>,
-    measurement: Measurement,
-) -> bool {
-    queue.push(measurement).is_some()
-}
-
-pub fn mark_upload_success<const N: usize>(
-    queue: &mut DropOldestQueue<Measurement, N>,
-) -> Option<Measurement> {
-    queue.pop()
-}
-
 fn write_optional_f32(writer: &mut FixedBufferWriter<'_>, value: Option<f32>) -> fmt::Result {
     match value {
         Some(value) if value.is_nan() => writer.write_str("nan"),
@@ -147,7 +133,10 @@ impl Write for FixedBufferWriter<'_> {
 
 #[cfg(target_arch = "riscv32")]
 use crate::{
-    tasks::{MeasurementQueue, TaskSignal},
+    tasks::{
+        StorageRequestChannel, StorageResponseSignal, TaskSignal,
+        storage::{StorageCommand, StorageResponse, StoredPayload},
+    },
     types::UploadResult,
 };
 #[cfg(target_arch = "riscv32")]
@@ -180,7 +169,8 @@ enum UploadError {
 #[embassy_executor::task]
 pub async fn uploader_task(
     stack: Stack<'static>,
-    measurements: &'static MeasurementQueue,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
     upload_result: &'static TaskSignal<UploadResult>,
 ) {
     let mut logged_network_config = false;
@@ -193,36 +183,31 @@ pub async fn uploader_task(
             logged_network_config = true;
         }
 
-        let Some(measurement) = peek_measurement(measurements) else {
+        let Some(payload) = peek_payload(storage_requests, storage_responses).await else {
             Timer::after(Duration::from_millis(250)).await;
             continue;
         };
 
-        match post_measurement(stack, &measurement).await {
+        match post_csv_payload(stack, payload.as_slice()).await {
             Ok(()) => {
-                let queue_len = measurements.lock(|cell| {
-                    let mut queue = cell.borrow_mut();
-                    mark_upload_success(&mut queue);
-                    queue.len()
-                });
+                let acked = acknowledge_payload(storage_requests, storage_responses).await;
                 upload_result.signal(UploadResult::Success);
-                if queue_len > 0
+                if !acked
                     || upload_success_count == 0
                     || upload_success_count.is_multiple_of(UPLOAD_SUCCESS_LOG_EVERY)
                 {
                     info!(
-                        "upload success uptime_ms={=u64} queue_len={=usize}",
-                        measurement.uptime_ms, queue_len
+                        "upload success sequence={=u64} acked={=bool}",
+                        payload.sequence, acked
                     );
                 }
                 upload_success_count = upload_success_count.wrapping_add(1);
             }
             Err(error) => {
-                let queue_len = measurements.lock(|cell| cell.borrow().len());
                 upload_result.signal(UploadResult::Failed);
                 warn!(
-                    "upload failed error={:?} queue_len={=usize}",
-                    error, queue_len
+                    "upload failed error={:?} sequence={=u64}",
+                    error, payload.sequence
                 );
                 Timer::after(Duration::from_secs(UPLOAD_RETRY_DELAY_SECS)).await;
             }
@@ -231,30 +216,46 @@ pub async fn uploader_task(
 }
 
 #[cfg(target_arch = "riscv32")]
-fn peek_measurement(measurements: &MeasurementQueue) -> Option<Measurement> {
-    measurements.lock(|cell| cell.borrow().front().copied())
+async fn peek_payload(
+    storage_requests: &StorageRequestChannel,
+    storage_responses: &StorageResponseSignal,
+) -> Option<StoredPayload> {
+    storage_requests.send(StorageCommand::Peek).await;
+    match storage_responses.wait().await {
+        StorageResponse::Peeked(payload) => payload,
+        StorageResponse::Acked(_) => None,
+        StorageResponse::Error(error) => {
+            warn!("storage peek failed error={:?}", error);
+            None
+        }
+    }
 }
 
 #[cfg(target_arch = "riscv32")]
-async fn post_measurement(
-    stack: Stack<'static>,
-    measurement: &Measurement,
-) -> Result<(), UploadError> {
+async fn acknowledge_payload(
+    storage_requests: &StorageRequestChannel,
+    storage_responses: &StorageResponseSignal,
+) -> bool {
+    storage_requests.send(StorageCommand::Ack).await;
+    match storage_responses.wait().await {
+        StorageResponse::Acked(acked) => acked,
+        StorageResponse::Peeked(_) => false,
+        StorageResponse::Error(error) => {
+            warn!("storage ack response failed error={:?}", error);
+            false
+        }
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn post_csv_payload(stack: Stack<'static>, body: &[u8]) -> Result<(), UploadError> {
     let mut rx_buffer = [0_u8; 512];
     let mut tx_buffer = [0_u8; 512];
-    let mut csv = [0_u8; 192];
     let mut request = [0_u8; 512];
     let mut response = [0_u8; 128];
 
-    let csv_len =
-        measurement_to_csv_line(measurement, &mut csv).map_err(|_| UploadError::Encode)?;
-    let request_len = build_http_post_request(
-        UPLOAD_HOST_HEADER,
-        UPLOAD_PATH,
-        &csv[..csv_len],
-        &mut request,
-    )
-    .map_err(|_| UploadError::Encode)?;
+    let request_len = build_http_post_request(UPLOAD_HOST_HEADER, UPLOAD_PATH, body, &mut request)
+        .map_err(|_| UploadError::Encode)?;
 
     let endpoint = IpEndpoint::new(IpAddress::v4(10, 133, 56, 218), UPLOAD_PORT);
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
@@ -416,39 +417,5 @@ mod tests {
         ));
         assert!(!http_response_is_success(b"HTTP/1.1 302 Found\r\n\r\n"));
         assert!(!http_response_is_success(b"bad response"));
-    }
-
-    #[test]
-    fn queue_measurement_drops_oldest_when_full() {
-        let mut queue = DropOldestQueue::<Measurement, 2>::new();
-        let mut first = complete_measurement();
-        let mut second = complete_measurement();
-        let mut third = complete_measurement();
-        first.uptime_ms = 1;
-        second.uptime_ms = 2;
-        third.uptime_ms = 3;
-
-        assert!(!queue_measurement(&mut queue, first));
-        assert!(!queue_measurement(&mut queue, second));
-        assert!(queue_measurement(&mut queue, third));
-
-        assert_eq!(queue.pop().unwrap().uptime_ms, 2);
-        assert_eq!(queue.pop().unwrap().uptime_ms, 3);
-    }
-
-    #[test]
-    fn successful_upload_removes_only_oldest_record() {
-        let mut queue = DropOldestQueue::<Measurement, 2>::new();
-        let mut first = complete_measurement();
-        let mut second = complete_measurement();
-        first.uptime_ms = 10;
-        second.uptime_ms = 20;
-
-        queue_measurement(&mut queue, first);
-        queue_measurement(&mut queue, second);
-
-        assert_eq!(queue.front().unwrap().uptime_ms, 10);
-        assert_eq!(mark_upload_success(&mut queue).unwrap().uptime_ms, 10);
-        assert_eq!(queue.front().unwrap().uptime_ms, 20);
     }
 }

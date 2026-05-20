@@ -3,6 +3,7 @@ pub mod led;
 pub mod mic;
 pub mod net;
 pub mod sensor;
+pub mod storage;
 pub mod upload;
 pub mod wifi;
 
@@ -14,12 +15,14 @@ pub type TaskSignal<T> =
 pub type SampleSignal<T> = TaskSignal<T>;
 
 #[cfg(target_arch = "riscv32")]
-pub const MEASUREMENT_QUEUE_CAPACITY: usize = 16;
+pub const STORAGE_REQUEST_CAPACITY: usize = 8;
 
 #[cfg(target_arch = "riscv32")]
-pub type MeasurementQueue = embassy_sync::blocking_mutex::Mutex<
+pub type StorageRequestChannel = embassy_sync::channel::Channel<
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-    core::cell::RefCell<
-        crate::util::queue::DropOldestQueue<crate::types::Measurement, MEASUREMENT_QUEUE_CAPACITY>,
-    >,
+    storage::StorageCommand,
+    STORAGE_REQUEST_CAPACITY,
 >;
+
+#[cfg(target_arch = "riscv32")]
+pub type StorageResponseSignal = TaskSignal<storage::StorageResponse>;

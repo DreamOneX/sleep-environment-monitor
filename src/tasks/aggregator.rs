@@ -19,7 +19,10 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
 }
 
 #[cfg(target_arch = "riscv32")]
-use super::{MeasurementQueue, SampleSignal, TaskSignal, upload::measurement_to_csv_line};
+use super::{
+    SampleSignal, StorageRequestChannel, TaskSignal, storage::StorageCommand,
+    upload::measurement_to_csv_line,
+};
 #[cfg(target_arch = "riscv32")]
 use crate::{types::ErrorFlags, util::logging::should_log_sample};
 #[cfg(target_arch = "riscv32")]
@@ -30,7 +33,7 @@ use defmt::{info, warn};
 pub async fn aggregator_task(
     env_samples: &'static SampleSignal<EnvSample>,
     mic_samples: &'static SampleSignal<MicSample>,
-    measurements: &'static MeasurementQueue,
+    storage_requests: &'static StorageRequestChannel,
     error_flags: &'static TaskSignal<ErrorFlags>,
 ) {
     let mut latest_env = env_samples.wait().await;
@@ -50,8 +53,12 @@ pub async fn aggregator_task(
         ) {
             log_measurement(&measurement);
         }
-        enqueue_measurement(measurements, measurement);
-        error_flags.signal(measurement.error_flags);
+        let stored = enqueue_measurement(storage_requests, measurement);
+        let mut flags = measurement.error_flags;
+        if !stored {
+            flags.insert(ErrorFlags::STORAGE);
+        }
+        error_flags.signal(flags);
 
         measurement_count = measurement_count.wrapping_add(1);
         latest_mic = mic_samples.wait().await;
@@ -72,16 +79,14 @@ fn log_measurement(measurement: &Measurement) {
 }
 
 #[cfg(target_arch = "riscv32")]
-fn enqueue_measurement(measurements: &MeasurementQueue, measurement: Measurement) {
-    measurements.lock(|cell| {
-        let mut queue = cell.borrow_mut();
-        if queue.push(measurement).is_some() {
-            warn!(
-                "measurement queue full; dropped oldest len={=usize}",
-                queue.len()
-            );
+fn enqueue_measurement(storage_requests: &StorageRequestChannel, measurement: Measurement) -> bool {
+    match storage_requests.try_send(StorageCommand::Append(measurement)) {
+        Ok(()) => true,
+        Err(_) => {
+            warn!("storage request channel full; measurement not persisted");
+            false
         }
-    });
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum FlashError {
     OutOfBounds,
     UnalignedErase,

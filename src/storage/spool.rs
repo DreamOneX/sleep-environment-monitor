@@ -7,10 +7,15 @@ pub const RECORD_MAGIC: u32 = 0x5345_4d53;
 pub const ACK_MAGIC: u32 = 0x5345_414b;
 pub const RECORD_VERSION: u8 = 1;
 pub const RECORD_HEADER_LEN: usize = 22;
+pub const ENCODED_RECORD_HEADER_LEN: usize = align_up(RECORD_HEADER_LEN, FLASH_WRITE_ALIGNMENT);
 pub const ACK_RECORD_LEN: usize = 14;
+pub const FLASH_WRITE_ALIGNMENT: usize = 4;
+pub const ENCODED_ACK_RECORD_LEN: usize = align_up(ACK_RECORD_LEN, FLASH_WRITE_ALIGNMENT);
+pub const FLASH_ENTRY_BUFFER_LEN: usize = 256;
 pub const MAX_PAYLOAD_LEN: usize = u16::MAX as usize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum SpoolError {
     BufferTooSmall,
     PayloadTooLarge,
@@ -166,9 +171,11 @@ pub fn encoded_record_len(payload_len: usize) -> Result<usize, SpoolError> {
         return Err(SpoolError::PayloadTooLarge);
     }
 
-    RECORD_HEADER_LEN
+    let len = RECORD_HEADER_LEN
         .checked_add(payload_len)
-        .ok_or(SpoolError::PayloadTooLarge)
+        .ok_or(SpoolError::PayloadTooLarge)?;
+
+    Ok(align_up(len, FLASH_WRITE_ALIGNMENT))
 }
 
 pub fn encoded_log_entry_len(input: &[u8]) -> Result<usize, SpoolError> {
@@ -185,7 +192,7 @@ pub fn encoded_log_entry_len(input: &[u8]) -> Result<usize, SpoolError> {
             let payload_len = u16::from_le_bytes([input[16], input[17]]) as usize;
             encoded_record_len(payload_len)
         }
-        ACK_MAGIC => Ok(ACK_RECORD_LEN),
+        ACK_MAGIC => Ok(encoded_ack_len()),
         _ => Err(SpoolError::BadMagic),
     }
 }
@@ -207,7 +214,9 @@ pub fn encode_record(record: SpoolRecord<'_>, out: &mut [u8]) -> Result<usize, S
     out[8..16].copy_from_slice(&record.sequence.to_le_bytes());
     out[16..18].copy_from_slice(&(record.payload.len() as u16).to_le_bytes());
     out[18..22].copy_from_slice(&crc32(record.payload).to_le_bytes());
-    out[RECORD_HEADER_LEN..len].copy_from_slice(record.payload);
+    let payload_end = RECORD_HEADER_LEN + record.payload.len();
+    out[RECORD_HEADER_LEN..payload_end].copy_from_slice(record.payload);
+    out[payload_end..len].fill(0xff);
 
     Ok(len)
 }
@@ -262,7 +271,8 @@ pub struct AckRecord {
 }
 
 pub fn encode_ack(sequence: u64, out: &mut [u8]) -> Result<usize, SpoolError> {
-    if out.len() < ACK_RECORD_LEN {
+    let len = encoded_ack_len();
+    if out.len() < len {
         return Err(SpoolError::BufferTooSmall);
     }
 
@@ -270,8 +280,9 @@ pub fn encode_ack(sequence: u64, out: &mut [u8]) -> Result<usize, SpoolError> {
     out[4] = RECORD_VERSION;
     out[5] = 0;
     out[6..14].copy_from_slice(&sequence.to_le_bytes());
+    out[ACK_RECORD_LEN..len].fill(0xff);
 
-    Ok(ACK_RECORD_LEN)
+    Ok(len)
 }
 
 pub fn decode_ack(input: &[u8]) -> Result<AckRecord, SpoolError> {
@@ -340,43 +351,55 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
     }
 
     pub fn recover(flash: &impl FlashStorage) -> Result<Self, SpoolError> {
-        let mut image = [0_u8; 2048];
-        if flash.len() > image.len() {
+        if encoded_record_len(PAYLOAD_SIZE)? > FLASH_ENTRY_BUFFER_LEN {
             return Err(SpoolError::BufferTooSmall);
         }
-        flash.read(0, &mut image[..flash.len()])?;
 
         let mut records = [const { None }; CAPACITY];
         let mut max_sequence_seen = None;
         let mut cursor = 0;
+        let mut header = [0_u8; ENCODED_RECORD_HEADER_LEN];
+        let mut entry = [0_u8; FLASH_ENTRY_BUFFER_LEN];
 
         while cursor + 4 <= flash.len() {
-            if image[cursor..flash.len()].iter().all(|byte| *byte == 0xff) {
+            flash.read(cursor, &mut header[..FLASH_WRITE_ALIGNMENT])?;
+            if header[..FLASH_WRITE_ALIGNMENT]
+                .iter()
+                .all(|byte| *byte == 0xff)
+            {
+                break;
+            }
+            if cursor + ENCODED_RECORD_HEADER_LEN > flash.len() {
                 break;
             }
 
-            match encoded_log_entry_len(&image[cursor..flash.len()]) {
-                Ok(len) if cursor + len <= flash.len() => {
-                    let magic = u32::from_le_bytes([
-                        image[cursor],
-                        image[cursor + 1],
-                        image[cursor + 2],
-                        image[cursor + 3],
-                    ]);
+            flash.read(cursor, &mut header)?;
+            match encoded_log_entry_len(&header) {
+                Ok(len) if cursor + len <= flash.len() && len <= entry.len() => {
+                    flash.read(cursor, &mut entry[..len])?;
+
+                    let magic = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
                     match magic {
-                        RECORD_MAGIC => match decode_record(&image[cursor..cursor + len]) {
+                        RECORD_MAGIC => match decode_record(&entry[..len]) {
                             Ok(record) => {
                                 max_sequence_seen =
                                     Some(max_sequence(max_sequence_seen, record.sequence));
-                                push_record(&mut records, record);
+                                push_stored_record(
+                                    &mut records,
+                                    StoredRecord::new(
+                                        record.sequence,
+                                        record.flags,
+                                        record.payload,
+                                    )?,
+                                );
                             }
                             Err(_) => break,
                         },
-                        ACK_MAGIC => match decode_ack(&image[cursor..cursor + len]) {
+                        ACK_MAGIC => match decode_ack(&entry[..len]) {
                             Ok(ack) => {
                                 max_sequence_seen =
                                     Some(max_sequence(max_sequence_seen, ack.sequence));
-                                remove_record_by_sequence(&mut records, ack.sequence);
+                                remove_stored_record_by_sequence(&mut records, ack.sequence);
                             }
                             Err(_) => break,
                         },
@@ -386,28 +409,17 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
                 }
                 Ok(_) => break,
                 Err(SpoolError::BadMagic) => {
-                    cursor += 1;
+                    cursor += FLASH_WRITE_ALIGNMENT;
                 }
                 Err(_) => break,
             }
         }
 
-        let mut stored_records = [const { None }; CAPACITY];
+        let mut compact = [StoredRecord::<PAYLOAD_SIZE>::new(0, 0, &[])?; CAPACITY];
         let mut stored_len = 0;
         for record in records.into_iter().flatten() {
-            if stored_len < stored_records.len() {
-                stored_records[stored_len] = Some(StoredRecord::new(
-                    record.sequence,
-                    record.flags,
-                    record.payload,
-                )?);
-                stored_len += 1;
-            }
-        }
-
-        let mut compact = [StoredRecord::<PAYLOAD_SIZE>::new(0, 0, &[])?; CAPACITY];
-        for (index, record) in stored_records[..stored_len].iter().flatten().enumerate() {
-            compact[index] = *record;
+            compact[stored_len] = record;
+            stored_len += 1;
         }
 
         Ok(Self {
@@ -444,7 +456,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
         let sequence = self.spool.next_sequence();
         let stored = StoredRecord::new(sequence, flags, payload)?;
         let record = stored.as_record();
-        let mut encoded = [0_u8; 256];
+        let mut encoded = [0_u8; FLASH_ENTRY_BUFFER_LEN];
         let len = encode_record(record, &mut encoded)?;
 
         if self.write_offset + len <= flash.len() {
@@ -464,7 +476,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
             return Ok(None);
         };
 
-        let mut encoded = [0_u8; ACK_RECORD_LEN];
+        let mut encoded = [0_u8; ENCODED_ACK_RECORD_LEN];
         let len = encode_ack(record.sequence, &mut encoded)?;
 
         if self.write_offset + len <= flash.len() {
@@ -533,7 +545,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
         flash.erase(0, flash.len())?;
         self.write_offset = 0;
         for record in records {
-            let mut encoded = [0_u8; 256];
+            let mut encoded = [0_u8; FLASH_ENTRY_BUFFER_LEN];
             let len = encode_record(record.as_record(), &mut encoded)?;
             flash.write(self.write_offset, &encoded[..len])?;
             self.write_offset += len;
@@ -567,11 +579,11 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> Default
     }
 }
 
-fn push_record<'a, const N: usize>(
-    records: &mut [Option<SpoolRecord<'a>>; N],
-    record: SpoolRecord<'a>,
+fn push_stored_record<const CAPACITY: usize, const PAYLOAD_SIZE: usize>(
+    records: &mut [Option<StoredRecord<PAYLOAD_SIZE>>; CAPACITY],
+    record: StoredRecord<PAYLOAD_SIZE>,
 ) {
-    if N == 0 {
+    if CAPACITY == 0 {
         return;
     }
 
@@ -581,15 +593,15 @@ fn push_record<'a, const N: usize>(
     }
 
     records.rotate_left(1);
-    records[N - 1] = Some(record);
+    records[CAPACITY - 1] = Some(record);
 }
 
 fn max_sequence(current: Option<u64>, sequence: u64) -> u64 {
     current.map_or(sequence, |current| current.max(sequence))
 }
 
-fn remove_record_by_sequence<const N: usize>(
-    records: &mut [Option<SpoolRecord<'_>>; N],
+fn remove_stored_record_by_sequence<const CAPACITY: usize, const PAYLOAD_SIZE: usize>(
+    records: &mut [Option<StoredRecord<PAYLOAD_SIZE>>; CAPACITY],
     sequence: u64,
 ) {
     if let Some(index) = records
@@ -597,7 +609,7 @@ fn remove_record_by_sequence<const N: usize>(
         .position(|record| record.is_some_and(|record| record.sequence == sequence))
     {
         records[index..].rotate_left(1);
-        records[N - 1] = None;
+        records[CAPACITY - 1] = None;
     }
 }
 
@@ -625,6 +637,23 @@ fn records_encoded_len<const N: usize>(records: &[StoredRecord<N>]) -> Result<us
     }
 
     Ok(len)
+}
+
+pub const fn encoded_ack_len() -> usize {
+    ENCODED_ACK_RECORD_LEN
+}
+
+const fn align_up(value: usize, alignment: usize) -> usize {
+    if alignment == 0 {
+        return value;
+    }
+
+    let remainder = value % alignment;
+    if remainder == 0 {
+        value
+    } else {
+        value + (alignment - remainder)
+    }
 }
 
 fn copy_queue_records<const CAPACITY: usize, const PAYLOAD_SIZE: usize>(
@@ -732,11 +761,13 @@ mod tests {
     fn decode_rejects_truncated_payload() {
         let mut out = [0_u8; 64];
         let len = encode_record(record(1, b"payload"), &mut out).unwrap();
+        let truncated_len = RECORD_HEADER_LEN + b"payload".len() - 1;
 
         assert_eq!(
-            decode_record(&out[..len - 1]),
+            decode_record(&out[..truncated_len]),
             Err(SpoolError::BadPayloadLength)
         );
+        assert!(decode_record(&out[..len - 1]).is_ok());
     }
 
     #[test]

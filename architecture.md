@@ -308,7 +308,7 @@ LED2 policy:
 | Priority | Condition | LED2 pattern | Meaning |
 |---:|---|---|---|
 | 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone failure |
-| 2 | Upload result is failed or `ErrorFlags::UPLOAD` is set | `On` | Measurement upload is failing |
+| 2 | Upload result is failed, `ErrorFlags::UPLOAD` is set, or `ErrorFlags::STORAGE` is set | `On` | Measurement upload or persistent storage is failing |
 | 3 | Wi-Fi is disconnected or `ErrorFlags::WIFI` is set | `SlowBlink` | Network is not ready |
 | 4 | No current error and Wi-Fi is connected | `Off` | Normal operation |
 
@@ -367,14 +367,28 @@ Embassy task for persistent measurement spooling.
 Responsibilities:
 
 - Receive measurements from aggregation.
-- Append records to the RAM hot queue and internal SPI flash spool.
+- Append records to the internal SPI flash spool and maintain a RAM pending mirror.
 - Recover pending records from flash at boot.
-- Serve the oldest pending record to the uploader.
+- Serve the oldest pending CSV payload to the uploader.
 - Acknowledge records only after successful upload.
 - Serialize flash access so sensor and upload tasks do not directly block on erase/write operations.
 - Report storage errors without stopping sampling.
 
 The task should keep flash operations short and bounded. Long erase/write work must not run inside sensor sampling tasks.
+
+Target-side protocol:
+
+```text
+StorageCommand::Append(Measurement)
+StorageCommand::Peek
+StorageCommand::Ack
+
+StorageResponse::Peeked(Option<StoredPayload>)
+StorageResponse::Acked(bool)
+StorageResponse::Error(StorageError)
+```
+
+`Append` has no response so aggregation cannot block behind upload response handling. `Peek` returns the oldest pending CSV payload copied out of the spool RAM mirror. `Ack` removes exactly one oldest pending record and is issued only by the uploader after HTTP 2xx.
 
 ---
 
@@ -399,7 +413,7 @@ Embassy task for upload.
 
 Responsibilities:
 
-- Read the oldest pending `Measurement` from the spool.
+- Read the oldest pending CSV payload from the storage task.
 - Upload when network is available.
 - Acknowledge the record only after HTTP 2xx.
 - Do not block sensor sampling.
@@ -434,11 +448,11 @@ wifi_task ── NetworkState
 led_task  ── BoardStatus / ErrorFlags
 ```
 
-`MeasurementSpool` is a two-level buffer:
+`MeasurementSpool` is owned by `storage_task`:
 
 ```text
-RAM hot queue: short-term queue for fresh measurements and quick uploader access
-Internal SPI flash spool: persistent FIFO log that survives reset and power loss
+RAM pending mirror: recovered/active pending records for quick oldest-payload access
+Internal SPI flash spool: persistent FIFO append/ack log that survives reset and power loss
 ```
 
 Rules:
@@ -510,6 +524,11 @@ Spool CRC validation
 Spool append / peek / acknowledge
 Spool recovery after partial write
 Spool full behavior drops oldest
+StorageBacklog append order
+StorageBacklog HTTP-success ack behavior
+StorageBacklog upload-failure preservation
+StorageBacklog recovery order
+StorageBacklog error flag reporting
 ```
 
 Do not unit test these:

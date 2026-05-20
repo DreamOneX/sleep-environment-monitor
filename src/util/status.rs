@@ -18,7 +18,7 @@ pub struct LedState {
 pub fn status_to_leds(flags: ErrorFlags, wifi_connected: bool) -> LedState {
     let led2 = if flags.intersects(ErrorFlags::SENSOR_MASK) {
         LedPattern::FastBlink
-    } else if flags.contains(ErrorFlags::UPLOAD) {
+    } else if flags.contains(ErrorFlags::STORAGE) || flags.contains(ErrorFlags::UPLOAD) {
         LedPattern::On
     } else if flags.contains(ErrorFlags::WIFI) || !wifi_connected {
         LedPattern::SlowBlink
@@ -85,10 +85,18 @@ mod tests {
     }
 
     #[test]
+    fn storage_error_is_solid_on() {
+        assert_eq!(
+            status_to_leds(ErrorFlags::STORAGE, true).led2,
+            LedPattern::On
+        );
+    }
+
+    #[test]
     fn multiple_errors_use_sensor_priority() {
         assert_eq!(
             status_to_leds(
-                ErrorFlags::SHT40 | ErrorFlags::UPLOAD | ErrorFlags::WIFI,
+                ErrorFlags::SHT40 | ErrorFlags::UPLOAD | ErrorFlags::WIFI | ErrorFlags::STORAGE,
                 false
             )
             .led2,

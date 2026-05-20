@@ -15,8 +15,7 @@ use embassy_executor::{SpawnError, SpawnToken, Spawner};
 use embassy_net::StackResources;
 #[cfg(target_arch = "riscv32")]
 use embassy_sync::{
-    blocking_mutex::{Mutex, raw::CriticalSectionRawMutex},
-    signal::Signal,
+    blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, signal::Signal,
 };
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
@@ -41,17 +40,17 @@ use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     tasks::{
-        MeasurementQueue,
+        StorageRequestChannel, StorageResponseSignal,
         aggregator::aggregator_task,
         led::{heartbeat_task, status_task},
         mic::mic_task,
         net::net_task,
         sensor::sensor_task,
+        storage::{StorageCommand, StorageResponse, storage_task},
         upload::uploader_task,
         wifi::wifi_task,
     },
     types::{EnvSample, ErrorFlags, MicSample, NetworkState, UploadResult},
-    util::queue::DropOldestQueue,
 };
 
 #[cfg(target_arch = "riscv32")]
@@ -65,8 +64,14 @@ static UPLOAD_RESULT_SIGNAL: Signal<CriticalSectionRawMutex, UploadResult> = Sig
 #[cfg(target_arch = "riscv32")]
 static ERROR_FLAGS_SIGNAL: Signal<CriticalSectionRawMutex, ErrorFlags> = Signal::new();
 #[cfg(target_arch = "riscv32")]
-static MEASUREMENT_QUEUE: MeasurementQueue =
-    Mutex::new(core::cell::RefCell::new(DropOldestQueue::new()));
+static STORAGE_REQUESTS: StorageRequestChannel = Channel::<
+    CriticalSectionRawMutex,
+    StorageCommand,
+    { sleep_environment_monitor::tasks::STORAGE_REQUEST_CAPACITY },
+>::new();
+#[cfg(target_arch = "riscv32")]
+static STORAGE_RESPONSES: StorageResponseSignal =
+    Signal::<CriticalSectionRawMutex, StorageResponse>::new();
 #[cfg(target_arch = "riscv32")]
 static NET_RESOURCES: static_cell::StaticCell<StackResources<3>> = static_cell::StaticCell::new();
 
@@ -203,10 +208,16 @@ async fn main(spawner: Spawner) -> ! {
 
     spawn_task(
         &spawner,
+        storage_task(&STORAGE_REQUESTS, &STORAGE_RESPONSES, &ERROR_FLAGS_SIGNAL),
+        "storage",
+    );
+
+    spawn_task(
+        &spawner,
         aggregator_task(
             &ENV_SAMPLE_SIGNAL,
             &MIC_SAMPLE_SIGNAL,
-            &MEASUREMENT_QUEUE,
+            &STORAGE_REQUESTS,
             &ERROR_FLAGS_SIGNAL,
         ),
         "aggregator",
@@ -232,7 +243,12 @@ async fn main(spawner: Spawner) -> ! {
             if net_started && wifi_started {
                 if !spawn_task(
                     &spawner,
-                    uploader_task(stack, &MEASUREMENT_QUEUE, &UPLOAD_RESULT_SIGNAL),
+                    uploader_task(
+                        stack,
+                        &STORAGE_REQUESTS,
+                        &STORAGE_RESPONSES,
+                        &UPLOAD_RESULT_SIGNAL,
+                    ),
                     "uploader",
                 ) {
                     UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);

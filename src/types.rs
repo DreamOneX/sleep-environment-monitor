@@ -10,6 +10,7 @@ impl ErrorFlags {
     pub const MIC: Self = Self(1 << 2);
     pub const WIFI: Self = Self(1 << 3);
     pub const UPLOAD: Self = Self(1 << 4);
+    pub const STORAGE: Self = Self(1 << 5);
 
     pub const SENSOR_MASK: Self = Self(Self::SHT40.0 | Self::OPT3001.0 | Self::MIC.0);
 
@@ -170,6 +171,12 @@ mod tests {
         assert!(flags.contains(ErrorFlags::SHT40));
         assert!(flags.contains(ErrorFlags::SHT40 | ErrorFlags::UPLOAD));
         assert!(!flags.contains(ErrorFlags::OPT3001));
+    }
+
+    #[test]
+    fn storage_error_has_distinct_bit() {
+        assert_eq!(ErrorFlags::STORAGE.bits(), 1 << 5);
+        assert!(!ErrorFlags::SENSOR_MASK.contains(ErrorFlags::STORAGE));
     }
 
     #[test]

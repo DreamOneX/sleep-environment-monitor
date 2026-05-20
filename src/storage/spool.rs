@@ -79,6 +79,7 @@ impl<const N: usize> StoredRecord<N> {
 pub struct AppendResult<const N: usize> {
     pub sequence: u64,
     pub dropped: Option<StoredRecord<N>>,
+    pub dropped_count: usize,
 }
 
 pub struct PersistentSpool<const CAPACITY: usize, const PAYLOAD_SIZE: usize> {
@@ -120,7 +121,11 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> PersistentSpool<CAPACITY,
         let dropped = self.queue.push(record);
         self.next_sequence = self.next_sequence.wrapping_add(1);
 
-        Ok(AppendResult { sequence, dropped })
+        Ok(AppendResult {
+            sequence,
+            dropped,
+            dropped_count: usize::from(dropped.is_some()),
+        })
     }
 
     pub fn peek(&self) -> Option<SpoolRecord<'_>> {
@@ -342,6 +347,12 @@ pub struct FlashBackedSpool<const CAPACITY: usize, const PAYLOAD_SIZE: usize> {
     write_offset: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlashRecoverReport {
+    pub recovered_record_count: usize,
+    pub corrupt_record_count: usize,
+}
+
 impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY, PAYLOAD_SIZE> {
     pub const fn new() -> Self {
         Self {
@@ -351,6 +362,12 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
     }
 
     pub fn recover(flash: &impl FlashStorage) -> Result<Self, SpoolError> {
+        Ok(Self::recover_with_report(flash)?.0)
+    }
+
+    pub fn recover_with_report(
+        flash: &impl FlashStorage,
+    ) -> Result<(Self, FlashRecoverReport), SpoolError> {
         if encoded_record_len(PAYLOAD_SIZE)? > FLASH_ENTRY_BUFFER_LEN {
             return Err(SpoolError::BufferTooSmall);
         }
@@ -360,6 +377,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
         let mut cursor = 0;
         let mut header = [0_u8; ENCODED_RECORD_HEADER_LEN];
         let mut entry = [0_u8; FLASH_ENTRY_BUFFER_LEN];
+        let mut report = FlashRecoverReport::default();
 
         while cursor + 4 <= flash.len() {
             flash.read(cursor, &mut header[..FLASH_WRITE_ALIGNMENT])?;
@@ -370,6 +388,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
                 break;
             }
             if cursor + ENCODED_RECORD_HEADER_LEN > flash.len() {
+                report.corrupt_record_count += 1;
                 break;
             }
 
@@ -393,7 +412,10 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
                                     )?,
                                 );
                             }
-                            Err(_) => break,
+                            Err(_) => {
+                                report.corrupt_record_count += 1;
+                                break;
+                            }
                         },
                         ACK_MAGIC => match decode_ack(&entry[..len]) {
                             Ok(ack) => {
@@ -401,17 +423,30 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
                                     Some(max_sequence(max_sequence_seen, ack.sequence));
                                 remove_stored_record_by_sequence(&mut records, ack.sequence);
                             }
-                            Err(_) => break,
+                            Err(_) => {
+                                report.corrupt_record_count += 1;
+                                break;
+                            }
                         },
-                        _ => break,
+                        _ => {
+                            report.corrupt_record_count += 1;
+                            break;
+                        }
                     }
                     cursor += len;
                 }
-                Ok(_) => break,
+                Ok(_) => {
+                    report.corrupt_record_count += 1;
+                    break;
+                }
                 Err(SpoolError::BadMagic) => {
+                    report.corrupt_record_count += 1;
                     cursor += FLASH_WRITE_ALIGNMENT;
                 }
-                Err(_) => break,
+                Err(_) => {
+                    report.corrupt_record_count += 1;
+                    break;
+                }
             }
         }
 
@@ -421,14 +456,18 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
             compact[stored_len] = record;
             stored_len += 1;
         }
+        report.recovered_record_count = stored_len;
 
-        Ok(Self {
-            spool: PersistentSpool::recover_from_records_with_next_sequence(
-                &compact[..stored_len],
-                max_sequence_seen.map_or(0, |sequence| sequence.wrapping_add(1)),
-            ),
-            write_offset: cursor,
-        })
+        Ok((
+            Self {
+                spool: PersistentSpool::recover_from_records_with_next_sequence(
+                    &compact[..stored_len],
+                    max_sequence_seen.map_or(0, |sequence| sequence.wrapping_add(1)),
+                ),
+                write_offset: cursor,
+            },
+            report,
+        ))
     }
 
     pub fn len(&self) -> usize {
@@ -501,17 +540,24 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
 
         let mut compacted = DropOldestQueue::<StoredRecord<PAYLOAD_SIZE>, CAPACITY>::new();
         let mut dropped = None;
+        let mut dropped_count = 0;
 
         for index in 0..self.spool.len() {
             if let Some(record) = self.spool.queue.get(index) {
                 compacted.push(*record);
             }
         }
-        dropped = compacted.push(incoming).or(dropped);
+        if let Some(removed) = compacted.push(incoming) {
+            dropped = Some(removed);
+            dropped_count += 1;
+        }
 
         while queue_encoded_len(&compacted)? > flash.len() {
             let removed = compacted.pop();
-            dropped = dropped.or(removed);
+            if let Some(removed) = removed {
+                dropped = dropped.or(Some(removed));
+                dropped_count += 1;
+            }
             if compacted.is_empty() {
                 return Err(SpoolError::FlashFull);
             }
@@ -524,6 +570,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> FlashBackedSpool<CAPACITY
         Ok(AppendResult {
             sequence: incoming.sequence,
             dropped,
+            dropped_count,
         })
     }
 
@@ -810,8 +857,10 @@ mod tests {
 
         assert!(spool.append(0, b"one").unwrap().dropped.is_none());
         assert!(spool.append(0, b"two").unwrap().dropped.is_none());
-        let dropped = spool.append(0, b"three").unwrap().dropped.unwrap();
+        let result = spool.append(0, b"three").unwrap();
+        let dropped = result.dropped.unwrap();
 
+        assert_eq!(result.dropped_count, 1);
         assert_eq!(dropped.as_record().payload, b"one");
         assert_eq!(spool.acknowledge().unwrap().as_record().payload, b"two");
         assert_eq!(spool.acknowledge().unwrap().as_record().payload, b"three");
@@ -904,6 +953,21 @@ mod tests {
     }
 
     #[test]
+    fn flash_backed_spool_recovery_report_counts_recovered_records() {
+        let mut flash = InMemoryFlash::<128, 64>::new();
+        let mut spool = FlashBackedSpool::<4, 16>::new();
+
+        spool.append(&mut flash, 0, b"one").unwrap();
+        spool.append(&mut flash, 0, b"two").unwrap();
+
+        let (recovered, report) = FlashBackedSpool::<4, 16>::recover_with_report(&flash).unwrap();
+
+        assert_eq!(recovered.len(), 2);
+        assert_eq!(report.recovered_record_count, 2);
+        assert_eq!(report.corrupt_record_count, 0);
+    }
+
+    #[test]
     fn flash_backed_spool_ack_persists_after_simulated_reboot() {
         let mut flash = InMemoryFlash::<128, 64>::new();
         let mut spool = FlashBackedSpool::<4, 16>::new();
@@ -987,6 +1051,24 @@ mod tests {
     }
 
     #[test]
+    fn flash_backed_spool_recovery_report_counts_corrupt_tail() {
+        let mut flash = InMemoryFlash::<128, 64>::new();
+        let mut spool = FlashBackedSpool::<4, 16>::new();
+
+        spool.append(&mut flash, 0, b"one").unwrap();
+        let partial_offset = encoded_record_len(b"one".len()).unwrap();
+        flash
+            .write(partial_offset, &RECORD_MAGIC.to_le_bytes())
+            .unwrap();
+
+        let (recovered, report) = FlashBackedSpool::<4, 16>::recover_with_report(&flash).unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(report.recovered_record_count, 1);
+        assert!(report.corrupt_record_count > 0);
+    }
+
+    #[test]
     fn flash_backed_spool_drops_oldest_when_modeled_flash_fills() {
         let mut flash = InMemoryFlash::<64, 64>::new();
         let mut spool = FlashBackedSpool::<4, 16>::new();
@@ -996,6 +1078,7 @@ mod tests {
         let result = spool.append(&mut flash, 0, b"cccc").unwrap();
 
         assert_eq!(result.sequence, 2);
+        assert_eq!(result.dropped_count, 1);
         assert_eq!(result.dropped.unwrap().as_record().payload, b"aaaa");
 
         let recovered = FlashBackedSpool::<4, 16>::recover(&flash).unwrap();

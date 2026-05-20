@@ -31,6 +31,16 @@ impl From<SpoolError> for StorageError {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub struct StorageMetrics {
+    pub pending_record_count: usize,
+    pub dropped_oldest_count: usize,
+    pub recovered_record_count: usize,
+    pub corrupt_record_count: usize,
+    pub last_error: Option<StorageError>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StoredPayload<const PAYLOAD_SIZE: usize = MEASUREMENT_PAYLOAD_SIZE> {
     pub sequence: u64,
@@ -61,22 +71,34 @@ pub struct StorageBacklog<
     const PAYLOAD_SIZE: usize = MEASUREMENT_PAYLOAD_SIZE,
 > {
     spool: FlashBackedSpool<CAPACITY, PAYLOAD_SIZE>,
-    last_error: Option<StorageError>,
+    metrics: StorageMetrics,
 }
 
 impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, PAYLOAD_SIZE> {
     pub const fn new() -> Self {
         Self {
             spool: FlashBackedSpool::new(),
-            last_error: None,
+            metrics: StorageMetrics {
+                pending_record_count: 0,
+                dropped_oldest_count: 0,
+                recovered_record_count: 0,
+                corrupt_record_count: 0,
+                last_error: None,
+            },
         }
     }
 
     pub fn recover(flash: &impl FlashStorage) -> Result<Self, StorageError> {
-        Ok(Self {
-            spool: FlashBackedSpool::recover(flash)?,
+        let (spool, report) = FlashBackedSpool::recover_with_report(flash)?;
+        let metrics = StorageMetrics {
+            pending_record_count: spool.len(),
+            dropped_oldest_count: 0,
+            recovered_record_count: report.recovered_record_count,
+            corrupt_record_count: report.corrupt_record_count,
             last_error: None,
-        })
+        };
+
+        Ok(Self { spool, metrics })
     }
 
     pub fn append_measurement(
@@ -88,19 +110,26 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
         let payload_len = match measurement_to_csv_line(&measurement, &mut payload) {
             Ok(len) => len,
             Err(error) => {
-                self.last_error = Some(error.into());
-                return Err(error.into());
+                let error = StorageError::from(error);
+                self.set_error(error);
+                return Err(error);
             }
         };
 
         match self.spool.append(flash, 0, &payload[..payload_len]) {
-            Ok(_) => {
-                self.last_error = None;
+            Ok(result) => {
+                self.metrics.dropped_oldest_count = self
+                    .metrics
+                    .dropped_oldest_count
+                    .saturating_add(result.dropped_count);
+                self.refresh_pending_count();
+                self.clear_error();
                 Ok(())
             }
             Err(error) => {
-                self.last_error = Some(StorageError::Spool(error));
-                Err(error.into())
+                let error = StorageError::Spool(error);
+                self.set_error(error);
+                Err(error)
             }
         }
     }
@@ -115,12 +144,14 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
     ) -> Result<Option<StoredPayload<PAYLOAD_SIZE>>, StorageError> {
         match self.spool.acknowledge(flash) {
             Ok(record) => {
-                self.last_error = None;
+                self.refresh_pending_count();
+                self.clear_error();
                 Ok(record.map(|record| StoredPayload::from_record(record.as_record())))
             }
             Err(error) => {
-                self.last_error = Some(StorageError::Spool(error));
-                Err(error.into())
+                let error = StorageError::Spool(error);
+                self.set_error(error);
+                Err(error)
             }
         }
     }
@@ -133,8 +164,12 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
         self.spool.is_empty()
     }
 
+    pub const fn metrics(&self) -> StorageMetrics {
+        self.metrics
+    }
+
     pub fn has_error(&self) -> bool {
-        self.last_error.is_some()
+        self.metrics.last_error.is_some()
     }
 
     pub fn error_flags(&self) -> ErrorFlags {
@@ -143,6 +178,18 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
         } else {
             ErrorFlags::NONE
         }
+    }
+
+    fn refresh_pending_count(&mut self) {
+        self.metrics.pending_record_count = self.spool.len();
+    }
+
+    fn clear_error(&mut self) {
+        self.metrics.last_error = None;
+    }
+
+    fn set_error(&mut self, error: StorageError) {
+        self.metrics.last_error = Some(error);
     }
 }
 
@@ -183,6 +230,9 @@ use crate::{
 use defmt::{info, warn};
 
 #[cfg(target_arch = "riscv32")]
+const STORAGE_METRICS_LOG_EVERY_EVENTS: u32 = 16;
+
+#[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
 pub async fn storage_task(
     requests: &'static StorageRequestChannel,
@@ -213,9 +263,11 @@ pub async fn storage_task(
         flash.len()
     );
 
+    let mut storage_event_count = 0_u32;
     let mut backlog = match MeasurementStorageBacklog::recover(&flash) {
         Ok(backlog) => {
             info!("storage recovered pending_len={=usize}", backlog.len());
+            log_storage_metrics(backlog.metrics(), true, storage_event_count);
             Some(backlog)
         }
         Err(error) => {
@@ -233,14 +285,21 @@ pub async fn storage_task(
                     continue;
                 };
 
+                let dropped_oldest_before = backlog.metrics().dropped_oldest_count;
                 match backlog.append_measurement(&mut flash, measurement) {
                     Ok(()) => {
-                        if backlog.len().is_multiple_of(8) {
-                            info!("storage append pending_len={=usize}", backlog.len());
-                        }
+                        storage_event_count = storage_event_count.wrapping_add(1);
+                        let metrics = backlog.metrics();
+                        log_storage_metrics(
+                            metrics,
+                            dropped_oldest_before == 0 && metrics.dropped_oldest_count > 0,
+                            storage_event_count,
+                        );
                     }
                     Err(error) => {
                         warn!("storage append failed error={:?}", error);
+                        storage_event_count = storage_event_count.wrapping_add(1);
+                        log_storage_metrics(backlog.metrics(), true, storage_event_count);
                         error_flags.signal(ErrorFlags::STORAGE);
                     }
                 }
@@ -262,16 +321,49 @@ pub async fn storage_task(
 
                 match backlog.acknowledge(&mut flash) {
                     Ok(acknowledged) => {
+                        storage_event_count = storage_event_count.wrapping_add(1);
+                        log_storage_metrics(backlog.metrics(), false, storage_event_count);
                         responses.signal(StorageResponse::Acked(acknowledged.is_some()));
                     }
                     Err(error) => {
                         warn!("storage ack failed error={:?}", error);
+                        storage_event_count = storage_event_count.wrapping_add(1);
+                        log_storage_metrics(backlog.metrics(), true, storage_event_count);
                         responses.signal(StorageResponse::Error(error));
                         error_flags.signal(ErrorFlags::STORAGE);
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn log_storage_metrics(metrics: StorageMetrics, force: bool, event_count: u32) {
+    if !force
+        && event_count != 1
+        && !event_count.is_multiple_of(STORAGE_METRICS_LOG_EVERY_EVENTS)
+        && metrics.last_error.is_none()
+    {
+        return;
+    }
+
+    match metrics.last_error {
+        Some(error) => info!(
+            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} corrupt={=usize} last_error={:?}",
+            metrics.pending_record_count,
+            metrics.recovered_record_count,
+            metrics.dropped_oldest_count,
+            metrics.corrupt_record_count,
+            error
+        ),
+        None => info!(
+            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} corrupt={=usize} last_error=none",
+            metrics.pending_record_count,
+            metrics.recovered_record_count,
+            metrics.dropped_oldest_count,
+            metrics.corrupt_record_count
+        ),
     }
 }
 
@@ -377,6 +469,27 @@ mod tests {
     }
 
     #[test]
+    fn recovery_metrics_report_pending_and_recovered_records() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        {
+            let mut backlog = StorageBacklog::<4, 192>::new();
+            backlog
+                .append_measurement(&mut flash, measurement(40))
+                .unwrap();
+            backlog
+                .append_measurement(&mut flash, measurement(50))
+                .unwrap();
+        }
+
+        let recovered = StorageBacklog::<4, 192>::recover(&flash).unwrap();
+
+        assert_eq!(recovered.metrics().pending_record_count, 2);
+        assert_eq!(recovered.metrics().recovered_record_count, 2);
+        assert_eq!(recovered.metrics().corrupt_record_count, 0);
+        assert_eq!(recovered.metrics().last_error, None);
+    }
+
+    #[test]
     fn full_persistent_spool_drops_oldest_record() {
         let mut flash = InMemoryFlash::<512, 128>::new();
         let mut backlog = StorageBacklog::<2, 192>::new();
@@ -396,6 +509,45 @@ mod tests {
     }
 
     #[test]
+    fn full_spool_metrics_count_dropped_oldest_records() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut backlog = StorageBacklog::<2, 192>::new();
+
+        backlog
+            .append_measurement(&mut flash, measurement(1))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(2))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(3))
+            .unwrap();
+
+        assert_eq!(backlog.metrics().pending_record_count, 2);
+        assert_eq!(backlog.metrics().dropped_oldest_count, 1);
+        assert_eq!(backlog.metrics().last_error, None);
+    }
+
+    #[test]
+    fn ack_metrics_update_pending_record_count() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut backlog = StorageBacklog::<4, 192>::new();
+
+        backlog
+            .append_measurement(&mut flash, measurement(10))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(20))
+            .unwrap();
+        assert_eq!(backlog.metrics().pending_record_count, 2);
+
+        backlog.acknowledge(&mut flash).unwrap();
+
+        assert_eq!(backlog.metrics().pending_record_count, 1);
+        assert_eq!(backlog.metrics().last_error, None);
+    }
+
+    #[test]
     fn storage_error_sets_error_status() {
         let mut flash = FailingFlash::new();
         let mut backlog = StorageBacklog::<2, 192>::new();
@@ -409,6 +561,27 @@ mod tests {
 
         assert!(backlog.has_error());
         assert!(backlog.error_flags().contains(ErrorFlags::STORAGE));
+    }
+
+    #[test]
+    fn storage_error_metrics_record_last_error_and_preserve_pending_count() {
+        let mut flash = FailingFlash::new();
+        let mut backlog = StorageBacklog::<2, 192>::new();
+
+        assert_eq!(
+            backlog.append_measurement(&mut flash, measurement(1)),
+            Err(StorageError::Spool(SpoolError::Flash(
+                FlashError::WriteRequiresErase
+            )))
+        );
+
+        assert_eq!(backlog.metrics().pending_record_count, 0);
+        assert_eq!(
+            backlog.metrics().last_error,
+            Some(StorageError::Spool(SpoolError::Flash(
+                FlashError::WriteRequiresErase
+            )))
+        );
     }
 
     struct FailingFlash;

@@ -750,3 +750,116 @@ Notes:
 - This validates persistent measurement retention across reset and recovered-before-new upload ordering on hardware.
 - The pending queue reached its configured capacity of 32 during the offline interval. Because Phase 20 storage metrics are not implemented yet, oldest-drop behavior was observed only indirectly and still needs explicit dropped-oldest metrics.
 - Remaining Phase 20 checks: multi-hour/overnight soak, Wi-Fi disconnect preservation, LED2 visual confirmation for storage/upload failure, forced full-spool oldest-drop confirmation with metrics, and power interruption during or near a flash write.
+
+## Milestone 15: Persistent Storage Metrics And Limited Phase 20 Validation
+
+Phase 20 code progress:
+
+- Add `FlashRecoverReport` and `FlashBackedSpool::recover_with_report` so recovery reports recovered pending records and corrupt/interrupted log entries.
+- Add `AppendResult::dropped_count` for both in-RAM capacity drops and flash-compaction drops.
+- Add `StorageMetrics` with:
+  - pending record count
+  - dropped-oldest count
+  - recovered record count
+  - corrupt record count
+  - last storage error
+- Keep `StorageBacklog` metrics coherent across recovery, append, ACK, and storage error paths.
+- Emit target-side `storage metrics ...` RTT logs at recovery, first storage event, every 16 storage events, on errors, and on the first dropped-oldest event. This keeps the first full-spool transition visible while reducing steady-state log volume for longer runs.
+
+Verification:
+
+```bash
+cargo fmt
+cargo test --lib storage::spool
+cargo test --lib tasks::storage
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+```
+
+Observed unit test result:
+
+```text
+108 passed
+```
+
+Added or extended Phase 20 host tests:
+
+```text
+flash_backed_spool_recovery_report_counts_recovered_records
+flash_backed_spool_recovery_report_counts_corrupt_tail
+full_spool_drops_oldest_records
+flash_backed_spool_drops_oldest_when_modeled_flash_fills
+recovery_metrics_report_pending_and_recovered_records
+full_spool_metrics_count_dropped_oldest_records
+ack_metrics_update_pending_record_count
+storage_error_metrics_record_last_error_and_preserve_pending_count
+```
+
+Limited hardware validation:
+
+- Board probe was visible as:
+
+```text
+ESP JTAG -- 303a:1001:8C:BF:EA:44:F7:3C (EspJtag)
+```
+
+- The local receiver was started with:
+
+```bash
+python3 post_receiver.py
+```
+
+- The `flash-smoke` feature was not enabled.
+- Normal firmware startup may program the application image in the app region, but persistent measurement writes in this validation were exercised only through `storage_task` in the measurement spool region:
+
+```text
+0x003c_0000..0x0040_0000
+```
+
+Hardware commands used:
+
+```bash
+timeout 60s cargo run --target riscv32imc-unknown-none-elf
+timeout 90s cargo run --target riscv32imc-unknown-none-elf
+timeout 60s cargo run --target riscv32imc-unknown-none-elf
+```
+
+Online metrics and ACK observation:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=0
+[INFO ] storage metrics pending=0 recovered=0 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] storage metrics pending=1 recovered=0 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] upload success sequence=1271 acked=true
+```
+
+Receiver-offline metrics observation:
+
+```text
+[INFO ] storage recovered pending_len=15
+[INFO ] storage metrics pending=15 recovered=15 dropped_oldest=0 corrupt=0 last_error=none
+[WARN ] upload failed error=ConnectReset sequence=1309
+[INFO ] storage metrics pending=31 recovered=15 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] storage metrics pending=32 recovered=15 dropped_oldest=1 corrupt=0 last_error=none
+[INFO ] storage metrics pending=32 recovered=15 dropped_oldest=24 corrupt=0 last_error=none
+```
+
+Final short online run with the log-volume reduction in place:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=0
+[INFO ] storage metrics pending=0 recovered=0 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] storage metrics pending=1 recovered=0 dropped_oldest=0 corrupt=0 last_error=none
+[INFO ] upload success sequence=1515 acked=true
+```
+
+Notes:
+
+- The short hardware run directly confirmed that the RTT/status metrics expose pending, recovered, corrupt, and dropped-oldest counts on the normal firmware path.
+- The receiver-offline run confirmed an explicit full-spool transition on hardware: `pending=32` with `dropped_oldest` increasing.
+- `timeout` terminated `probe-rs run` at the configured limit and printed SIGTERM stack frames; this was the host command ending the debug session, not a firmware panic.
+- Phase 20 still has human/physical close-loop checks remaining: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.

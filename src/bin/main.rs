@@ -36,6 +36,8 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 #[cfg(target_arch = "riscv32")]
 use panic_rtt_target as _;
+#[cfg(all(target_arch = "riscv32", feature = "flash-smoke"))]
+use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     tasks::{
@@ -131,6 +133,18 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO17;
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 66320);
+
+    #[cfg(feature = "flash-smoke")]
+    {
+        match run_flash_smoke_test() {
+            Ok(offset) => {
+                info!("flash smoke test passed spool_offset=0x{:08x}", offset);
+            }
+            Err(error) => {
+                warn!("flash smoke test failed error={:?}", error);
+            }
+        }
+    }
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_interrupt =

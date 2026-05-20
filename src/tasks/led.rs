@@ -61,9 +61,9 @@ fn drive_active_low_led(led: &mut Output<'static>, pattern: LedPattern, tick: u3
     let on = match pattern {
         LedPattern::Off => false,
         LedPattern::On => true,
-        LedPattern::SlowBlink => (tick / 5) % 2 == 0,
-        LedPattern::FastBlink => tick % 2 == 0,
-        LedPattern::Heartbeat => tick % 10 == 0,
+        LedPattern::SlowBlink => (tick / 5).is_multiple_of(2),
+        LedPattern::FastBlink => tick.is_multiple_of(2),
+        LedPattern::Heartbeat => tick.is_multiple_of(10),
     };
 
     if on {

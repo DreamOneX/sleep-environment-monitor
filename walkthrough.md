@@ -548,3 +548,66 @@ Hardware validation:
 - No firmware was flashed for this milestone.
 - No real internal SPI flash erase/write/readback was attempted.
 - The next Phase 18 step must add the ESP32-C3 flash adapter and run the hardware smoke test before claiming real flash access works.
+
+## Milestone 13: Internal Flash Smoke Bring-Up
+
+Development phase:
+
+```text
+Phase 18B: ESP32-C3 Flash Region Bring-Up
+```
+
+Scope:
+
+- Add a `flash-smoke` Cargo feature so the destructive flash smoke path is never part of default firmware startup.
+- Implement `RomSpoolFlash` over ESP32-C3 ROM SPI flash functions behind `#[cfg(target_arch = "riscv32")]`.
+- Expose the project `FlashStorage` trait for the reserved spool region only.
+- Refuse out-of-range access and require sector-aligned erases plus 4-byte-aligned ROM read/write operations.
+- Add a hardware-only smoke test that erases, verifies erased bytes, writes a 16-byte test pattern, reads it back, and erases the sector again.
+- Run the smoke test only against `0x003c_0000..0x003c_1000`, the first sector of the reserved spool region.
+- Fix target-side clippy warnings in LED blink and upload logging code.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features flash-smoke
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf --features flash-smoke
+```
+
+Unit test result:
+
+```text
+96 passed
+```
+
+Hardware validation:
+
+```bash
+timeout 75s cargo run --target riscv32imc-unknown-none-elf --features flash-smoke
+timeout 45s cargo run --target riscv32imc-unknown-none-elf
+```
+
+Observed smoke result:
+
+```text
+[INFO ] flash smoke test passed spool_offset=0x003c0000
+```
+
+Observed default-firmware result:
+
+```text
+[INFO ] measurement aggregation, Wi-Fi manager, and uploader initialized
+```
+
+Notes:
+
+- The smoke firmware erased/wrote/read back only `0x003c_0000..0x003c_1000`.
+- The smoke test performs a cleanup erase of that sector after readback.
+- The board was then reflashed with the default firmware without `flash-smoke`.
+- The default firmware startup log did not include `flash smoke test`, confirming normal boots do not run the destructive smoke path.
+- This validates real internal SPI flash read/erase/write/readback, but not yet persistent measurement retention across reset. Cross-reset retention belongs to Phase 19 and Phase 20 after the storage task uses the persistent spool.

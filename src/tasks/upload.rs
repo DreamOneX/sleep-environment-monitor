@@ -188,11 +188,9 @@ pub async fn uploader_task(
 
     loop {
         stack.wait_config_up().await;
-        if !logged_network_config {
-            if let Some(config) = stack.config_v4() {
-                info!("network ipv4 config={:?}", config);
-                logged_network_config = true;
-            }
+        if !logged_network_config && let Some(config) = stack.config_v4() {
+            info!("network ipv4 config={:?}", config);
+            logged_network_config = true;
         }
 
         let Some(measurement) = peek_measurement(measurements) else {
@@ -210,7 +208,7 @@ pub async fn uploader_task(
                 upload_result.signal(UploadResult::Success);
                 if queue_len > 0
                     || upload_success_count == 0
-                    || upload_success_count % UPLOAD_SUCCESS_LOG_EVERY == 0
+                    || upload_success_count.is_multiple_of(UPLOAD_SUCCESS_LOG_EVERY)
                 {
                     info!(
                         "upload success uptime_ms={=u64} queue_len={=usize}",

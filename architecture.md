@@ -230,11 +230,19 @@ ESP32-C3 internal SPI flash adapter.
 Responsibilities:
 
 - Expose a bounded storage region for the measurement spool.
-- Use an `embedded-storage` style read/write/erase interface.
+- Implement the project `FlashStorage` interface over the ESP32-C3 ROM SPI flash functions on the embedded target.
 - Refuse out-of-range access.
+- Require sector-aligned erase operations and 4-byte-aligned ROM read/write operations.
+- Run an explicit hardware smoke test only when the `flash-smoke` Cargo feature is enabled.
 - Keep partition or fixed-region selection outside business logic.
 
-This module may require hardware for full validation, but address arithmetic and range checks should be unit tested where possible.
+The smoke test erases, verifies, writes, reads back, and erases again only the first spool sector:
+
+```text
+0x003c_0000..0x003c_1000
+```
+
+Default firmware builds must not enable `flash-smoke`, so normal boot does not erase the spool test sector.
 
 ---
 

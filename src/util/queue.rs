@@ -64,6 +64,14 @@ impl<T, const N: usize> DropOldestQueue<T, N> {
 
         self.buf[self.head].as_ref()
     }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index >= self.len || N == 0 {
+            return None;
+        }
+
+        self.buf[(self.head + index) % N].as_ref()
+    }
 }
 
 impl<T, const N: usize> Default for DropOldestQueue<T, N> {
@@ -110,6 +118,22 @@ mod tests {
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.pop(), Some(1));
         assert_eq!(queue.front(), Some(&2));
+    }
+
+    #[test]
+    fn get_returns_items_in_fifo_order() {
+        let mut queue = DropOldestQueue::<u8, 3>::new();
+
+        queue.push(1);
+        queue.push(2);
+        queue.push(3);
+        queue.pop();
+        queue.push(4);
+
+        assert_eq!(queue.get(0), Some(&2));
+        assert_eq!(queue.get(1), Some(&3));
+        assert_eq!(queue.get(2), Some(&4));
+        assert_eq!(queue.get(3), None);
     }
 
     #[test]

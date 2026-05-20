@@ -451,3 +451,59 @@ Hardware validation:
 
 - Not required for this pure-logic milestone.
 - No internal SPI flash erase/write/readback was attempted in this phase.
+
+## Milestone 11: Flash Storage Model
+
+Development phase:
+
+```text
+Phase 17: Flash Storage Model
+```
+
+Scope:
+
+- Add `src/storage/flash_model.rs` with an `InMemoryFlash` implementation for host tests.
+- Model SPI-flash constraints: erased bytes are `0xff`, writes may only clear bits, erases must be sector aligned, and out-of-range read/write/erase operations fail.
+- Extend `storage/spool.rs` with `FlashBackedSpool`, data records, ack records, recovery scanning, and compaction over the flash model.
+- Preserve FIFO order across ack holes in the flash log.
+- Preserve monotonic `next_sequence` across compaction, ack-to-empty cases, and simulated reboot recovery.
+- Add `DropOldestQueue::get()` for FIFO-order iteration without exposing queue internals.
+- Keep this phase hardware-independent; no ESP32-C3 internal flash driver is used yet.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Unit test result:
+
+```text
+89 passed
+```
+
+Covered flash-spool cases:
+
+```text
+write requires erased space
+erase resets a sector to 0xff
+out-of-range read/write/erase fails
+append across sector boundary
+recover multiple records after simulated reboot
+recover after interrupted append
+drop oldest after modeled flash fills
+ack persists across simulated reboot
+ack-hole recovery preserves FIFO order
+ack compaction preserves next_sequence
+```
+
+Hardware validation:
+
+- Not required for this pure-logic milestone.
+- No firmware was flashed for this milestone.
+- No real internal SPI flash erase/write/readback was attempted.
+- Reboot retention and blocked-upload persistent buffering are validated only against the modeled flash in this phase; real ESP32-C3 validation is deferred to Phase 18 through Phase 20.

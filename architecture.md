@@ -54,7 +54,18 @@ The final firmware should provide:
 ESP32-C3-WROOM-02-N4
 ```
 
-The module includes 4 MB internal SPI flash. Firmware may use a dedicated flash storage region for persisted measurement spooling, but must not write into bootloader, partition table, app image, or RF/calibration data regions.
+The module includes 4 MB internal SPI flash. Firmware uses a dedicated flash storage region for persisted measurement spooling and must not write into bootloader, partition table, app image, or RF/calibration data regions.
+
+Flash spool layout:
+
+```text
+total flash:            0x0000_0000..0x0040_0000  4 MiB
+system reserved:        0x0000_0000..0x0001_0000  bootloader / partition / RF data area
+application reserved:   0x0001_0000..0x003c_0000  firmware image growth area
+measurement spool:      0x003c_0000..0x0040_0000  256 KiB, 4 KiB sector aligned
+```
+
+The firmware validates this layout at runtime before enabling flash writes. A zero-sized spool, sector-unaligned range, out-of-bounds range, or overlap with protected regions is treated as a configuration error.
 
 ## Pin Mapping
 
@@ -135,11 +146,21 @@ pub const PIN_LED2: u8 = 1;
 pub const I2C_ADDR_SHT40: u8 = 0x44;
 pub const I2C_ADDR_OPT3001: u8 = 0x45;
 
-pub const FLASH_SPOOL_REGION_OFFSET: u32 = 0; // Set after partition layout is defined.
-pub const FLASH_SPOOL_REGION_SIZE: u32 = 0;   // Set after partition layout is defined.
+pub const FLASH_TOTAL_SIZE_BYTES: u32 = 4 * 1024 * 1024;
+pub const FLASH_SECTOR_SIZE_BYTES: u32 = 4096;
+
+pub const FLASH_SPOOL_REGION_OFFSET: u32 = 0x003c_0000;
+pub const FLASH_SPOOL_REGION_SIZE: u32 = 0x0004_0000;
+
+pub const FLASH_SYSTEM_RESERVED_OFFSET: u32 = 0x0000_0000;
+pub const FLASH_SYSTEM_RESERVED_SIZE: u32 = 0x0001_0000;
+
+pub const FLASH_APP_RESERVED_OFFSET: u32 = 0x0001_0000;
+pub const FLASH_APP_RESERVED_SIZE: u32 =
+    FLASH_SPOOL_REGION_OFFSET - FLASH_APP_RESERVED_OFFSET;
 ```
 
-Flash spool constants must be resolved before flash writes are enabled. Placeholder zero values are invalid at runtime.
+Flash spool constants must pass `drivers::flash::validate_default_flash_spool_region()` before flash writes are enabled.
 
 ---
 

@@ -507,3 +507,44 @@ Hardware validation:
 - No firmware was flashed for this milestone.
 - No real internal SPI flash erase/write/readback was attempted.
 - Reboot retention and blocked-upload persistent buffering are validated only against the modeled flash in this phase; real ESP32-C3 validation is deferred to Phase 18 through Phase 20.
+
+## Milestone 12: Flash Region Safety Boundary
+
+Development phase:
+
+```text
+Phase 18A: ESP32-C3 Flash Region Layout
+```
+
+Scope:
+
+- Define the ESP32-C3-WROOM-02-N4 4 MiB flash geometry in `src/board.rs`.
+- Reserve `0x003c_0000..0x0040_0000` as the measurement spool region.
+- Keep `0x0000_0000..0x0001_0000` protected for bootloader, partition, and RF/calibration data.
+- Keep `0x0001_0000..0x003c_0000` protected for the firmware image growth area.
+- Add `src/drivers/flash.rs` host-testable flash layout validation.
+- Reject zero-sized flash/spool regions, sector-unaligned spool ranges, out-of-bounds ranges, and protected-region overlaps.
+- Update `architecture.md` with the concrete flash map and validation rule.
+
+Verification:
+
+```bash
+cargo fmt --check
+cargo build
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+```
+
+Unit test result:
+
+```text
+96 passed
+```
+
+Hardware validation:
+
+- Not required for this safety-boundary milestone.
+- No firmware was flashed for this milestone.
+- No real internal SPI flash erase/write/readback was attempted.
+- The next Phase 18 step must add the ESP32-C3 flash adapter and run the hardware smoke test before claiming real flash access works.

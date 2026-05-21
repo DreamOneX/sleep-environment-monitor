@@ -1165,3 +1165,66 @@ Observed software verification results:
 
 The second `timeout 120s cargo run ...` ended by host-side timeout while the
 target was in the idle hook; this was not a firmware panic.
+
+## Milestone 22: UDP Discovery Hardware Validation
+
+After allowing Windows inbound firewall traffic for UDP port `39022`, Phase 22
+UDP discovery was revalidated on the ESP32-C3 hardware with the local receiver
+listening on HTTP `8080` and UDP `39022`.
+
+Flash range statement before the default firmware run:
+
+- Normal firmware startup may program the application image in the app region,
+  but persistent measurement writes in this validation were exercised only
+  through `storage_task` in the measurement spool region:
+
+```text
+0x003c_0000..0x0040_0000
+```
+
+- The `flash-smoke` feature was not enabled, so the first-sector smoke-test
+  range `0x003c_0000..0x003c_1000` was not erased or written.
+
+Validation commands run from the repository root:
+
+```bash
+probe-rs list
+python3 server/post_receiver.py
+timeout 120s cargo run --target riscv32imc-unknown-none-elf
+```
+
+Observed firmware results:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=1
+[INFO ] storage metrics pending=1 recovered=1 dropped_oldest=0 skipped_legacy=0 corrupt=0 last_error=none
+[INFO ] wifi connected ssid=FZU channel=1 aid=41172
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.2.168/16, gateway: Some(10.133.255.254), dns_servers: [114.114.114.114, 210.34.48.34] }
+[INFO ] discovery endpoint ipv4=10.133.56.218 port=8080
+[INFO ] time synced unix_ms=1779400151794
+[INFO ] upload success sequence=8762 acked=true
+[INFO ] discovery endpoint ipv4=10.133.56.218 port=8080
+[INFO ] time synced unix_ms=1779400213016
+[INFO ] upload success sequence=8822 acked=true
+```
+
+Receiver observations:
+
+```text
+http on 0.0.0.0:8080
+udp discovery on 0.0.0.0:39022
+upload accepted from 10.133.2.168 bytes=298
+upload accepted from 10.133.2.168 bytes=344
+```
+
+Notes:
+
+- The earlier hardware discovery failure was caused by the Windows firewall not
+  allowing inbound UDP `39022`.
+- With UDP `39022` allowed, the board repeatedly discovered the receiver as
+  `10.133.56.218:8080`.
+- The discovered endpoint was then used for REST time sync and JSON measurement
+  uploads.
+- The `timeout 120s cargo run ...` command ended by host-side timeout while the
+  target was in the idle hook; this was not a firmware panic.

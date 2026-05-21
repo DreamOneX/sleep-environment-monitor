@@ -4,14 +4,27 @@ This directory is reserved for the measurement ingestion server. Keep server imp
 
 Current contents:
 
-- `post_receiver.py`: minimal local HTTP POST receiver used for firmware upload validation.
+- `post_receiver.py`: stdlib-only Phase 22 local receiver for REST upload, time, and discovery validation.
 
-The future formal server should replace or supersede the temporary receiver here.
+The future formal server should replace or supersede this local validation receiver.
 
-## Temporary Receiver
+## Phase 22 Receiver
 
 ```bash
 python3 server/post_receiver.py
 ```
 
-It listens on `0.0.0.0:8080` and prints received measurement payloads.
+It listens for HTTP on `0.0.0.0:8080` and UDP discovery on `0.0.0.0:39022`.
+
+HTTP behavior:
+
+- `POST /api/v1/measurements`: accepts a JSON request body and returns `204`.
+- Other `POST` paths: returns `404`.
+- `GET /api/v1/time`: returns `{"unix_ms": <current epoch millis>, "source": "server"}`.
+- `GET /.well-known/sleep-environment-monitor`: returns discovery metadata with `api_base`, `measurement_upload`, `time`, and `udp_discovery_port`.
+
+UDP discovery:
+
+- Port: `39022`.
+- Query payload: `sleep-environment-monitor.discovery`.
+- Response: compact JSON containing `host`, `port`, `api_base`, `measurement_upload`, and `time`.

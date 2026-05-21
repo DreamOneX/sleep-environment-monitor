@@ -1,3 +1,9 @@
+use crate::types::NetworkState;
+
+pub const fn network_is_ready(state: NetworkState) -> bool {
+    matches!(state, NetworkState::IpReady)
+}
+
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 
@@ -8,7 +14,7 @@ use esp_hal::gpio::Output;
 use crate::{
     config,
     tasks::TaskSignal,
-    types::{ErrorFlags, NetworkState, UploadResult},
+    types::{ErrorFlags, UploadResult},
     util::status::{LedPattern, status_error_flags, status_to_leds},
 };
 
@@ -49,11 +55,24 @@ pub async fn status_task(
         }
 
         let display_flags = status_error_flags(latest_flags, latest_upload);
-        let leds = status_to_leds(display_flags, latest_network == NetworkState::Connected);
+        let leds = status_to_leds(display_flags, network_is_ready(latest_network));
         drive_active_low_led(&mut led, leds.led2, tick);
 
         tick = tick.wrapping_add(1);
         Timer::after(Duration::from_millis(config::led::STATUS_TICK_MILLIS)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_ip_ready_is_network_ready_for_status() {
+        assert!(!network_is_ready(NetworkState::Disconnected));
+        assert!(!network_is_ready(NetworkState::Connecting));
+        assert!(!network_is_ready(NetworkState::Connected));
+        assert!(network_is_ready(NetworkState::IpReady));
     }
 }
 

@@ -15,12 +15,15 @@ pub struct LedState {
     pub led2: LedPattern,
 }
 
-pub fn status_to_leds(flags: ErrorFlags, wifi_connected: bool) -> LedState {
+pub fn status_to_leds(flags: ErrorFlags, network_ready: bool) -> LedState {
     let led2 = if flags.intersects(ErrorFlags::SENSOR_MASK) {
         LedPattern::FastBlink
-    } else if flags.contains(ErrorFlags::STORAGE) || flags.contains(ErrorFlags::UPLOAD) {
+    } else if flags.contains(ErrorFlags::STORAGE)
+        || flags.intersects(ErrorFlags::UPLOAD_MASK)
+        || flags.contains(ErrorFlags::TIME)
+    {
         LedPattern::On
-    } else if flags.contains(ErrorFlags::WIFI) || !wifi_connected {
+    } else if flags.intersects(ErrorFlags::NETWORK_MASK) || !network_ready {
         LedPattern::SlowBlink
     } else {
         LedPattern::Off
@@ -38,8 +41,13 @@ pub fn status_error_flags(
 ) -> ErrorFlags {
     let mut flags = measurement_flags;
 
-    if upload_result == UploadResult::Failed {
-        flags.insert(ErrorFlags::UPLOAD);
+    match upload_result {
+        UploadResult::Idle | UploadResult::Success => {}
+        UploadResult::Failed => flags.insert(ErrorFlags::UPLOAD),
+        UploadResult::DiscoveryFailed => flags.insert(ErrorFlags::DISCOVERY),
+        UploadResult::TimeFailed => flags.insert(ErrorFlags::TIME),
+        UploadResult::TransportFailed => flags.insert(ErrorFlags::UPLOAD | ErrorFlags::TRANSPORT),
+        UploadResult::HttpFailed => flags.insert(ErrorFlags::UPLOAD | ErrorFlags::HTTP),
     }
 
     flags
@@ -50,7 +58,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_error_and_wifi_connected() {
+    fn no_error_and_network_ready() {
         assert_eq!(
             status_to_leds(ErrorFlags::NONE, true),
             LedState {
@@ -61,7 +69,7 @@ mod tests {
     }
 
     #[test]
-    fn no_error_and_wifi_disconnected() {
+    fn no_error_and_network_not_ready() {
         assert_eq!(
             status_to_leds(ErrorFlags::NONE, false).led2,
             LedPattern::SlowBlink
@@ -108,6 +116,26 @@ mod tests {
     fn upload_failure_adds_upload_flag() {
         assert!(
             status_error_flags(ErrorFlags::NONE, UploadResult::Failed).contains(ErrorFlags::UPLOAD)
+        );
+    }
+
+    #[test]
+    fn detailed_upload_failures_add_distinct_flags() {
+        assert!(
+            status_error_flags(ErrorFlags::NONE, UploadResult::DiscoveryFailed)
+                .contains(ErrorFlags::DISCOVERY)
+        );
+        assert!(
+            status_error_flags(ErrorFlags::NONE, UploadResult::TimeFailed)
+                .contains(ErrorFlags::TIME)
+        );
+        assert!(
+            status_error_flags(ErrorFlags::NONE, UploadResult::TransportFailed)
+                .contains(ErrorFlags::TRANSPORT)
+        );
+        assert!(
+            status_error_flags(ErrorFlags::NONE, UploadResult::HttpFailed)
+                .contains(ErrorFlags::HTTP)
         );
     }
 

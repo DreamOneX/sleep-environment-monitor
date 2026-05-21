@@ -1,8 +1,8 @@
 # Firmware Configuration
 
-This document defines the intended Phase 21 boundary for `firmware/src/config.rs`.
+This document defines the firmware configuration boundary for `firmware/src/config.rs`.
 
-Phase 21 is behavior-preserving: move deployment and policy values into one module without changing network protocol, task behavior, or hardware validation scope.
+Phase 21 was behavior-preserving. Phase 22 extends this module with the JSON REST API paths, discovery/time settings, and common Wi-Fi credential modes.
 
 ## Config Owns
 
@@ -10,16 +10,16 @@ Phase 21 is behavior-preserving: move deployment and policy values into one modu
 
 | Category | Examples |
 |---|---|
-| Wi-Fi | SSID, authentication mode, credential defaults |
-| REST upload | fallback host/IP, port, path, user-agent |
-| Network timing | upload retry delay, TCP/read timeouts, empty-spool poll interval |
+| Wi-Fi | SSID, authentication mode, credential defaults, credential validation |
+| REST upload | fallback host/IP, port, JSON upload path, time path, discovery path, user-agent |
+| Network timing | upload retry delay, TCP/read timeouts, discovery retry, time-sync retry, empty-spool poll interval |
 | Network resources | stack resource count, socket buffers, request/response buffers |
 | Sampling policy | environment sample period, microphone window size, microphone sample interval |
 | Hardware tuning | I2C bus frequency, ADC attenuation, ADC retry count/delay |
 | Storage tuning | measurement payload size, persistent spool record capacity, request channel capacity |
 | Logging and status | sample log intervals, storage metrics interval, LED heartbeat and blink timing |
 
-These values may still be compile-time constants in Phase 21. The important change is that firmware tasks depend on named configuration rather than local hardcoding.
+These values are currently compile-time constants. The important boundary is that firmware tasks depend on named configuration rather than local hardcoding, so BLE or persistent provisioning can replace those values later.
 
 ## Config Does Not Own
 

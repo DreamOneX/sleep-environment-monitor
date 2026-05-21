@@ -251,6 +251,7 @@ async fn main(spawner: Spawner) -> ! {
                         stack,
                         &STORAGE_REQUESTS,
                         &STORAGE_RESPONSES,
+                        &NETWORK_STATE_SIGNAL,
                         &UPLOAD_RESULT_SIGNAL,
                     ),
                     "uploader",

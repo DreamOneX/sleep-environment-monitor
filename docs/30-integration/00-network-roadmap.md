@@ -17,7 +17,7 @@ Configuration consolidation.
 - Add `firmware/src/config.rs`.
 - Move deployment and policy constants out of task-local hardcoding.
 - Keep behavior unchanged.
-- Keep REST upload behavior and temporary receiver compatibility.
+- Preserve the then-current REST upload behavior and local receiver compatibility.
 - Do not implement discovery, time sync, or BLE yet.
 
 See [../10-firmware/04-configuration.md](../10-firmware/04-configuration.md).
@@ -29,16 +29,19 @@ REST network redesign.
 - Split Wi-Fi link, IP readiness, endpoint resolution, HTTP transport, and upload orchestration.
 - Keep upload acknowledgement tied to HTTP 2xx.
 - Add structured network and upload error reporting.
-- Add automatic REST server discovery with static fallback.
-- Add real-world time synchronization through SNTP/NTP when practical and REST server time as fallback.
+- Replace the old `/measurements` CSV upload with JSON schema version 1 at `POST /api/v1/measurements`.
+- Add automatic REST server discovery with UDP discovery and static fallback.
+- Add real-world time synchronization through SNTP/NTP and REST server time fallback.
 - Extend the measurement payload so wall-clock time is included when known while preserving `uptime_ms`.
+- Support open, WPA-Personal, WPA2-Personal, and WPA/WPA2-Personal mixed Wi-Fi configuration.
+- Defer WPA3 and Enterprise/EAP Wi-Fi until validated separately.
 - Keep BLE as a future provisioning path, with config shaped for it.
 
 See [../10-firmware/03-network.md](../10-firmware/03-network.md) and [../20-server/01-rest-api.md](../20-server/01-rest-api.md).
 
 ## Discovery Precedence
 
-Endpoint selection should use:
+Endpoint selection uses:
 
 1. Provisioned endpoint from future BLE or persistent config.
 2. Automatically discovered endpoint.
@@ -52,7 +55,7 @@ The firmware should always preserve boot-relative `uptime_ms`.
 
 Wall-clock time is added when available:
 
-1. Synchronize through SNTP/NTP after IP configuration if supported within memory and dependency limits.
+1. Synchronize through SNTP/NTP after IP configuration.
 2. Fall back to `GET /api/v1/time` from the REST server.
 3. Continue uploading uptime-only measurements if no wall-clock source is available.
 

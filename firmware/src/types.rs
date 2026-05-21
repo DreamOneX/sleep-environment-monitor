@@ -11,8 +11,15 @@ impl ErrorFlags {
     pub const WIFI: Self = Self(1 << 3);
     pub const UPLOAD: Self = Self(1 << 4);
     pub const STORAGE: Self = Self(1 << 5);
+    pub const IP: Self = Self(1 << 6);
+    pub const DISCOVERY: Self = Self(1 << 7);
+    pub const TIME: Self = Self(1 << 8);
+    pub const TRANSPORT: Self = Self(1 << 9);
+    pub const HTTP: Self = Self(1 << 10);
 
     pub const SENSOR_MASK: Self = Self(Self::SHT40.0 | Self::OPT3001.0 | Self::MIC.0);
+    pub const NETWORK_MASK: Self = Self(Self::WIFI.0 | Self::IP.0 | Self::DISCOVERY.0);
+    pub const UPLOAD_MASK: Self = Self(Self::UPLOAD.0 | Self::TRANSPORT.0 | Self::HTTP.0);
 
     pub const fn from_bits(bits: u32) -> Self {
         Self(bits)
@@ -131,19 +138,45 @@ impl Default for Measurement {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum NetworkState {
     #[default]
     Disconnected,
     Connecting,
     Connected,
+    IpReady,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum UploadResult {
     #[default]
     Idle,
     Success,
     Failed,
+    DiscoveryFailed,
+    TimeFailed,
+    TransportFailed,
+    HttpFailed,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum TimeStatus {
+    #[default]
+    Unknown,
+    UptimeOnly,
+    WallClockSynced,
+}
+
+impl TimeStatus {
+    pub const fn as_json_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::UptimeOnly => "uptime_only",
+            Self::WallClockSynced => "wall_clock_synced",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +210,26 @@ mod tests {
     fn storage_error_has_distinct_bit() {
         assert_eq!(ErrorFlags::STORAGE.bits(), 1 << 5);
         assert!(!ErrorFlags::SENSOR_MASK.contains(ErrorFlags::STORAGE));
+    }
+
+    #[test]
+    fn network_and_upload_masks_cover_detailed_failures() {
+        assert!(ErrorFlags::NETWORK_MASK.contains(ErrorFlags::WIFI));
+        assert!(ErrorFlags::NETWORK_MASK.contains(ErrorFlags::IP));
+        assert!(ErrorFlags::NETWORK_MASK.contains(ErrorFlags::DISCOVERY));
+        assert!(ErrorFlags::UPLOAD_MASK.contains(ErrorFlags::UPLOAD));
+        assert!(ErrorFlags::UPLOAD_MASK.contains(ErrorFlags::TRANSPORT));
+        assert!(ErrorFlags::UPLOAD_MASK.contains(ErrorFlags::HTTP));
+    }
+
+    #[test]
+    fn time_status_has_stable_json_names() {
+        assert_eq!(TimeStatus::Unknown.as_json_str(), "unknown");
+        assert_eq!(TimeStatus::UptimeOnly.as_json_str(), "uptime_only");
+        assert_eq!(
+            TimeStatus::WallClockSynced.as_json_str(),
+            "wall_clock_synced"
+        );
     }
 
     #[test]

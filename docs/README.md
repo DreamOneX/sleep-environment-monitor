@@ -25,12 +25,12 @@ This directory contains the tracked project documentation.
 - [10-firmware/01-hardware.md](10-firmware/01-hardware.md): board hardware facts, pin mapping, and component references.
 - [10-firmware/02-conventions.md](10-firmware/02-conventions.md): firmware Rust toolchain, formatting, linting, testing, and embedded build conventions.
 - [10-firmware/03-network.md](10-firmware/03-network.md): firmware network responsibilities, REST upload, discovery, time sync, and BLE readiness.
-- [10-firmware/04-configuration.md](10-firmware/04-configuration.md): planned firmware configuration boundary for Phase 21.
+- [10-firmware/04-configuration.md](10-firmware/04-configuration.md): firmware configuration boundary and deployment knobs.
 
 ## Server
 
-- [20-server/00-overview.md](20-server/00-overview.md): measurement ingestion server role and current temporary receiver.
-- [20-server/01-rest-api.md](20-server/01-rest-api.md): planned REST API contract between firmware and server.
+- [20-server/00-overview.md](20-server/00-overview.md): measurement ingestion server role and Phase 22 local receiver.
+- [20-server/01-rest-api.md](20-server/01-rest-api.md): Phase 22 REST API contract between firmware and server.
 
 ## Integration
 
@@ -43,4 +43,4 @@ This directory contains the tracked project documentation.
 - Keep implementation structure and data-flow decisions in `10-firmware/00-architecture.md`.
 - Keep firmware build and style expectations in `10-firmware/02-conventions.md`.
 - Keep hardware facts in `10-firmware/01-hardware.md`.
-- Keep server API intent in `20-server/01-rest-api.md` until the formal server implementation starts.
+- Keep the server API contract in `20-server/01-rest-api.md` until the formal server implementation supersedes the local receiver.

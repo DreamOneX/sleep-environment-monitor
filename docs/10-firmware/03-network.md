@@ -1,6 +1,6 @@
 # Firmware Network
 
-This document describes the intended firmware-side network responsibilities.
+This document describes the firmware-side network responsibilities.
 The cross-component roadmap lives in [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md), and the server REST contract lives in [../20-server/01-rest-api.md](../20-server/01-rest-api.md).
 
 ## Goals
@@ -25,9 +25,9 @@ Network work should stay separated into these responsibilities:
 |---|---|
 | Wi-Fi link connection, disconnect detection, and reconnect backoff | `tasks/wifi.rs` |
 | Embassy network runner | `tasks/net.rs` |
-| IP/DHCP readiness observation | network orchestration code |
-| REST endpoint resolution and discovery | planned Phase 22 network code |
-| HTTP transport and response classification | upload transport code |
+| IP/DHCP readiness observation | `tasks/wifi.rs`, `tasks/upload.rs` |
+| REST endpoint resolution and discovery | `tasks/upload.rs` |
+| HTTP transport and response classification | `tasks/upload.rs` |
 | Persistent upload ordering and acknowledgement | `tasks/storage.rs` and `tasks/upload.rs` |
 
 Sensor sampling, microphone sampling, aggregation, and flash spooling must not depend on Wi-Fi or server availability.
@@ -44,7 +44,24 @@ Rules:
 - Upload failures are reported through status output and LED policy, but do not stop sampling.
 - The REST payload must carry enough information for the server to handle duplicates after retry.
 
-The existing CSV upload can remain during transition, but Phase 22 should define a versioned payload shape before adding wall-clock timestamps.
+Phase 22 replaced the old bring-up CSV upload with JSON schema version 1. The
+storage spool persists measurement JSON field fragments so upload can add the
+device id, spool sequence, time status, and optional wall-clock timestamp at the
+moment the record is sent.
+
+Upload payloads include:
+
+- `schema_version`.
+- `device_id`.
+- `sequence`.
+- `time_status`.
+- Optional `wall_clock_unix_ms`.
+- `uptime_ms`.
+- Temperature, humidity, light, microphone, and error flag fields.
+
+The firmware no longer targets the old `/measurements` CSV endpoint.
+
+During the Phase 22 transition, recovered spool records without the JSON field-fragment payload flag are treated as legacy CSV records and skipped. Recovered records from a previous boot remain uploadable, but they stay `uptime_only`; the firmware does not project old-boot uptime values through the current boot's time-sync anchor.
 
 ## Discovery
 
@@ -56,7 +73,15 @@ Resolution precedence:
 2. Automatic discovery result.
 3. Static fallback endpoint from firmware configuration.
 
-The planned discovery document is `GET /.well-known/sleep-environment-monitor` on the server. The exact transport for finding the host can be chosen in Phase 22 based on available `embassy-net` support and memory cost.
+Phase 22 implements LAN discovery with UDP:
+
+- UDP port: `39022`.
+- Query payload: `sleep-environment-monitor.discovery`.
+- Response: compact JSON containing `host`, `port`, `api_base`, `measurement_upload`, and `time`.
+- Server metadata document: `GET /.well-known/sleep-environment-monitor`.
+
+The firmware currently parses IPv4 discovery results. If discovery fails, the
+static fallback endpoint remains usable.
 
 ## Time
 
@@ -70,13 +95,30 @@ Firmware should treat time as a state:
 | `UptimeOnly` | Measurements can be ordered by uptime, but not placed on a wall clock. |
 | `WallClockSynced` | Measurements can include an absolute timestamp. |
 
-Phase 22 should prefer SNTP/NTP after IP configuration. A REST server time endpoint, `GET /api/v1/time`, is the fallback because it can work with the same server used for uploads.
+Phase 22 attempts SNTP/NTP after IP configuration. A REST server time endpoint,
+`GET /api/v1/time`, is the fallback because it can work with the same server
+used for uploads.
 
 Measurements produced before wall-clock sync must remain uploadable. The payload should preserve `uptime_ms` and include wall-clock fields only when known.
 
+Recovered records from a previous boot must not receive a synthesized wall-clock timestamp from the current boot's sync state. They are uploaded with `time_status` set to `uptime_only` unless future persistent time metadata can prove the uptime origin.
+
+## Wi-Fi Credentials
+
+Firmware configuration supports:
+
+- Open networks.
+- WPA-Personal PSK.
+- WPA2-Personal PSK.
+- WPA/WPA2-Personal mixed PSK.
+
+WPA3 and Enterprise/EAP are intentionally deferred. The current dependency stack
+exposes some WPA3 variants, but the crate documentation does not make WPA3 a
+validated target capability, and the firmware does not enable EAP features.
+
 ## BLE Readiness
 
-BLE is a future provisioning path, not part of Phase 21.
+BLE is a future provisioning path, not part of Phase 22.
 
 Network configuration should be shaped so BLE can later provide:
 

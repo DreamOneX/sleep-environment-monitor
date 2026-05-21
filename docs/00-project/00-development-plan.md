@@ -1038,9 +1038,13 @@ refactor: centralize firmware configuration constants
 
 Replace the current catch-all network/upload path with clear REST networking responsibilities while adding server discovery and real-world time support.
 
+Phase 22 uses the versioned JSON REST API only. The old bring-up
+`/measurements` CSV receiver compatibility is intentionally not preserved.
+
 ## Work Items
 
 - Keep REST as the primary upload protocol; do not add MQTT.
+- Replace CSV upload with JSON schema version 1 at `POST /api/v1/measurements`.
 - Split responsibilities for:
   - Wi-Fi link state.
   - IP/DHCP readiness.
@@ -1048,12 +1052,21 @@ Replace the current catch-all network/upload path with clear REST networking res
   - HTTP transport and response classification.
   - Upload orchestration and storage acknowledgement.
 - Keep storage acknowledgement tied to HTTP 2xx only.
-- Add automatic server discovery with static configured endpoint fallback.
+- Add automatic server discovery with static configured endpoint fallback:
+  - UDP discovery port `39022`.
+  - Query payload `sleep-environment-monitor.discovery`.
+  - Discovery metadata at `GET /.well-known/sleep-environment-monitor`.
 - Add real-world time support:
   - Prefer SNTP/NTP after IP configuration if practical.
   - Use `GET /api/v1/time` as REST fallback.
   - Preserve `uptime_ms` for all measurements.
   - Add wall-clock timestamp fields only when synchronized.
+- Support common Wi-Fi credential modes through config:
+  - Open networks.
+  - WPA-Personal.
+  - WPA2-Personal.
+  - WPA/WPA2-Personal mixed mode.
+- Defer WPA3 and Enterprise/EAP Wi-Fi until the dependency stack and target hardware are validated for those modes.
 - Shape config and interfaces so future BLE provisioning can provide Wi-Fi and REST endpoint settings.
 - Update [../10-firmware/03-network.md](../10-firmware/03-network.md), [../20-server/01-rest-api.md](../20-server/01-rest-api.md), and [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md) as implementation decisions become concrete.
 
@@ -1083,6 +1096,7 @@ Add hardware-independent tests for:
 - Network status distinguishes Wi-Fi, IP, discovery, time, transport, and HTTP failures.
 - Measurements upload through REST with HTTP-2xx-only acknowledgement.
 - Firmware can attach wall-clock time when synchronized and still upload uptime-only records otherwise.
+- Password-protected personal Wi-Fi networks can be configured for the common WPA/WPA2 PSK modes listed above.
 - BLE provisioning can be added later without reshaping the config model.
 
 ## Git Commit Message
@@ -1114,9 +1128,9 @@ All must be automated and hardware-free.
 [ ] status_to_leds Wi-Fi/upload error
 [ ] merge_measurement field mapping
 [ ] merge_measurement error flag merge
-[ ] measurement_to_csv_line normal case
-[ ] measurement_to_csv_line missing values
-[ ] measurement_to_csv_line buffer too small
+[ ] measurement_to_json_fields normal case
+[ ] measurement_to_json_fields missing values
+[ ] measurement_to_json_fields buffer too small
 [ ] wifi state transition
 [ ] wifi backoff calculation
 [ ] spool record encode / decode

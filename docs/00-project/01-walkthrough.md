@@ -1022,3 +1022,40 @@ Observed results:
 - Both clippy runs completed without warnings or errors.
 - A targeted search found the Wi-Fi SSID, REST endpoint/path, user-agent, and migrated timing/buffer values only in `config.rs` or test fixtures.
 - No hardware validation was run for this behavior-preserving configuration refactor, and no firmware flash-write range was exercised.
+
+## Milestone 20: REST Network Discovery And Time Sync
+
+Phase 22 implementation:
+
+- Replace the old `/measurements` CSV upload path with JSON schema version 1 at `POST /api/v1/measurements`.
+- Keep persistent storage FIFO semantics and acknowledge records only after HTTP 2xx.
+- Store measurement JSON field fragments in the flash spool so upload can add `device_id`, spool `sequence`, `time_status`, and optional `wall_clock_unix_ms`.
+- Mark new JSON field-fragment spool records and skip legacy unflagged CSV records recovered from flash.
+- Keep recovered records from previous boots as `uptime_only` so current boot time sync cannot synthesize false wall-clock timestamps.
+- Add endpoint resolution with future provisioned endpoint precedence, UDP discovery, and static fallback.
+- Add UDP discovery on port `39022` using query payload `sleep-environment-monitor.discovery`.
+- Add SNTP/NTP time sync with `GET /api/v1/time` as REST fallback.
+- Add detailed network/upload status flags for IP, discovery, time, transport, and HTTP failures.
+- Add compile-time Wi-Fi credential support for open, WPA-Personal, WPA2-Personal, and WPA/WPA2-Personal mixed networks.
+- Keep WPA3 and Enterprise/EAP Wi-Fi deferred until the dependency stack and target hardware are validated for those modes.
+- Update the local server receiver to accept JSON uploads, serve time, serve discovery metadata, and answer UDP discovery queries.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+python3 -m py_compile server/post_receiver.py
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+```
+
+Observed results:
+
+- `cargo test --lib` passed with 121 tests.
+- Target firmware build completed without errors.
+- Both clippy runs completed without warnings or errors.
+- `python3 -m py_compile server/post_receiver.py` completed without errors.
+- Local HTTP/UDP smoke testing of the Phase 22 receiver verified `POST /api/v1/measurements` returns `204` for JSON, other `POST` paths return `404`, `GET /api/v1/time` returns server time JSON, the well-known discovery document is served, and UDP discovery returns endpoint JSON.
+- No hardware validation was run for this milestone, and no firmware flash-write range was exercised.

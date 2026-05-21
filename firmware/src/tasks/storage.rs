@@ -4,12 +4,13 @@ use crate::{
         flash_model::FlashStorage,
         spool::{FlashBackedSpool, SpoolError},
     },
-    tasks::upload::{EncodeError, measurement_to_csv_line},
+    tasks::upload::{EncodeError, measurement_to_json_fields},
     types::{ErrorFlags, Measurement},
 };
 
 pub const MEASUREMENT_PAYLOAD_SIZE: usize = config::storage::MEASUREMENT_PAYLOAD_SIZE;
 pub const PERSISTENT_SPOOL_CAPACITY: usize = config::storage::PERSISTENT_SPOOL_CAPACITY;
+pub const PAYLOAD_FLAG_JSON_FIELDS: u8 = 0x01;
 pub type MeasurementStorageBacklog =
     StorageBacklog<PERSISTENT_SPOOL_CAPACITY, MEASUREMENT_PAYLOAD_SIZE>;
 
@@ -38,6 +39,7 @@ pub struct StorageMetrics {
     pub pending_record_count: usize,
     pub dropped_oldest_count: usize,
     pub recovered_record_count: usize,
+    pub skipped_legacy_record_count: usize,
     pub corrupt_record_count: usize,
     pub last_error: Option<StorageError>,
 }
@@ -47,10 +49,11 @@ pub struct StoredPayload<const PAYLOAD_SIZE: usize = MEASUREMENT_PAYLOAD_SIZE> {
     pub sequence: u64,
     pub payload: [u8; PAYLOAD_SIZE],
     pub payload_len: usize,
+    pub current_boot: bool,
 }
 
 impl<const PAYLOAD_SIZE: usize> StoredPayload<PAYLOAD_SIZE> {
-    fn from_record(record: crate::storage::spool::SpoolRecord<'_>) -> Self {
+    fn from_record(record: crate::storage::spool::SpoolRecord<'_>, current_boot: bool) -> Self {
         let mut payload = [0_u8; PAYLOAD_SIZE];
         let payload_len = record.payload.len().min(PAYLOAD_SIZE);
         payload[..payload_len].copy_from_slice(&record.payload[..payload_len]);
@@ -59,6 +62,7 @@ impl<const PAYLOAD_SIZE: usize> StoredPayload<PAYLOAD_SIZE> {
             sequence: record.sequence,
             payload,
             payload_len,
+            current_boot,
         }
     }
 
@@ -73,6 +77,7 @@ pub struct StorageBacklog<
 > {
     spool: FlashBackedSpool<CAPACITY, PAYLOAD_SIZE>,
     metrics: StorageMetrics,
+    current_boot_first_sequence: u64,
 }
 
 impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, PAYLOAD_SIZE> {
@@ -83,23 +88,36 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
                 pending_record_count: 0,
                 dropped_oldest_count: 0,
                 recovered_record_count: 0,
+                skipped_legacy_record_count: 0,
                 corrupt_record_count: 0,
                 last_error: None,
             },
+            current_boot_first_sequence: 0,
         }
     }
 
-    pub fn recover(flash: &impl FlashStorage) -> Result<Self, StorageError> {
+    pub fn recover(flash: &mut impl FlashStorage) -> Result<Self, StorageError> {
         let (spool, report) = FlashBackedSpool::recover_with_report(flash)?;
         let metrics = StorageMetrics {
             pending_record_count: spool.len(),
             dropped_oldest_count: 0,
             recovered_record_count: report.recovered_record_count,
+            skipped_legacy_record_count: 0,
             corrupt_record_count: report.corrupt_record_count,
             last_error: None,
         };
 
-        Ok(Self { spool, metrics })
+        let current_boot_first_sequence = spool.next_sequence();
+        let mut backlog = Self {
+            spool,
+            metrics,
+            current_boot_first_sequence,
+        };
+        backlog.metrics.skipped_legacy_record_count =
+            backlog.discard_unsupported_front_payloads(flash)?;
+        backlog.refresh_pending_count();
+
+        Ok(backlog)
     }
 
     pub fn append_measurement(
@@ -108,7 +126,7 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
         measurement: Measurement,
     ) -> Result<(), StorageError> {
         let mut payload = [0_u8; PAYLOAD_SIZE];
-        let payload_len = match measurement_to_csv_line(&measurement, &mut payload) {
+        let payload_len = match measurement_to_json_fields(&measurement, &mut payload) {
             Ok(len) => len,
             Err(error) => {
                 let error = StorageError::from(error);
@@ -117,7 +135,10 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
             }
         };
 
-        match self.spool.append(flash, 0, &payload[..payload_len]) {
+        match self
+            .spool
+            .append(flash, PAYLOAD_FLAG_JSON_FIELDS, &payload[..payload_len])
+        {
             Ok(result) => {
                 self.metrics.dropped_oldest_count = self
                     .metrics
@@ -136,7 +157,9 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
     }
 
     pub fn peek_payload(&self) -> Option<StoredPayload<PAYLOAD_SIZE>> {
-        self.spool.peek().map(StoredPayload::from_record)
+        self.spool.peek().map(|record| {
+            StoredPayload::from_record(record, self.sequence_is_from_current_boot(record.sequence))
+        })
     }
 
     pub fn acknowledge(
@@ -147,7 +170,12 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
             Ok(record) => {
                 self.refresh_pending_count();
                 self.clear_error();
-                Ok(record.map(|record| StoredPayload::from_record(record.as_record())))
+                Ok(record.map(|record| {
+                    StoredPayload::from_record(
+                        record.as_record(),
+                        self.sequence_is_from_current_boot(record.sequence),
+                    )
+                }))
             }
             Err(error) => {
                 let error = StorageError::Spool(error);
@@ -192,6 +220,41 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
     fn set_error(&mut self, error: StorageError) {
         self.metrics.last_error = Some(error);
     }
+
+    fn sequence_is_from_current_boot(&self, sequence: u64) -> bool {
+        sequence.wrapping_sub(self.current_boot_first_sequence) < (u64::MAX / 2)
+    }
+
+    fn discard_unsupported_front_payloads(
+        &mut self,
+        flash: &mut impl FlashStorage,
+    ) -> Result<usize, StorageError> {
+        let mut skipped = 0;
+
+        while let Some(record) = self.spool.peek() {
+            if payload_flags_are_supported(record.flags) {
+                break;
+            }
+
+            match self.spool.acknowledge(flash) {
+                Ok(Some(_)) => {
+                    skipped += 1;
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    let error = StorageError::Spool(error);
+                    self.set_error(error);
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(skipped)
+    }
+}
+
+const fn payload_flags_are_supported(flags: u8) -> bool {
+    flags & PAYLOAD_FLAG_JSON_FIELDS == PAYLOAD_FLAG_JSON_FIELDS
 }
 
 impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> Default
@@ -265,7 +328,7 @@ pub async fn storage_task(
     );
 
     let mut storage_event_count = 0_u32;
-    let mut backlog = match MeasurementStorageBacklog::recover(&flash) {
+    let mut backlog = match MeasurementStorageBacklog::recover(&mut flash) {
         Ok(backlog) => {
             info!("storage recovered pending_len={=usize}", backlog.len());
             log_storage_metrics(backlog.metrics(), true, storage_event_count);
@@ -351,18 +414,20 @@ fn log_storage_metrics(metrics: StorageMetrics, force: bool, event_count: u32) {
 
     match metrics.last_error {
         Some(error) => info!(
-            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} corrupt={=usize} last_error={:?}",
+            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} skipped_legacy={=usize} corrupt={=usize} last_error={:?}",
             metrics.pending_record_count,
             metrics.recovered_record_count,
             metrics.dropped_oldest_count,
+            metrics.skipped_legacy_record_count,
             metrics.corrupt_record_count,
             error
         ),
         None => info!(
-            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} corrupt={=usize} last_error=none",
+            "storage metrics pending={=usize} recovered={=usize} dropped_oldest={=usize} skipped_legacy={=usize} corrupt={=usize} last_error=none",
             metrics.pending_record_count,
             metrics.recovered_record_count,
             metrics.dropped_oldest_count,
+            metrics.skipped_legacy_record_count,
             metrics.corrupt_record_count
         ),
     }
@@ -396,6 +461,14 @@ mod tests {
         core::str::from_utf8(payload.as_slice()).unwrap()
     }
 
+    fn assert_payload_uptime<const N: usize>(payload: &StoredPayload<N>, uptime_ms: u64) {
+        assert!(
+            payload_str(payload).contains(&format!("\"uptime_ms\":{uptime_ms}")),
+            "payload did not contain expected uptime: {}",
+            payload_str(payload)
+        );
+    }
+
     #[test]
     fn storage_task_model_appends_measurements_in_order() {
         let mut flash = InMemoryFlash::<512, 128>::new();
@@ -408,9 +481,9 @@ mod tests {
             .append_measurement(&mut flash, measurement(2))
             .unwrap();
 
-        assert!(payload_str(&backlog.peek_payload().unwrap()).starts_with("1,"));
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 1);
         backlog.acknowledge(&mut flash).unwrap();
-        assert!(payload_str(&backlog.peek_payload().unwrap()).starts_with("2,"));
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 2);
     }
 
     #[test]
@@ -427,9 +500,9 @@ mod tests {
 
         let acknowledged = backlog.acknowledge(&mut flash).unwrap().unwrap();
 
-        assert!(payload_str(&acknowledged).starts_with("10,"));
+        assert_payload_uptime(&acknowledged, 10);
         assert_eq!(backlog.len(), 1);
-        assert!(payload_str(&backlog.peek_payload().unwrap()).starts_with("20,"));
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 20);
     }
 
     #[test]
@@ -459,14 +532,18 @@ mod tests {
                 .unwrap();
         }
 
-        let mut recovered = StorageBacklog::<4, 192>::recover(&flash).unwrap();
+        let mut recovered = StorageBacklog::<4, 192>::recover(&mut flash).unwrap();
         recovered
             .append_measurement(&mut flash, measurement(50))
             .unwrap();
 
-        assert!(payload_str(&recovered.peek_payload().unwrap()).starts_with("40,"));
+        let recovered_payload = recovered.peek_payload().unwrap();
+        assert_payload_uptime(&recovered_payload, 40);
+        assert!(!recovered_payload.current_boot);
         recovered.acknowledge(&mut flash).unwrap();
-        assert!(payload_str(&recovered.peek_payload().unwrap()).starts_with("50,"));
+        let current_boot_payload = recovered.peek_payload().unwrap();
+        assert_payload_uptime(&current_boot_payload, 50);
+        assert!(current_boot_payload.current_boot);
     }
 
     #[test]
@@ -482,12 +559,34 @@ mod tests {
                 .unwrap();
         }
 
-        let recovered = StorageBacklog::<4, 192>::recover(&flash).unwrap();
+        let recovered = StorageBacklog::<4, 192>::recover(&mut flash).unwrap();
 
         assert_eq!(recovered.metrics().pending_record_count, 2);
         assert_eq!(recovered.metrics().recovered_record_count, 2);
+        assert_eq!(recovered.metrics().skipped_legacy_record_count, 0);
         assert_eq!(recovered.metrics().corrupt_record_count, 0);
         assert_eq!(recovered.metrics().last_error, None);
+    }
+
+    #[test]
+    fn recovery_skips_legacy_unflagged_payloads() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut spool = FlashBackedSpool::<4, 192>::new();
+        spool.append(&mut flash, 0, b"1,2,3,4").unwrap();
+        spool
+            .append(
+                &mut flash,
+                PAYLOAD_FLAG_JSON_FIELDS,
+                br#""uptime_ms":20,"temperature_c":null"#,
+            )
+            .unwrap();
+
+        let recovered = StorageBacklog::<4, 192>::recover(&mut flash).unwrap();
+
+        assert_eq!(recovered.metrics().pending_record_count, 1);
+        assert_eq!(recovered.metrics().recovered_record_count, 2);
+        assert_eq!(recovered.metrics().skipped_legacy_record_count, 1);
+        assert_payload_uptime(&recovered.peek_payload().unwrap(), 20);
     }
 
     #[test]
@@ -506,7 +605,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(backlog.len(), 2);
-        assert!(payload_str(&backlog.peek_payload().unwrap()).starts_with("2,"));
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 2);
     }
 
     #[test]

@@ -61,13 +61,27 @@ pub async fn wifi_task(
 
     loop {
         network_state.signal(NetworkState::Connecting);
-        info!("wifi connecting ssid={=str}", config::wifi::SSID);
-
-        let station_config = Config::Station(
-            StationConfig::default()
-                .with_ssid(config::wifi::SSID)
-                .with_auth_method(config::wifi::authentication_method()),
+        info!(
+            "wifi connecting ssid={=str} auth={:?}",
+            config::wifi::SSID,
+            config::wifi::AUTH_MODE
         );
+
+        let station_config = match config::wifi::validate_credentials(
+            config::wifi::SSID,
+            config::wifi::PASSWORD,
+            config::wifi::AUTH_MODE,
+        ) {
+            Ok(()) => station_config(),
+            Err(error) => {
+                network_state.signal(NetworkState::Disconnected);
+                warn!("wifi config invalid error={:?}", error);
+                Timer::after(Duration::from_secs(backoff_seconds(1) as u64)).await;
+                continue;
+            }
+        };
+
+        let station_config = Config::Station(station_config);
 
         let connect_result = match controller.set_config(&station_config) {
             Ok(()) => controller.connect_async().await,
@@ -111,6 +125,19 @@ pub async fn wifi_task(
             delay_seconds, attempt,
         );
         Timer::after(Duration::from_secs(delay_seconds as u64)).await;
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn station_config() -> StationConfig {
+    let station_config = StationConfig::default()
+        .with_ssid(config::wifi::SSID)
+        .with_auth_method(config::wifi::authentication_method());
+
+    if config::wifi::PASSWORD.is_empty() {
+        station_config
+    } else {
+        station_config.with_password(config::wifi::PASSWORD.into())
     }
 }
 

@@ -203,9 +203,9 @@ UploadResult
 
 ---
 
-## Planned `config.rs`
+## `config.rs`
 
-Phase 21 adds a firmware configuration module for deployment and behavior policy values.
+Firmware configuration module for deployment and behavior policy values.
 
 The boundary is:
 
@@ -304,13 +304,14 @@ header_len:u16
 sequence:u64
 payload_len:u16
 payload_crc:u32
-payload: CSV Measurement bytes
+payload: JSON measurement field-fragment bytes
 padding: erase/write alignment as needed
 ```
 
 Rules:
 
 - `sequence` is monotonic and used only for ordering/recovery.
+- Phase 22 JSON field-fragment records use a payload flag so legacy unflagged CSV records can be skipped during migration.
 - A record is uploadable only after its CRC validates.
 - A record is removed from the spool only after upload returns HTTP 2xx.
 - If the storage region is full, delete the oldest acknowledged or pending record required to make room, preserving the newest measurements.
@@ -344,9 +345,9 @@ LED2 policy:
 | Priority | Condition | LED2 pattern | Meaning |
 |---:|---|---|---|
 | 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone failure |
-| 2 | Upload result is failed, `ErrorFlags::UPLOAD` is set, or `ErrorFlags::STORAGE` is set | `On` | Measurement upload or persistent storage is failing |
-| 3 | Wi-Fi is disconnected or `ErrorFlags::WIFI` is set | `SlowBlink` | Network is not ready |
-| 4 | No current error and Wi-Fi is connected | `Off` | Normal operation |
+| 2 | `ErrorFlags::UPLOAD_MASK` intersects current flags, `ErrorFlags::TIME` is set, or `ErrorFlags::STORAGE` is set | `On` | Measurement upload, time sync, or persistent storage is failing |
+| 3 | Wi-Fi is disconnected or `ErrorFlags::NETWORK_MASK` intersects current flags | `SlowBlink` | Network is not ready |
+| 4 | No current error and IP networking is ready | `Off` | Normal operation |
 
 Timing:
 
@@ -405,7 +406,8 @@ Responsibilities:
 - Receive measurements from aggregation.
 - Append records to the internal SPI flash spool and maintain a RAM pending mirror.
 - Recover pending records from flash at boot.
-- Serve the oldest pending CSV payload to the uploader.
+- Skip legacy unflagged payloads from the previous CSV spool format.
+- Serve the oldest pending JSON field-fragment payload to the uploader.
 - Acknowledge records only after successful upload.
 - Serialize flash access so sensor and upload tasks do not directly block on erase/write operations.
 - Report storage errors without stopping sampling.
@@ -424,7 +426,7 @@ StorageResponse::Acked(bool)
 StorageResponse::Error(StorageError)
 ```
 
-`Append` has no response so aggregation cannot block behind upload response handling. `Peek` returns the oldest pending CSV payload copied out of the spool RAM mirror. `Ack` removes exactly one oldest pending record and is issued only by the uploader after HTTP 2xx.
+`Append` has no response so aggregation cannot block behind upload response handling. `Peek` returns the oldest pending JSON field-fragment payload copied out of the spool RAM mirror. `Ack` removes exactly one oldest pending record and is issued only by the uploader after HTTP 2xx.
 
 ---
 
@@ -449,8 +451,12 @@ Embassy task for upload.
 
 Responsibilities:
 
-- Read the oldest pending CSV payload from the storage task.
-- Upload when network is available.
+- Read the oldest pending JSON field-fragment payload from the storage task.
+- Resolve the REST endpoint from future provisioned config, UDP discovery, or static fallback.
+- Synchronize wall-clock time with SNTP/NTP or `GET /api/v1/time` when possible.
+- Build the JSON schema version 1 upload body.
+- Upload when IP networking is available.
+- Classify transport, malformed response, and non-2xx HTTP failures.
 - Acknowledge the record only after HTTP 2xx.
 - Do not block sensor sampling.
 - Report upload errors.
@@ -552,7 +558,11 @@ DropOldestQueue push / pop
 DropOldestQueue full behavior
 status_to_leds
 merge_measurement
-measurement_to_csv_line or measurement_to_json
+measurement_to_json_fields
+build_measurement_json
+resolve_endpoint
+http_response_class
+select_timestamp
 Wi-Fi state transition
 Wi-Fi backoff calculation
 Spool record encode / decode

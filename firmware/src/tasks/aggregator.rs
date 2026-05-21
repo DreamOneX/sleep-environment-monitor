@@ -21,7 +21,7 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
 #[cfg(target_arch = "riscv32")]
 use super::{
     SampleSignal, StorageRequestChannel, TaskSignal, storage::StorageCommand,
-    upload::measurement_to_csv_line,
+    upload::measurement_to_json_fields,
 };
 #[cfg(target_arch = "riscv32")]
 use crate::{types::ErrorFlags, util::logging::should_log_sample};
@@ -69,12 +69,12 @@ pub async fn aggregator_task(
 fn log_measurement(measurement: &Measurement) {
     let mut line = [0_u8; config::storage::MEASUREMENT_PAYLOAD_SIZE];
 
-    match measurement_to_csv_line(measurement, &mut line) {
+    match measurement_to_json_fields(measurement, &mut line) {
         Ok(len) => match core::str::from_utf8(&line[..len]) {
-            Ok(csv) => info!("measurement csv={=str}", csv),
-            Err(_) => warn!("measurement csv output was not utf-8"),
+            Ok(json_fields) => info!("measurement json_fields={=str}", json_fields),
+            Err(_) => warn!("measurement json output was not utf-8"),
         },
-        Err(_) => warn!("measurement csv buffer too small"),
+        Err(_) => warn!("measurement json buffer too small"),
     }
 }
 

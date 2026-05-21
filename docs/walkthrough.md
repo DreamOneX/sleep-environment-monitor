@@ -222,7 +222,7 @@ feat: add Wi-Fi connection manager
 Scope:
 
 - Add a hardware `wifi_task` that owns the ESP32-C3 Wi-Fi controller.
-- Connect as a station to the open `FZU` network from `environment.md`.
+- Connect as a station to the open `FZU` network from `../environment.md`.
 - Publish `NetworkState` through a `TaskSignal<NetworkState>`.
 - Reuse the existing Wi-Fi backoff policy after connection failures or disconnects.
 - Keep Wi-Fi independent from sensor sampling and local aggregation.

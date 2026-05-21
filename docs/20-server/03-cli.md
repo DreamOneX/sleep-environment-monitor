@@ -1,6 +1,6 @@
 # Server CLI
 
-The formal server CLI should use Python stdlib `argparse`.
+The formal server CLI uses Python stdlib `argparse`.
 
 Typer and Click are intentionally not the first choice for Phase 23. The CLI
 surface is small, and using `argparse` keeps the dependency boundary focused on
@@ -8,7 +8,7 @@ the server framework and runtime.
 
 ## Command Shape
 
-Planned console script:
+Console script:
 
 ```bash
 sleep-env-server
@@ -20,7 +20,7 @@ Equivalent module invocation:
 python -m sleep_env_server
 ```
 
-Planned subcommands:
+Subcommands:
 
 ```bash
 sleep-env-server serve
@@ -32,7 +32,7 @@ sleep-env-server print-discovery
 
 Runs the HTTP API and UDP discovery responder.
 
-Planned options:
+Options:
 
 ```text
 --host HOST
@@ -59,14 +59,14 @@ Behavior:
 - Start the FastAPI/Uvicorn HTTP server.
 - Start the UDP discovery responder on the configured port.
 - Print Rich startup information for local operation unless disabled.
-- Expose the same API paths as the Phase 22 receiver.
+- Expose the same API paths as the Phase 22 contract.
 - Shut down cleanly on interrupt.
 
 ## `check-config`
 
 Validates CLI and environment-derived configuration without opening sockets.
 
-Expected behavior:
+Behavior:
 
 - Validate host and port values.
 - Validate logging options.
@@ -79,7 +79,7 @@ Expected behavior:
 Prints the discovery document and UDP discovery payload that would be served by
 the current configuration.
 
-Expected behavior:
+Behavior:
 
 - Print `GET /.well-known/sleep-environment-monitor` metadata.
 - Print UDP discovery response fields.

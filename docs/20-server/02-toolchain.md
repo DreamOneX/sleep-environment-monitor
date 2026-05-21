@@ -1,17 +1,14 @@
 # Server Toolchain
 
-This document defines the planned Python toolchain, code style, and test
-standards for the formal ingestion server.
+This document defines the Python toolchain, code style, and test standards for
+the formal ingestion server.
 
-The current `server/post_receiver.py` is a temporary Phase 22 validation
-receiver. Phase 23 should replace or supersede it with a packaged Python
-application.
+## Toolchain
 
-## Toolchain Direction
+Implemented defaults:
 
-Planned defaults:
-
-- Python package metadata in `server/pyproject.toml`.
+- Python package metadata in [../../server/pyproject.toml](../../server/pyproject.toml).
+- Reproducible dependency resolution in [../../server/uv.lock](../../server/uv.lock).
 - Dependency and command execution through `uv`.
 - Web framework: FastAPI.
 - ASGI server: Uvicorn.
@@ -21,7 +18,7 @@ Planned defaults:
 - Tests: pytest.
 - Formatter and linter: Ruff, used as check-only guidance.
 
-Initial command shape:
+Primary commands:
 
 ```bash
 uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
@@ -31,12 +28,14 @@ uv run sleep-env-server print-discovery
 
 ## Package Layout
 
-Planned structure:
+Implemented structure:
 
 ```text
 server/
 ├── pyproject.toml
+├── uv.lock
 ├── README.md
+├── post_receiver.py
 ├── src/
 │   └── sleep_env_server/
 │       ├── __init__.py
@@ -45,23 +44,24 @@ server/
 │       ├── cli.py
 │       ├── config.py
 │       ├── discovery.py
-│       ├── logging.py
 │       ├── models.py
+│       ├── output.py
 │       └── storage.py
 └── tests/
     ├── test_api.py
     ├── test_cli.py
     ├── test_config.py
     ├── test_discovery.py
-    └── test_models.py
+    ├── test_models.py
+    └── test_output.py
 ```
 
-The exact module split may change during implementation, but the server should
-remain package-based rather than a single script.
+`server/post_receiver.py` is a compatibility wrapper. It dispatches to
+`sleep-env-server serve` when no subcommand is provided.
 
 ## Check Commands
 
-Expected check commands after Phase 23 implementation:
+Run from the `server/` directory:
 
 ```bash
 uv run pytest
@@ -74,9 +74,6 @@ If type checking is added later:
 ```bash
 uv run mypy src tests
 ```
-
-These commands should run from the `server/` directory unless the root workspace
-adds a wrapper command later.
 
 ## Formatter And Linter Policy
 
@@ -169,7 +166,7 @@ Required coverage:
   - `time_status` allowed values.
   - Optional `wall_clock_unix_ms`.
   - Nullable sensor values.
-  - Duplicate `(device_id, sequence)` acceptance or idempotent handling policy.
+  - Duplicate `(device_id, sequence)` idempotency.
 - UDP discovery logic:
   - Correct query payload is accepted.
   - Wrong query payload is ignored.

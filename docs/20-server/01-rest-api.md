@@ -1,11 +1,13 @@
 # REST API
 
-This document defines the firmware/server REST contract introduced in Phase 22.
+This document defines the firmware/server REST contract introduced in Phase 22
+and preserved by the Phase 23 formal server.
 
-The current local receiver, [../../server/post_receiver.py](../../server/post_receiver.py), implements the Phase 22 JSON upload, time, and discovery endpoints for validation. It does not preserve the old `/measurements` CSV bring-up endpoint.
-
-Phase 23 should preserve this contract while replacing or superseding the
-temporary receiver with a formal server implementation.
+The current implementation lives in
+[../../server/src/sleep_env_server/](../../server/src/sleep_env_server/).
+[../../server/post_receiver.py](../../server/post_receiver.py) is now a
+compatibility wrapper for the formal CLI. The old `/measurements` CSV bring-up
+endpoint is not restored.
 
 ## Versioning
 
@@ -25,7 +27,7 @@ The discovery document remains under `/.well-known/` so clients can find API det
 | `POST` | `/api/v1/measurements` | Accept measurement uploads. |
 | `GET` | `/.well-known/sleep-environment-monitor` | Return discovery metadata. |
 
-The Phase 22 receiver returns `404` for other `POST` paths.
+The formal server returns `404` for other `POST` paths.
 
 ## Upload Semantics
 
@@ -35,7 +37,8 @@ Server requirements:
 
 - Return 2xx only after the payload is accepted.
 - Return non-2xx for invalid payloads or unavailable ingestion.
-- Tolerate duplicate submissions from the same device and sequence.
+- Tolerate duplicate submissions from the same device and sequence. Phase 23
+  treats duplicates as idempotent success and returns `204`.
 - Preserve enough request metadata for later diagnostics.
 
 Firmware requirements:
@@ -106,7 +109,8 @@ Discovery should complement, not replace, provisioned configuration. A static fi
 
 ## UDP Discovery
 
-The Phase 22 receiver listens for discovery datagrams on UDP port `39022`.
+The formal server listens for discovery datagrams on UDP port `39022` by
+default.
 
 - Query payload: `sleep-environment-monitor.discovery`.
 - Response fields: `host`, `port`, `api_base`, `measurement_upload`, and `time`.
@@ -114,18 +118,18 @@ The Phase 22 receiver listens for discovery datagrams on UDP port `39022`.
 
 ## Implementation Notes
 
-The formal server implementation should keep behavior equivalent to the Phase
-22 receiver unless this contract is intentionally revised in a later phase.
+The Phase 23 formal server keeps behavior equivalent to the Phase 22 receiver
+unless this contract is intentionally revised in a later phase.
 
 Requirements:
 
-- `POST /api/v1/measurements` should return a 2xx response only after accepting
+- `POST /api/v1/measurements` returns a 2xx response only after accepting
   the upload for processing.
-- Invalid JSON, invalid measurement schema, or unavailable ingestion should
-  return non-2xx.
-- Other `POST` paths should return `404`.
-- `GET /api/v1/time` should return integer `unix_ms` and source metadata.
-- `GET /.well-known/sleep-environment-monitor` should describe the active API
+- Invalid JSON, invalid measurement schema, or unavailable ingestion returns
+  non-2xx.
+- Other `POST` paths return `404`.
+- `GET /api/v1/time` returns integer `unix_ms` and source metadata.
+- `GET /.well-known/sleep-environment-monitor` describes the active API
   paths and UDP discovery port.
-- UDP discovery should respond only to the documented query payload.
-- The old `/measurements` CSV endpoint should not be restored.
+- UDP discovery responds only to the documented query payload.
+- The old `/measurements` CSV endpoint is not restored.

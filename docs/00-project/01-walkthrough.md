@@ -1301,3 +1301,81 @@ Observed results:
 - No firmware or server implementation code was changed.
 - No hardware validation was run for this docs-only milestone, and no firmware
   flash-write range was exercised.
+
+## Milestone 24: Formal Server Foundation
+
+Phase 23 implementation:
+
+- Added the formal `server/` Python package with FastAPI, Uvicorn, Pydantic,
+  Rich, `argparse`, pytest, and Ruff.
+- Added `server/pyproject.toml` and `server/uv.lock`.
+- Implemented `sleep-env-server` with:
+  - `serve`
+  - `check-config`
+  - `print-discovery`
+- Preserved the Phase 22 firmware/server contract:
+  - `POST /api/v1/measurements`.
+  - `GET /api/v1/time`.
+  - `GET /.well-known/sleep-environment-monitor`.
+  - UDP discovery query `sleep-environment-monitor.discovery` on port `39022`.
+- Implemented schema-version-1 measurement validation and process-local
+  duplicate tracking by `(device_id, sequence)`.
+- Kept duplicate uploads idempotent: repeated valid measurements return `204`.
+- Added bounded plain, Rich, and JSONL output paths that log source, byte count,
+  device id, sequence, and duplicate status without dumping the full payload.
+- Demoted `server/post_receiver.py` to a compatibility wrapper that dispatches
+  to the formal CLI. With no subcommand it runs `sleep-env-server serve`.
+- Updated server documentation to describe the implemented package structure,
+  command surface, check commands, API behavior, and compatibility wrapper.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv lock
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+Observed results:
+
+- `uv lock` resolved 33 packages.
+- `uv run pytest` collected and passed 40 hardware-free tests.
+- `uv run ruff check --diff .` completed with no diagnostics after manual
+  review and edits.
+- `uv run ruff format --check .` completed with all server files formatted
+  after manual review and edits.
+
+Additional CLI smoke checks:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server check-config
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server print-discovery --output json
+python3 server/post_receiver.py check-config
+```
+
+Live loopback smoke checks:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server serve --host 127.0.0.1 --port 18080 --udp-discovery-port 39024 --no-rich
+curl -fsS http://127.0.0.1:18080/api/v1/time
+curl -fsS http://127.0.0.1:18080/.well-known/sleep-environment-monitor
+env UV_CACHE_DIR=.cache/uv uv run python -c 'import socket; sock=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sock.settimeout(2); sock.sendto(b"sleep-environment-monitor.discovery", ("127.0.0.1", 39024)); print(sock.recvfrom(512)[0].decode())'
+```
+
+Observed loopback responses:
+
+```text
+{"unix_ms":1779403882960,"source":"server"}
+{"api_base":"/api/v1","measurement_upload":"/api/v1/measurements","time":"/api/v1/time","udp_discovery_port":39024}
+{"host":"127.0.0.1","port":18080,"api_base":"/api/v1","measurement_upload":"/api/v1/measurements","time":"/api/v1/time"}
+```
+
+Notes:
+
+- The first sandboxed `curl` attempt failed with TCP socket permission errors;
+  the same loopback HTTP checks passed when run with approval outside the
+  sandbox.
+- No ESP32-C3 hardware validation was run for this implementation milestone.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

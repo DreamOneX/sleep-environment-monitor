@@ -1,0 +1,36 @@
+[project]
+name = "sleep-env-server"
+version = "0.1.0"
+description = "Measurement ingestion server for the sleep environment monitor."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.8.0",
+    "rich>=13.7.0",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.scripts]
+sleep-env-server = "sleep_env_server.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

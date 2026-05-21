@@ -29,10 +29,10 @@ This directory contains the tracked project documentation.
 
 ## Server
 
-- [20-server/00-overview.md](20-server/00-overview.md): measurement ingestion server role, Phase 22 receiver, and Phase 23 formal server direction.
+- [20-server/00-overview.md](20-server/00-overview.md): formal measurement ingestion server role and boundaries.
 - [20-server/01-rest-api.md](20-server/01-rest-api.md): REST API contract between firmware and server.
-- [20-server/02-toolchain.md](20-server/02-toolchain.md): planned Python server toolchain, style policy, formatter/linter policy, and test expectations.
-- [20-server/03-cli.md](20-server/03-cli.md): planned formal server CLI behavior.
+- [20-server/02-toolchain.md](20-server/02-toolchain.md): Python server toolchain, style policy, formatter/linter policy, and test expectations.
+- [20-server/03-cli.md](20-server/03-cli.md): formal server CLI behavior.
 
 ## Integration
 
@@ -45,5 +45,5 @@ This directory contains the tracked project documentation.
 - Keep implementation structure and data-flow decisions in `10-firmware/00-architecture.md`.
 - Keep firmware build and style expectations in `10-firmware/02-conventions.md`.
 - Keep hardware facts in `10-firmware/01-hardware.md`.
-- Keep the server API contract in `20-server/01-rest-api.md` until the formal server implementation supersedes the local receiver.
+- Keep the server API contract in `20-server/01-rest-api.md`.
 - Keep server toolchain, CLI, style, and test policy in `20-server/02-toolchain.md` and `20-server/03-cli.md`.

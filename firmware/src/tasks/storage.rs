@@ -1,4 +1,5 @@
 use crate::{
+    config,
     storage::{
         flash_model::FlashStorage,
         spool::{FlashBackedSpool, SpoolError},
@@ -7,8 +8,8 @@ use crate::{
     types::{ErrorFlags, Measurement},
 };
 
-pub const MEASUREMENT_PAYLOAD_SIZE: usize = 192;
-pub const PERSISTENT_SPOOL_CAPACITY: usize = 32;
+pub const MEASUREMENT_PAYLOAD_SIZE: usize = config::storage::MEASUREMENT_PAYLOAD_SIZE;
+pub const PERSISTENT_SPOOL_CAPACITY: usize = config::storage::PERSISTENT_SPOOL_CAPACITY;
 pub type MeasurementStorageBacklog =
     StorageBacklog<PERSISTENT_SPOOL_CAPACITY, MEASUREMENT_PAYLOAD_SIZE>;
 
@@ -230,7 +231,7 @@ use crate::{
 use defmt::{info, warn};
 
 #[cfg(target_arch = "riscv32")]
-const STORAGE_METRICS_LOG_EVERY_EVENTS: u32 = 16;
+const STORAGE_METRICS_LOG_EVERY_EVENTS: u32 = config::storage::METRICS_LOG_EVERY_EVENTS;
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]

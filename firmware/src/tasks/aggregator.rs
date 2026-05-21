@@ -1,7 +1,7 @@
 use crate::types::{EnvSample, Measurement, MicSample};
 
 #[cfg(target_arch = "riscv32")]
-const MEASUREMENT_LOG_EVERY_SAMPLES: u32 = 60;
+use crate::config;
 
 pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
     Measurement {
@@ -48,7 +48,7 @@ pub async fn aggregator_task(
         let measurement = merge_measurement(latest_env, latest_mic);
         if should_log_sample(
             measurement_count,
-            MEASUREMENT_LOG_EVERY_SAMPLES,
+            config::aggregator::MEASUREMENT_LOG_EVERY_SAMPLES,
             measurement.error_flags,
         ) {
             log_measurement(&measurement);
@@ -67,7 +67,7 @@ pub async fn aggregator_task(
 
 #[cfg(target_arch = "riscv32")]
 fn log_measurement(measurement: &Measurement) {
-    let mut line = [0_u8; 192];
+    let mut line = [0_u8; config::storage::MEASUREMENT_PAYLOAD_SIZE];
 
     match measurement_to_csv_line(measurement, &mut line) {
         Ok(len) => match core::str::from_utf8(&line[..len]) {

@@ -15,7 +15,7 @@ pub type TaskSignal<T> =
 pub type SampleSignal<T> = TaskSignal<T>;
 
 #[cfg(target_arch = "riscv32")]
-pub const STORAGE_REQUEST_CAPACITY: usize = 8;
+pub const STORAGE_REQUEST_CAPACITY: usize = crate::config::storage::REQUEST_CAPACITY;
 
 #[cfg(target_arch = "riscv32")]
 pub type StorageRequestChannel = embassy_sync::channel::Channel<

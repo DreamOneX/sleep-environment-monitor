@@ -1,17 +1,6 @@
 use core::fmt::{self, Write};
 
-use crate::types::Measurement;
-
-#[cfg(target_arch = "riscv32")]
-const UPLOAD_HOST_HEADER: &str = "10.133.56.218:8080";
-#[cfg(target_arch = "riscv32")]
-const UPLOAD_PATH: &str = "/measurements";
-#[cfg(target_arch = "riscv32")]
-const UPLOAD_PORT: u16 = 8080;
-#[cfg(target_arch = "riscv32")]
-const UPLOAD_RETRY_DELAY_SECS: u64 = 2;
-#[cfg(target_arch = "riscv32")]
-const UPLOAD_SUCCESS_LOG_EVERY: u32 = 60;
+use crate::{config, types::Measurement};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EncodeError {
@@ -56,8 +45,7 @@ pub fn build_http_post_request(
 
     write!(writer, "POST {path} HTTP/1.1\r\n").map_err(|_| EncodeError::BufferTooSmall)?;
     write!(writer, "Host: {host}\r\n").map_err(|_| EncodeError::BufferTooSmall)?;
-    writer
-        .write_str("User-Agent: sleep-environment-monitor/0.1\r\n")
+    write!(writer, "User-Agent: {}\r\n", config::upload::USER_AGENT)
         .map_err(|_| EncodeError::BufferTooSmall)?;
     writer
         .write_str("Content-Type: text/csv\r\n")
@@ -184,7 +172,10 @@ pub async fn uploader_task(
         }
 
         let Some(payload) = peek_payload(storage_requests, storage_responses).await else {
-            Timer::after(Duration::from_millis(250)).await;
+            Timer::after(Duration::from_millis(
+                config::upload::EMPTY_SPOOL_POLL_MILLIS,
+            ))
+            .await;
             continue;
         };
 
@@ -194,7 +185,7 @@ pub async fn uploader_task(
                 upload_result.signal(UploadResult::Success);
                 if !acked
                     || upload_success_count == 0
-                    || upload_success_count.is_multiple_of(UPLOAD_SUCCESS_LOG_EVERY)
+                    || upload_success_count.is_multiple_of(config::upload::SUCCESS_LOG_EVERY)
                 {
                     info!(
                         "upload success sequence={=u64} acked={=bool}",
@@ -209,7 +200,7 @@ pub async fn uploader_task(
                     "upload failed error={:?} sequence={=u64}",
                     error, payload.sequence
                 );
-                Timer::after(Duration::from_secs(UPLOAD_RETRY_DELAY_SECS)).await;
+                Timer::after(Duration::from_secs(config::upload::RETRY_DELAY_SECS)).await;
             }
         }
     }
@@ -249,17 +240,25 @@ async fn acknowledge_payload(
 
 #[cfg(target_arch = "riscv32")]
 async fn post_csv_payload(stack: Stack<'static>, body: &[u8]) -> Result<(), UploadError> {
-    let mut rx_buffer = [0_u8; 512];
-    let mut tx_buffer = [0_u8; 512];
-    let mut request = [0_u8; 512];
-    let mut response = [0_u8; 128];
+    let mut rx_buffer = [0_u8; config::upload::RX_BUFFER_SIZE];
+    let mut tx_buffer = [0_u8; config::upload::TX_BUFFER_SIZE];
+    let mut request = [0_u8; config::upload::REQUEST_BUFFER_SIZE];
+    let mut response = [0_u8; config::upload::RESPONSE_BUFFER_SIZE];
 
-    let request_len = build_http_post_request(UPLOAD_HOST_HEADER, UPLOAD_PATH, body, &mut request)
-        .map_err(|_| UploadError::Encode)?;
+    let request_len = build_http_post_request(
+        config::upload::HOST_HEADER,
+        config::upload::PATH,
+        body,
+        &mut request,
+    )
+    .map_err(|_| UploadError::Encode)?;
 
-    let endpoint = IpEndpoint::new(IpAddress::v4(10, 133, 56, 218), UPLOAD_PORT);
+    let [a, b, c, d] = config::upload::IPV4_OCTETS;
+    let endpoint = IpEndpoint::new(IpAddress::v4(a, b, c, d), config::upload::PORT);
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-    socket.set_timeout(Some(Duration::from_secs(10)));
+    socket.set_timeout(Some(Duration::from_secs(
+        config::upload::SOCKET_TIMEOUT_SECS,
+    )));
 
     socket.connect(endpoint).await.map_err(map_connect_error)?;
     socket
@@ -268,10 +267,13 @@ async fn post_csv_payload(stack: Stack<'static>, body: &[u8]) -> Result<(), Uplo
         .map_err(|_| UploadError::Write)?;
     socket.flush().await.map_err(|_| UploadError::Write)?;
 
-    let read_result = with_timeout(Duration::from_secs(10), socket.read(&mut response))
-        .await
-        .map_err(|_| UploadError::Timeout)?
-        .map_err(|_| UploadError::Read)?;
+    let read_result = with_timeout(
+        Duration::from_secs(config::upload::READ_TIMEOUT_SECS),
+        socket.read(&mut response),
+    )
+    .await
+    .map_err(|_| UploadError::Timeout)?
+    .map_err(|_| UploadError::Read)?;
 
     socket.close();
 

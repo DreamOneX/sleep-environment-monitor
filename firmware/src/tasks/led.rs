@@ -6,6 +6,7 @@ use esp_hal::gpio::Output;
 
 #[cfg(target_arch = "riscv32")]
 use crate::{
+    config,
     tasks::TaskSignal,
     types::{ErrorFlags, NetworkState, UploadResult},
     util::status::{LedPattern, status_error_flags, status_to_leds},
@@ -16,10 +17,10 @@ use crate::{
 pub async fn heartbeat_task(mut led: Output<'static>) {
     loop {
         led.set_low();
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(config::led::HEARTBEAT_ON_MILLIS)).await;
 
         led.set_high();
-        Timer::after(Duration::from_millis(900)).await;
+        Timer::after(Duration::from_millis(config::led::HEARTBEAT_OFF_MILLIS)).await;
     }
 }
 
@@ -52,7 +53,7 @@ pub async fn status_task(
         drive_active_low_led(&mut led, leds.led2, tick);
 
         tick = tick.wrapping_add(1);
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(config::led::STATUS_TICK_MILLIS)).await;
     }
 }
 
@@ -61,9 +62,9 @@ fn drive_active_low_led(led: &mut Output<'static>, pattern: LedPattern, tick: u3
     let on = match pattern {
         LedPattern::Off => false,
         LedPattern::On => true,
-        LedPattern::SlowBlink => (tick / 5).is_multiple_of(2),
-        LedPattern::FastBlink => tick.is_multiple_of(2),
-        LedPattern::Heartbeat => tick.is_multiple_of(10),
+        LedPattern::SlowBlink => (tick / config::led::SLOW_BLINK_TICKS).is_multiple_of(2),
+        LedPattern::FastBlink => tick.is_multiple_of(config::led::FAST_BLINK_TICKS),
+        LedPattern::Heartbeat => tick.is_multiple_of(config::led::HEARTBEAT_TICKS),
     };
 
     if on {

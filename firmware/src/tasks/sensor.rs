@@ -8,14 +8,12 @@ use esp_hal::{Blocking, i2c::master::I2c};
 #[cfg(target_arch = "riscv32")]
 use crate::{
     board::{I2C_ADDR_OPT3001, I2C_ADDR_SHT40},
+    config,
     drivers::{opt3001, sht40},
     tasks::SampleSignal,
     types::{EnvSample, ErrorFlags},
     util::logging::should_log_sample,
 };
-
-#[cfg(target_arch = "riscv32")]
-const ENV_LOG_EVERY_SAMPLES: u32 = 30;
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
@@ -33,7 +31,11 @@ pub async fn sensor_task(
     loop {
         let sample = read_env_sample(&mut i2c).await;
 
-        if should_log_sample(sample_count, ENV_LOG_EVERY_SAMPLES, sample.error_flags) {
+        if should_log_sample(
+            sample_count,
+            config::sensor::LOG_EVERY_SAMPLES,
+            sample.error_flags,
+        ) {
             info!(
                 "env sample uptime_ms={} temp_c={=f32} rh_percent={=f32} lux={=f32} error_flags={=u32}",
                 sample.uptime_ms,
@@ -46,7 +48,7 @@ pub async fn sensor_task(
         samples.signal(sample);
 
         sample_count = sample_count.wrapping_add(1);
-        Timer::after(Duration::from_secs(2)).await;
+        Timer::after(Duration::from_secs(config::sensor::SAMPLE_PERIOD_SECS)).await;
     }
 }
 
@@ -82,6 +84,9 @@ async fn read_env_sample(i2c: &mut I2c<'static, Blocking>) -> EnvSample {
 #[cfg(target_arch = "riscv32")]
 async fn read_sht40(i2c: &mut I2c<'static, Blocking>) -> Result<(f32, f32), sht40::Sht40Error> {
     sht40::start_measurement(i2c, I2C_ADDR_SHT40)?;
-    Timer::after(Duration::from_millis(10)).await;
+    Timer::after(Duration::from_millis(
+        config::sensor::SHT40_MEASUREMENT_WAIT_MILLIS,
+    ))
+    .await;
     sht40::read_measurement(i2c, I2C_ADDR_SHT40)
 }

@@ -33,11 +33,11 @@ pub fn next_wifi_state(state: WifiState, event: WifiEvent) -> WifiState {
 
 pub const fn backoff_seconds(attempt: u8) -> u32 {
     match attempt {
-        0 | 1 => 1,
-        2 => 2,
-        3 => 5,
-        4 => 10,
-        _ => 30,
+        0 | 1 => crate::config::wifi::BACKOFF_SECONDS[0],
+        2 => crate::config::wifi::BACKOFF_SECONDS[1],
+        3 => crate::config::wifi::BACKOFF_SECONDS[2],
+        4 => crate::config::wifi::BACKOFF_SECONDS[3],
+        _ => crate::config::wifi::BACKOFF_SECONDS[4],
     }
 }
 
@@ -46,13 +46,10 @@ use defmt::{info, warn};
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
-use esp_radio::wifi::{AuthenticationMethod, Config, WifiController, sta::StationConfig};
+use esp_radio::wifi::{Config, WifiController, sta::StationConfig};
 
 #[cfg(target_arch = "riscv32")]
-use crate::{tasks::TaskSignal, types::NetworkState};
-
-#[cfg(target_arch = "riscv32")]
-const WIFI_SSID: &str = "FZU";
+use crate::{config, tasks::TaskSignal, types::NetworkState};
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
@@ -64,12 +61,12 @@ pub async fn wifi_task(
 
     loop {
         network_state.signal(NetworkState::Connecting);
-        info!("wifi connecting ssid={=str}", WIFI_SSID);
+        info!("wifi connecting ssid={=str}", config::wifi::SSID);
 
         let station_config = Config::Station(
             StationConfig::default()
-                .with_ssid(WIFI_SSID)
-                .with_auth_method(AuthenticationMethod::None),
+                .with_ssid(config::wifi::SSID)
+                .with_auth_method(config::wifi::authentication_method()),
         );
 
         let connect_result = match controller.set_config(&station_config) {

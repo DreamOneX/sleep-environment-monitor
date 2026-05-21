@@ -987,3 +987,38 @@ Observed results:
 - No old root-level doc links remain in `AGENTS.md` or `docs/`.
 - No firmware code was changed.
 - No hardware validation was run for this docs-only milestone, and no firmware flash-write range was exercised.
+
+## Milestone 19: Firmware Configuration Consolidation
+
+Phase 21 code progress:
+
+- Add `firmware/src/config.rs` as the central source for deployment and behavior-policy constants.
+- Re-export `config` from `firmware/src/lib.rs`.
+- Move task-local Wi-Fi, upload, network, runtime, sensor, microphone, storage, aggregator, and LED policy values to `config`.
+- Preserve existing public const-generic aliases:
+  - `tasks::storage::MEASUREMENT_PAYLOAD_SIZE`
+  - `tasks::storage::PERSISTENT_SPOOL_CAPACITY`
+  - `tasks::STORAGE_REQUEST_CAPACITY`
+- Preserve current runtime behavior:
+  - Wi-Fi SSID remains `FZU`.
+  - REST upload remains `10.133.56.218:8080/measurements`.
+  - HTTP user agent remains `sleep-environment-monitor/0.1`.
+  - CSV measurement payload encoding is unchanged.
+
+Verification commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+```
+
+Observed results:
+
+- `cargo test --lib` passed with 108 tests.
+- Target firmware build completed without errors.
+- Both clippy runs completed without warnings or errors.
+- A targeted search found the Wi-Fi SSID, REST endpoint/path, user-agent, and migrated timing/buffer values only in `config.rs` or test fixtures.
+- No hardware validation was run for this behavior-preserving configuration refactor, and no firmware flash-write range was exercised.

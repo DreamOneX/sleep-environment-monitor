@@ -20,7 +20,7 @@ use embassy_sync::{
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 #[cfg(target_arch = "riscv32")]
-use esp_hal::analog::adc::{Adc, AdcConfig, Attenuation};
+use esp_hal::analog::adc::{Adc, AdcConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
 #[cfg(target_arch = "riscv32")]
@@ -39,6 +39,7 @@ use panic_rtt_target as _;
 use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
+    config,
     tasks::{
         StorageRequestChannel, StorageResponseSignal,
         aggregator::aggregator_task,
@@ -73,7 +74,9 @@ static STORAGE_REQUESTS: StorageRequestChannel = Channel::<
 static STORAGE_RESPONSES: StorageResponseSignal =
     Signal::<CriticalSectionRawMutex, StorageResponse>::new();
 #[cfg(target_arch = "riscv32")]
-static NET_RESOURCES: static_cell::StaticCell<StackResources<3>> = static_cell::StaticCell::new();
+static NET_RESOURCES: static_cell::StaticCell<
+    StackResources<{ config::network::STACK_RESOURCE_COUNT }>,
+> = static_cell::StaticCell::new();
 
 #[cfg(target_arch = "riscv32")]
 extern crate alloc;
@@ -120,8 +123,8 @@ async fn main(spawner: Spawner) -> ! {
 
     rtt_target::rtt_init_defmt!();
 
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
+    let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(hal_config);
 
     // The following pins are used to bootstrap the chip. They are available
     // for use, but check the datasheet of the module for more information on them.
@@ -137,7 +140,7 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO16;
     let _ = peripherals.GPIO17;
 
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 66320);
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: config::runtime::HEAP_SIZE_BYTES);
 
     #[cfg(feature = "flash-smoke")]
     {
@@ -171,7 +174,8 @@ async fn main(spawner: Spawner) -> ! {
         "status",
     );
 
-    let i2c_config = I2cConfig::default().with_frequency(Rate::from_khz(100));
+    let i2c_config =
+        I2cConfig::default().with_frequency(Rate::from_khz(config::sensor::I2C_FREQUENCY_KHZ));
     match I2c::new(peripherals.I2C0, i2c_config) {
         Ok(i2c) => {
             let i2c = i2c.with_sda(peripherals.GPIO4).with_scl(peripherals.GPIO5);
@@ -196,7 +200,7 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let mut adc1_config = AdcConfig::new();
-    let mic_pin = adc1_config.enable_pin(peripherals.GPIO3, Attenuation::_11dB);
+    let mic_pin = adc1_config.enable_pin(peripherals.GPIO3, config::mic::adc_attenuation());
     let adc1 = Adc::new(peripherals.ADC1, adc1_config);
     if !spawn_task(&spawner, mic_task(adc1, mic_pin, &MIC_SAMPLE_SIGNAL), "mic") {
         MIC_SAMPLE_SIGNAL.signal(MicSample {
@@ -225,7 +229,7 @@ async fn main(spawner: Spawner) -> ! {
 
     match esp_radio::wifi::new(peripherals.WIFI, Default::default()) {
         Ok((wifi_controller, wifi_interfaces)) => {
-            let net_config = embassy_net::Config::dhcpv4(Default::default());
+            let net_config = config::network::default_config();
             let random_seed = Rng::new().random() as u64;
             let (stack, runner) = embassy_net::new(
                 wifi_interfaces.station,
@@ -268,7 +272,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("measurement aggregation, Wi-Fi manager, and uploader initialized");
 
     loop {
-        Timer::after(Duration::from_secs(60)).await;
+        Timer::after(Duration::from_secs(config::runtime::MAIN_IDLE_SLEEP_SECS)).await;
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples

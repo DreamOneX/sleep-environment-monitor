@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod board;
+pub mod config;
 pub mod drivers;
 pub mod storage;
 pub mod tasks;

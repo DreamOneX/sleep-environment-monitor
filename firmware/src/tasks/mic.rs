@@ -11,18 +11,12 @@ use esp_hal::{
 
 #[cfg(target_arch = "riscv32")]
 use crate::{
+    config,
     drivers::mic::analyze_adc_samples,
     tasks::SampleSignal,
     types::{ErrorFlags, MicSample},
     util::logging::should_log_sample,
 };
-
-#[cfg(target_arch = "riscv32")]
-const MIC_SAMPLE_COUNT: usize = 1000;
-#[cfg(target_arch = "riscv32")]
-const MIC_READ_MAX_RETRIES: u8 = 8;
-#[cfg(target_arch = "riscv32")]
-const MIC_LOG_EVERY_WINDOWS: u32 = 60;
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
@@ -31,7 +25,7 @@ pub async fn mic_task(
     mut pin: AdcPin<GPIO3<'static>, ADC1<'static>>,
     samples: &'static SampleSignal<MicSample>,
 ) {
-    let mut window = [0_u16; MIC_SAMPLE_COUNT];
+    let mut window = [0_u16; config::mic::SAMPLE_COUNT];
     let mut window_count = 0_u32;
 
     loop {
@@ -45,7 +39,7 @@ pub async fn mic_task(
                     read_error_count = read_error_count.saturating_add(1);
                 }
             }
-            Timer::after(Duration::from_millis(1)).await;
+            Timer::after(Duration::from_millis(config::mic::SAMPLE_INTERVAL_MILLIS)).await;
         }
 
         let sample = analyze_window(&window, read_error_count > 0);
@@ -53,7 +47,11 @@ pub async fn mic_task(
         if read_error_count > 0 {
             warn!("mic adc read failures count={=u32}", read_error_count);
         }
-        if should_log_sample(window_count, MIC_LOG_EVERY_WINDOWS, sample.error_flags) {
+        if should_log_sample(
+            window_count,
+            config::mic::LOG_EVERY_WINDOWS,
+            sample.error_flags,
+        ) {
             info!(
                 "mic sample uptime_ms={} mean={=f32} rms={=f32} peak={=f32} db_rel={=f32} clip_count={=u32} error_flags={=u32}",
                 sample.uptime_ms,
@@ -76,10 +74,12 @@ async fn read_sample(
     adc: &mut Adc<'static, ADC1<'static>, Blocking>,
     pin: &mut AdcPin<GPIO3<'static>, ADC1<'static>>,
 ) -> Result<u16, ()> {
-    for _ in 0..MIC_READ_MAX_RETRIES {
+    for _ in 0..config::mic::READ_MAX_RETRIES {
         match adc.read_oneshot(pin) {
             Ok(value) => return Ok(value),
-            Err(_) => Timer::after(Duration::from_micros(100)).await,
+            Err(_) => {
+                Timer::after(Duration::from_micros(config::mic::READ_RETRY_DELAY_MICROS)).await
+            }
         }
     }
 

@@ -944,7 +944,7 @@ Validate the persistent spool under realistic overnight failure modes.
   - corrupt record count
   - last storage error
 - Reduce storage metrics log volume for overnight runs.
-- Document manual recovery procedures in `walkthrough.md`.
+- Document manual recovery procedures in `01-walkthrough.md`.
 - Harden any observed blocking or reset-loop paths.
 
 ## Unit Tests
@@ -974,6 +974,121 @@ Add tests only if new pure logic is introduced.
 
 ```text
 fix: harden persistent spool recovery
+```
+
+---
+
+# Phase 21: Firmware Configuration Consolidation
+
+## Goal
+
+Centralize firmware deployment and policy constants without changing runtime behavior.
+
+## Work Items
+
+- Add:
+
+```text
+firmware/src/config.rs
+```
+
+- Re-export the module from `firmware/src/lib.rs`.
+- Move deployment and policy values into config:
+  - Wi-Fi SSID and authentication defaults.
+  - REST upload fallback endpoint, port, path, user-agent, retry delay, timeouts, and buffers.
+  - Network stack resource sizing and DHCP default.
+  - Sensor and microphone timing policy.
+  - Storage payload, queue, and metrics tuning.
+  - Logging and LED timing policy.
+- Keep board facts and protocol constants outside config:
+  - GPIO pins, I2C addresses, and flash layout remain in `board.rs`.
+  - Sensor commands, register constants, and conversion math remain in drivers.
+  - Spool magic/version/header constants remain in `storage/spool.rs`.
+- Update [../10-firmware/04-configuration.md](../10-firmware/04-configuration.md) if implementation changes the config boundary.
+
+## Unit Tests
+
+All previous tests must pass.
+
+Add tests only for new pure config selection or validation logic.
+
+## Manual Integration Checks
+
+No hardware validation is required if behavior is preserved.
+
+If flash-write validation is unexpectedly needed, state the exact flash range before running it.
+
+## Done When
+
+- Task-local deployment and policy hardcoding is removed.
+- Existing REST upload and temporary receiver compatibility are preserved.
+- Firmware builds and tests pass with the standard verification commands.
+
+## Git Commit Message
+
+```text
+refactor: centralize firmware configuration constants
+```
+
+---
+
+# Phase 22: REST Network, Discovery, Time, And BLE Readiness
+
+## Goal
+
+Replace the current catch-all network/upload path with clear REST networking responsibilities while adding server discovery and real-world time support.
+
+## Work Items
+
+- Keep REST as the primary upload protocol; do not add MQTT.
+- Split responsibilities for:
+  - Wi-Fi link state.
+  - IP/DHCP readiness.
+  - REST endpoint resolution and discovery.
+  - HTTP transport and response classification.
+  - Upload orchestration and storage acknowledgement.
+- Keep storage acknowledgement tied to HTTP 2xx only.
+- Add automatic server discovery with static configured endpoint fallback.
+- Add real-world time support:
+  - Prefer SNTP/NTP after IP configuration if practical.
+  - Use `GET /api/v1/time` as REST fallback.
+  - Preserve `uptime_ms` for all measurements.
+  - Add wall-clock timestamp fields only when synchronized.
+- Shape config and interfaces so future BLE provisioning can provide Wi-Fi and REST endpoint settings.
+- Update [../10-firmware/03-network.md](../10-firmware/03-network.md), [../20-server/01-rest-api.md](../20-server/01-rest-api.md), and [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md) as implementation decisions become concrete.
+
+## Unit Tests
+
+Add hardware-independent tests for:
+
+- Endpoint resolution precedence.
+- Discovery fallback behavior.
+- HTTP response and upload error classification.
+- Timestamp selection before and after wall-clock sync.
+- Storage acknowledgement only after upload success.
+
+## Manual Integration Checks
+
+- Wi-Fi connects and reconnects.
+- Firmware obtains IP configuration.
+- Static fallback REST upload still works.
+- Automatic discovery finds the server when available.
+- Receiver/server outage preserves pending records.
+- Server return drains records in order.
+- Time synchronization is visible in logs and payloads.
+- Sampling and persistent storage continue while network features fail.
+
+## Done When
+
+- Network status distinguishes Wi-Fi, IP, discovery, time, transport, and HTTP failures.
+- Measurements upload through REST with HTTP-2xx-only acknowledgement.
+- Firmware can attach wall-clock time when synchronized and still upload uptime-only records otherwise.
+- BLE provisioning can be added later without reshaping the config model.
+
+## Git Commit Message
+
+```text
+feat: improve REST network discovery and time sync
 ```
 
 ---

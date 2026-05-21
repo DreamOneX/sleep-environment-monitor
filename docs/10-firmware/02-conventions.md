@@ -1,4 +1,6 @@
-# Toolchain and Coding Style
+# Firmware Toolchain and Coding Style
+
+This document applies to the ESP32-C3 firmware package. Server toolchain and server code style are intentionally not defined here.
 
 ## Toolchain
 
@@ -319,6 +321,19 @@ pub const ADC_MAX: u16 = 4095;
 pub const ADC_CLIP_LOW: u16 = 8;
 pub const ADC_CLIP_HIGH: u16 = 4087;
 ```
+
+Put deployment and behavior policy constants in `firmware/src/config.rs` once Phase 21 is implemented:
+
+```text
+Wi-Fi credentials or defaults
+REST fallback endpoint and path
+retry delays and timeouts
+sampling cadence
+buffer sizes
+log and LED timing intervals
+```
+
+The intended config boundary is documented in [04-configuration.md](04-configuration.md).
 
 ---
 

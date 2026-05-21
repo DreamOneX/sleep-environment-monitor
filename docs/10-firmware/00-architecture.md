@@ -39,6 +39,7 @@ The final firmware should provide:
 - Upload queue with "drop oldest when full" behavior.
 - Internal SPI flash persistent spool for measurements that cannot be uploaded immediately.
 - Recovery of pending measurements after reset or power loss.
+- RESTful upload, server discovery, and real-world time support as described in [03-network.md](03-network.md).
 - Status LEDs:
   - LED1: runtime heartbeat
   - LED2: error / Wi-Fi / upload status
@@ -136,6 +137,11 @@ server/
 ├── README.md
 └── post_receiver.py
 docs/
+├── README.md
+├── 00-project/
+├── 10-firmware/
+├── 20-server/
+└── 30-integration/
 ```
 
 The root `Cargo.toml` is a workspace manifest. The firmware package remains named `sleep-environment-monitor`, and root-level Cargo commands target `firmware` by default.
@@ -194,6 +200,20 @@ ErrorFlags
 NetworkState
 UploadResult
 ```
+
+---
+
+## Planned `config.rs`
+
+Phase 21 adds a firmware configuration module for deployment and behavior policy values.
+
+The boundary is:
+
+- `board.rs` keeps physical board facts such as pins, I2C addresses, and flash layout.
+- `config.rs` owns Wi-Fi defaults, REST fallback endpoint details, timing policy, buffer sizes, logging intervals, and other deployment knobs.
+- Drivers keep protocol constants and conversion math.
+
+See [04-configuration.md](04-configuration.md).
 
 ---
 

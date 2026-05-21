@@ -332,7 +332,7 @@ Scope:
 - Add a LED2 status task driven by the existing `status_to_leds` mapping.
 - Publish latest measurement error flags from aggregation to the status task.
 - Fold upload failures into status error flags so upload errors are visible through LED2.
-- Document the LED2 priority table and blink timing in `architecture.md`.
+- Document the LED2 priority table and blink timing in [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md).
 - Replace firmware startup `.expect` calls with logged failures and fallback status/sample signals where the firmware can continue.
 - Bound microphone ADC read retries so the microphone task cannot loop forever on repeated ADC failures.
 - Reduce normal RTT log volume for environment, microphone, measurement, and upload-success logs while keeping warnings immediate.
@@ -393,12 +393,12 @@ Phase 16-20 planning: Internal SPI flash persistent spool
 
 Scope:
 
-- Update `architecture.md` to add a two-level measurement backlog: RAM hot queue plus internal SPI flash persistent spool.
+- Update [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md) to add a two-level measurement backlog: RAM hot queue plus internal SPI flash persistent spool.
 - Document that the ESP32-C3-WROOM-02-N4 4 MB internal SPI flash may be used only through a dedicated spool region that must not overlap bootloader, partition table, app image, or calibration data.
 - Add planned `drivers/flash.rs`, `storage/spool.rs`, and `tasks/storage.rs` responsibilities.
 - Define the persistent record format with magic, version, sequence, payload length, and CRC.
 - Specify FIFO upload, HTTP-2xx-only acknowledgement, cross-reset recovery, corrupt-record handling, and drop-oldest behavior when storage is full.
-- Extend `development_plan.md` with Phase 16 through Phase 20 for spool pure logic, flash model tests, ESP32-C3 flash bring-up, storage task integration, and recovery/soak validation.
+- Extend [00-development-plan.md](00-development-plan.md) with Phase 16 through Phase 20 for spool pure logic, flash model tests, ESP32-C3 flash bring-up, storage task integration, and recovery/soak validation.
 - Extend the final hardware-free unit test checklist for spool and flash model behavior.
 
 Verification:
@@ -524,7 +524,7 @@ Scope:
 - Keep `0x0001_0000..0x003c_0000` protected for the firmware image growth area.
 - Add `src/drivers/flash.rs` host-testable flash layout validation.
 - Reject zero-sized flash/spool regions, sector-unaligned spool ranges, out-of-bounds ranges, and protected-region overlaps.
-- Update `architecture.md` with the concrete flash map and validation rule.
+- Update [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md) with the concrete flash map and validation rule.
 
 Verification:
 
@@ -631,7 +631,7 @@ Scope:
 - Add `ErrorFlags::STORAGE` and include it in LED2 status policy as a solid-on error state.
 - Keep storage flash access isolated to `storage_task`; sensor, microphone, aggregator, and uploader tasks do not write flash directly.
 - Keep the Phase 18B flash-spool write alignment changes: records and ACK entries are 4-byte aligned, and recovery scans with small fixed buffers instead of reading the whole spool region into stack memory.
-- Update `architecture.md` with the implemented storage task protocol and persistent backlog data flow.
+- Update [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md) with the implemented storage task protocol and persistent backlog data flow.
 
 Verification:
 
@@ -959,3 +959,31 @@ Observed results:
 - The firmware package still builds as `sleep-environment-monitor` from the root workspace.
 - Target firmware build and both clippy runs completed without warnings or errors.
 - No hardware validation was run for this layout-only milestone, and no firmware flash-write range was exercised.
+
+## Milestone 18: Numbered Documentation And Network Roadmap
+
+Documentation organization update:
+
+- Keep [../README.md](../README.md) as the tracked documentation entrypoint.
+- Move project planning docs into `docs/00-project/`.
+- Move firmware architecture, hardware, and firmware conventions into `docs/10-firmware/`.
+- Add firmware network and configuration planning docs.
+- Add server overview and REST API planning docs under `docs/20-server/`.
+- Add a cross-component network roadmap under `docs/30-integration/`.
+- Update `AGENTS.md` and documentation links for the numbered layout.
+- Add Phase 21 for firmware configuration consolidation.
+- Add Phase 22 for REST networking, discovery, time sync, and BLE readiness.
+
+Validation:
+
+```bash
+find docs -maxdepth 3 -type f | sort
+rg -n 'docs/(development_plan|walkthrough|architecture|conventions|hardware_information)\.md|]\((development_plan|walkthrough|architecture|conventions|hardware_information)\.md\)|`(development_plan|walkthrough|architecture|conventions|hardware_information)\.md`' AGENTS.md docs
+```
+
+Observed results:
+
+- The numbered documentation layout contains project, firmware, server, and integration sections.
+- No old root-level doc links remain in `AGENTS.md` or `docs/`.
+- No firmware code was changed.
+- No hardware validation was run for this docs-only milestone, and no firmware flash-write range was exercised.

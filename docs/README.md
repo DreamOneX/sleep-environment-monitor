@@ -10,19 +10,37 @@ This directory contains the tracked project documentation.
 
 ## Start Here
 
-1. [development_plan.md](development_plan.md) defines the phase plan and acceptance criteria.
-2. [walkthrough.md](walkthrough.md) records completed milestones, validation commands, and observed results.
-3. [architecture.md](architecture.md) explains the firmware structure and persistent-storage design.
+1. [00-project/00-development-plan.md](00-project/00-development-plan.md) defines the phase plan and acceptance criteria.
+2. [00-project/01-walkthrough.md](00-project/01-walkthrough.md) records completed milestones, validation commands, and observed results.
+3. [10-firmware/00-architecture.md](10-firmware/00-architecture.md) explains the firmware structure and persistent-storage design.
 
-## Reference
+## Project
 
-- [conventions.md](conventions.md): toolchain, coding style, tests, and build commands.
-- [hardware_information.md](hardware_information.md): board hardware, components, pin mapping, and datasheets.
+- [00-project/00-development-plan.md](00-project/00-development-plan.md): phase plan, acceptance criteria, and expected commit messages.
+- [00-project/01-walkthrough.md](00-project/01-walkthrough.md): completed milestones, validation commands, and observed results.
+
+## Firmware
+
+- [10-firmware/00-architecture.md](10-firmware/00-architecture.md): firmware architecture, task boundaries, storage flow, and status behavior.
+- [10-firmware/01-hardware.md](10-firmware/01-hardware.md): board hardware facts, pin mapping, and component references.
+- [10-firmware/02-conventions.md](10-firmware/02-conventions.md): firmware Rust toolchain, formatting, linting, testing, and embedded build conventions.
+- [10-firmware/03-network.md](10-firmware/03-network.md): firmware network responsibilities, REST upload, discovery, time sync, and BLE readiness.
+- [10-firmware/04-configuration.md](10-firmware/04-configuration.md): planned firmware configuration boundary for Phase 21.
+
+## Server
+
+- [20-server/00-overview.md](20-server/00-overview.md): measurement ingestion server role and current temporary receiver.
+- [20-server/01-rest-api.md](20-server/01-rest-api.md): planned REST API contract between firmware and server.
+
+## Integration
+
+- [30-integration/00-network-roadmap.md](30-integration/00-network-roadmap.md): network roadmap across firmware, server, discovery, time, and future provisioning.
 
 ## Maintenance
 
-- Keep phase scope and future work in `development_plan.md`.
-- Append completed work and validation evidence to `walkthrough.md`.
-- Keep implementation structure and data-flow decisions in `architecture.md`.
-- Keep build and style expectations in `conventions.md`.
-- Keep hardware facts in `hardware_information.md`.
+- Keep phase scope and future work in `00-project/00-development-plan.md`.
+- Append completed work and validation evidence to `00-project/01-walkthrough.md`.
+- Keep implementation structure and data-flow decisions in `10-firmware/00-architecture.md`.
+- Keep firmware build and style expectations in `10-firmware/02-conventions.md`.
+- Keep hardware facts in `10-firmware/01-hardware.md`.
+- Keep server API intent in `20-server/01-rest-api.md` until the formal server implementation starts.

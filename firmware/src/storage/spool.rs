@@ -11,7 +11,7 @@ pub const ENCODED_RECORD_HEADER_LEN: usize = align_up(RECORD_HEADER_LEN, FLASH_W
 pub const ACK_RECORD_LEN: usize = 14;
 pub const FLASH_WRITE_ALIGNMENT: usize = 4;
 pub const ENCODED_ACK_RECORD_LEN: usize = align_up(ACK_RECORD_LEN, FLASH_WRITE_ALIGNMENT);
-pub const FLASH_ENTRY_BUFFER_LEN: usize = 256;
+pub const FLASH_ENTRY_BUFFER_LEN: usize = 512;
 pub const MAX_PAYLOAD_LEN: usize = u16::MAX as usize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -749,6 +749,14 @@ mod tests {
     }
 
     #[test]
+    fn flash_entry_buffer_covers_configured_payload_size() {
+        assert!(
+            encoded_record_len(crate::config::storage::MEASUREMENT_PAYLOAD_SIZE).unwrap()
+                <= FLASH_ENTRY_BUFFER_LEN
+        );
+    }
+
+    #[test]
     fn crc32_matches_standard_check_value() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
     }
@@ -965,6 +973,20 @@ mod tests {
         assert_eq!(recovered.len(), 2);
         assert_eq!(report.recovered_record_count, 2);
         assert_eq!(report.corrupt_record_count, 0);
+    }
+
+    #[test]
+    fn flash_backed_spool_recovers_maximum_current_payload_size() {
+        let mut flash = InMemoryFlash::<1024, 512>::new();
+        let mut spool = FlashBackedSpool::<2, 384>::new();
+        let payload = [0x5a_u8; 384];
+
+        spool.append(&mut flash, 0, &payload).unwrap();
+
+        let recovered = FlashBackedSpool::<2, 384>::recover(&flash).unwrap();
+
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered.peek().unwrap().payload, payload);
     }
 
     #[test]

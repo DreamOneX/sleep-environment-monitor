@@ -288,6 +288,7 @@ pub enum StorageResponse {
 #[cfg(target_arch = "riscv32")]
 use crate::{
     drivers::flash::RomSpoolFlash,
+    storage::flash_model::FlashError,
     tasks::{StorageRequestChannel, StorageResponseSignal, TaskSignal},
 };
 #[cfg(target_arch = "riscv32")]
@@ -313,7 +314,7 @@ pub async fn storage_task(
                     StorageCommand::Append(_) => {}
                     StorageCommand::Peek | StorageCommand::Ack => {
                         responses.signal(StorageResponse::Error(StorageError::Spool(
-                            SpoolError::Flash(crate::storage::flash_model::FlashError::OutOfBounds),
+                            SpoolError::Flash(FlashError::OutOfBounds),
                         )));
                     }
                 }
@@ -328,18 +329,19 @@ pub async fn storage_task(
     );
 
     let mut storage_event_count = 0_u32;
-    let mut backlog = match MeasurementStorageBacklog::recover(&mut flash) {
-        Ok(backlog) => {
-            info!("storage recovered pending_len={=usize}", backlog.len());
-            log_storage_metrics(backlog.metrics(), true, storage_event_count);
-            Some(backlog)
-        }
-        Err(error) => {
-            warn!("storage recovery failed error={:?}", error);
-            error_flags.signal(ErrorFlags::STORAGE);
-            None
-        }
-    };
+    let (mut backlog, storage_unavailable_error) =
+        match MeasurementStorageBacklog::recover(&mut flash) {
+            Ok(backlog) => {
+                info!("storage recovered pending_len={=usize}", backlog.len());
+                log_storage_metrics(backlog.metrics(), true, storage_event_count);
+                (Some(backlog), None)
+            }
+            Err(error) => {
+                warn!("storage recovery failed error={:?}", error);
+                error_flags.signal(ErrorFlags::STORAGE);
+                (None, Some(error))
+            }
+        };
 
     loop {
         match requests.receive().await {
@@ -370,14 +372,16 @@ pub async fn storage_task(
             }
             StorageCommand::Peek => match backlog.as_ref() {
                 Some(backlog) => responses.signal(StorageResponse::Peeked(backlog.peek_payload())),
-                None => responses.signal(StorageResponse::Error(StorageError::Spool(
-                    SpoolError::Flash(crate::storage::flash_model::FlashError::OutOfBounds),
-                ))),
+                None => {
+                    responses.signal(StorageResponse::Error(storage_unavailable_error.unwrap_or(
+                        StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
+                    )))
+                }
             },
             StorageCommand::Ack => {
                 let Some(backlog) = backlog.as_mut() else {
-                    responses.signal(StorageResponse::Error(StorageError::Spool(
-                        SpoolError::Flash(crate::storage::flash_model::FlashError::OutOfBounds),
+                    responses.signal(StorageResponse::Error(storage_unavailable_error.unwrap_or(
+                        StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
                     )));
                     error_flags.signal(ErrorFlags::STORAGE);
                     continue;

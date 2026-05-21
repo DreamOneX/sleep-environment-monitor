@@ -1059,3 +1059,109 @@ Observed results:
 - `python3 -m py_compile server/post_receiver.py` completed without errors.
 - Local HTTP/UDP smoke testing of the Phase 22 receiver verified `POST /api/v1/measurements` returns `204` for JSON, other `POST` paths return `404`, `GET /api/v1/time` returns server time JSON, the well-known discovery document is served, and UDP discovery returns endpoint JSON.
 - No hardware validation was run for this milestone, and no firmware flash-write range was exercised.
+
+## Milestone 21: Phase 22 Hardware Validation And Spool Buffer Fix
+
+Hardware validation for Phase 22 was run against the ESP32-C3 board on the open
+`FZU` network with the local Phase 22 receiver listening on HTTP `8080` and UDP
+`39022`.
+
+Flash range statement before the default firmware runs:
+
+- Normal firmware startup may program the application image in the app region,
+  but persistent measurement writes in this validation were exercised only
+  through `storage_task` in the measurement spool region:
+
+```text
+0x003c_0000..0x0040_0000
+```
+
+- The `flash-smoke` feature was not enabled, so the first-sector smoke-test
+  range `0x003c_0000..0x003c_1000` was not erased or written.
+
+Validation commands run from the repository root:
+
+```bash
+python3 server/post_receiver.py
+probe-rs list
+timeout 120s cargo run --target riscv32imc-unknown-none-elf
+cargo fmt
+cargo test --lib storage::spool
+cargo test --lib tasks::storage
+python3 -m py_compile server/post_receiver.py
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+timeout 120s cargo run --target riscv32imc-unknown-none-elf
+python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2); s.sendto(b"sleep-environment-monitor.discovery", ("127.0.0.1", 39022)); print(s.recvfrom(1024))'
+git diff --check
+```
+
+Initial hardware run exposed a real Phase 22 storage regression:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[WARN ] storage recovery failed error=Spool(BufferTooSmall)
+[WARN ] storage peek failed error=Spool(Flash(OutOfBounds))
+```
+
+Root cause and fix:
+
+- Phase 22 raised `config::storage::MEASUREMENT_PAYLOAD_SIZE` to `384`, but
+  `storage::spool::FLASH_ENTRY_BUFFER_LEN` was still `256`.
+- A maximum-sized 384-byte payload encodes to 408 bytes with the spool header
+  and 4-byte alignment, so `FlashBackedSpool::recover_with_report` failed before
+  reading flash.
+- Increase the spool flash-entry scratch buffer to `512`.
+- Add tests that assert the configured payload size fits the flash-entry buffer
+  and that a 384-byte payload can be recovered from a flash-backed spool.
+- Preserve the original recovery error for later storage `Peek` and `Ack`
+  responses instead of reporting a misleading synthetic flash out-of-bounds
+  error.
+
+Observed fixed hardware run:
+
+```text
+[INFO ] storage spool flash range offset=0x003c0000 len=262144
+[INFO ] storage recovered pending_len=0
+[INFO ] storage metrics pending=0 recovered=32 dropped_oldest=0 skipped_legacy=32 corrupt=0 last_error=none
+[INFO ] wifi connected ssid=FZU channel=1 aid=41172
+[INFO ] network ipv4 config=StaticConfigV4 { address: 10.133.2.168/16, gateway: Some(10.133.255.254), dns_servers: [114.114.114.114, 210.34.48.34] }
+[INFO ] time synced unix_ms=1779399528010
+[INFO ] upload success sequence=8522 acked=true
+[INFO ] storage metrics pending=0 recovered=32 dropped_oldest=0 skipped_legacy=32 corrupt=0 last_error=none
+```
+
+Receiver observations:
+
+```text
+http on 0.0.0.0:8080
+udp discovery on 0.0.0.0:39022
+upload accepted from 10.133.2.168 bytes=338
+upload accepted from 10.133.2.168 bytes=345
+```
+
+Discovery observations:
+
+- The board repeatedly logged `discovery failed error=Discovery` in this
+  WSL/USBIP plus campus Wi-Fi environment.
+- Static fallback to `10.133.56.218:8080` succeeded and uploaded JSON
+  measurements to `POST /api/v1/measurements`.
+- A host-side UDP smoke query to `127.0.0.1:39022` returned the expected compact
+  discovery JSON, so the local receiver's UDP responder was functioning.
+- The remaining discovery gap is hardware-path validation of LAN UDP broadcast
+  from the board to the receiver environment, likely dependent on Windows/WSL
+  networking or firewall handling of UDP `39022`.
+
+Observed software verification results:
+
+- `cargo test --lib storage::spool` passed with 28 tests.
+- `cargo test --lib tasks::storage` passed with 11 tests.
+- `cargo test --lib` passed with 123 tests.
+- Target firmware build completed without errors.
+- Both clippy runs completed without warnings or errors.
+- `python3 -m py_compile server/post_receiver.py` completed without errors.
+
+The second `timeout 120s cargo run ...` ended by host-side timeout while the
+target was in the idle hook; this was not a firmware panic.

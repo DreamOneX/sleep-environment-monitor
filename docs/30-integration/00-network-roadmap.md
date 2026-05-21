@@ -39,6 +39,28 @@ REST network redesign.
 
 See [../10-firmware/03-network.md](../10-firmware/03-network.md) and [../20-server/01-rest-api.md](../20-server/01-rest-api.md).
 
+## Phase 23
+
+Formal server foundation.
+
+- Replace or supersede the stdlib-only Phase 22 receiver with a packaged Python
+  server.
+- Preserve the Phase 22 REST API, time endpoint, discovery document, and UDP
+  discovery behavior.
+- Use a formal web framework, with FastAPI/Uvicorn/Pydantic as the planned
+  default stack.
+- Add an `argparse` CLI for serving, configuration checks, and discovery
+  metadata inspection.
+- Use Rich for human-readable local operation output.
+- Define server check commands, code style, formatter/linter policy, and
+  hardware-free unit-test expectations.
+- Treat formatter and linter output as advisory check-only input; review
+  suggestions manually before editing code.
+
+See [../20-server/00-overview.md](../20-server/00-overview.md),
+[../20-server/02-toolchain.md](../20-server/02-toolchain.md), and
+[../20-server/03-cli.md](../20-server/03-cli.md).
+
 ## Discovery Precedence
 
 Endpoint selection uses:

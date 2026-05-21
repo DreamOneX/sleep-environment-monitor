@@ -1,8 +1,11 @@
 # REST API
 
-This document defines the Phase 22 firmware/server REST contract.
+This document defines the firmware/server REST contract introduced in Phase 22.
 
 The current local receiver, [../../server/post_receiver.py](../../server/post_receiver.py), implements the Phase 22 JSON upload, time, and discovery endpoints for validation. It does not preserve the old `/measurements` CSV bring-up endpoint.
+
+Phase 23 should preserve this contract while replacing or superseding the
+temporary receiver with a formal server implementation.
 
 ## Versioning
 
@@ -108,3 +111,21 @@ The Phase 22 receiver listens for discovery datagrams on UDP port `39022`.
 - Query payload: `sleep-environment-monitor.discovery`.
 - Response fields: `host`, `port`, `api_base`, `measurement_upload`, and `time`.
 - The firmware currently consumes IPv4 host values from this response.
+
+## Implementation Notes
+
+The formal server implementation should keep behavior equivalent to the Phase
+22 receiver unless this contract is intentionally revised in a later phase.
+
+Requirements:
+
+- `POST /api/v1/measurements` should return a 2xx response only after accepting
+  the upload for processing.
+- Invalid JSON, invalid measurement schema, or unavailable ingestion should
+  return non-2xx.
+- Other `POST` paths should return `404`.
+- `GET /api/v1/time` should return integer `unix_ms` and source metadata.
+- `GET /.well-known/sleep-environment-monitor` should describe the active API
+  paths and UDP discovery port.
+- UDP discovery should respond only to the documented query payload.
+- The old `/measurements` CSV endpoint should not be restored.

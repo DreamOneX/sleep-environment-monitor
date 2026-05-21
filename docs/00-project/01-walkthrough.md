@@ -1228,3 +1228,76 @@ Notes:
   uploads.
 - The `timeout 120s cargo run ...` command ended by host-side timeout while the
   target was in the idle hook; this was not a firmware panic.
+
+## Milestone 23: Formal Server Documentation Plan
+
+Phase 23 documentation planning:
+
+- Add Phase 23 to [00-development-plan.md](00-development-plan.md) for replacing
+  or superseding the temporary stdlib-only Phase 22 receiver with a formal
+  Python server foundation.
+- Keep the Phase 22 REST API contract unchanged:
+  - `POST /api/v1/measurements`.
+  - `GET /api/v1/time`.
+  - `GET /.well-known/sleep-environment-monitor`.
+  - UDP discovery on port `39022`.
+- Document the planned server stack: FastAPI, Uvicorn, Pydantic, Rich,
+  `argparse`, pytest, and Ruff as check-only guidance.
+- Add [../20-server/02-toolchain.md](../20-server/02-toolchain.md) for Python
+  server toolchain, style policy, formatter/linter policy, and detailed
+  hardware-free unit-test expectations.
+- Add [../20-server/03-cli.md](../20-server/03-cli.md) for the planned
+  `argparse` CLI commands and options.
+- Update [../20-server/00-overview.md](../20-server/00-overview.md),
+  [../20-server/01-rest-api.md](../20-server/01-rest-api.md),
+  [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md),
+  [../README.md](../README.md), [../../server/README.md](../../server/README.md),
+  [../../AGENTS.md](../../AGENTS.md), and
+  [../10-firmware/02-conventions.md](../10-firmware/02-conventions.md) to point
+  at the formal server plan.
+
+Server test requirements now explicitly cover:
+
+- CLI argument parsing and invalid argument rejection.
+- Application configuration and discovery metadata derivation.
+- REST API behavior for valid uploads, invalid JSON/schema, time, discovery
+  document, and unknown POST paths.
+- Measurement model validation and duplicate handling policy.
+- UDP discovery helper behavior.
+- Rich/plain logging and bounded upload diagnostics.
+
+Server test quality requirements now explicitly require deterministic,
+hardware-free tests that assert observable behavior, avoid real network
+dependencies where possible, avoid sleeps except for controlled timeout tests,
+do not depend on execution order, and add regressions for reproducible
+integration bugs.
+
+Server style policy now states:
+
+- Comments and docstrings use Google style.
+- Formatter and linter output is advisory only.
+- Automatic formatter or linter rewrites must not be applied across server code.
+- Auto-fix and auto-format commands must not be used as implementation or
+  commit-preparation shortcuts.
+- Local suppression markers are allowed when they protect intentional
+  readability, especially manually aligned protocol tables, dense field maps,
+  or payload fixtures.
+
+Validation commands run from the repository root:
+
+```bash
+find docs/20-server -maxdepth 1 -type f | sort
+rg -n 'Phase 23|02-toolchain|03-cli|advisory only|Never automatically|Google style' docs server AGENTS.md
+git diff --check
+```
+
+Observed results:
+
+- The server documentation set now contains overview, REST API, toolchain, and
+  CLI documents.
+- The new Phase 23 plan is linked from the project plan, server docs,
+  integration roadmap, documentation index, server README, firmware conventions,
+  and agent entrypoint.
+- No firmware or server implementation code was changed.
+- No hardware validation was run for this docs-only milestone, and no firmware
+  flash-write range was exercised.

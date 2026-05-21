@@ -6,7 +6,21 @@ Current contents:
 
 - `post_receiver.py`: stdlib-only Phase 22 local receiver for REST upload, time, and discovery validation.
 
-The future formal server should replace or supersede this local validation receiver.
+The Phase 23 formal server should replace or supersede this local validation receiver.
+
+Planned formal command shape:
+
+```bash
+uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
+uv run sleep-env-server check-config
+uv run sleep-env-server print-discovery
+```
+
+See:
+
+- [../docs/20-server/00-overview.md](../docs/20-server/00-overview.md)
+- [../docs/20-server/02-toolchain.md](../docs/20-server/02-toolchain.md)
+- [../docs/20-server/03-cli.md](../docs/20-server/03-cli.md)
 
 ## Phase 22 Receiver
 

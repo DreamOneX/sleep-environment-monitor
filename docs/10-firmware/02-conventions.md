@@ -1,6 +1,8 @@
 # Firmware Toolchain and Coding Style
 
-This document applies to the ESP32-C3 firmware package. Server toolchain and server code style are intentionally not defined here.
+This document applies to the ESP32-C3 firmware package. Server toolchain and
+server code style are defined separately in
+[../20-server/02-toolchain.md](../20-server/02-toolchain.md).
 
 ## Toolchain
 

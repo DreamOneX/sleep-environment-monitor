@@ -1107,6 +1107,152 @@ feat: improve REST network discovery and time sync
 
 ---
 
+# Phase 23: Formal Server Foundation
+
+## Goal
+
+Replace the temporary stdlib-only Phase 22 receiver with a formal Python server
+foundation while preserving the Phase 22 firmware/server API contract.
+
+The formal server should keep REST as the primary protocol and continue to
+support:
+
+- `POST /api/v1/measurements`.
+- `GET /api/v1/time`.
+- `GET /.well-known/sleep-environment-monitor`.
+- UDP discovery on port `39022` with query payload
+  `sleep-environment-monitor.discovery`.
+
+The old `/measurements` CSV endpoint remains out of scope.
+
+## Work Items
+
+- Define the server package layout under `server/`.
+- Replace or supersede `server/post_receiver.py` with a formal application
+  entrypoint.
+- Use a web framework instead of hand-written `http.server` request handling.
+  The planned default is FastAPI with Uvicorn and Pydantic models.
+- Add an `argparse` CLI surface for serving, configuration checks, and discovery
+  metadata inspection.
+- Add Rich-based human-readable console output for local operation and
+  diagnostics.
+- Define server toolchain, code style, test strategy, and check commands in
+  [../20-server/02-toolchain.md](../20-server/02-toolchain.md).
+- Define CLI behavior in [../20-server/03-cli.md](../20-server/03-cli.md).
+- Keep the Phase 22 REST API contract documented in
+  [../20-server/01-rest-api.md](../20-server/01-rest-api.md).
+
+## Unit Test Coverage Requirements
+
+All server unit tests must be automated and hardware-free.
+
+Required coverage:
+
+- CLI argument parsing:
+  - Default host, HTTP port, and UDP discovery port.
+  - Explicit host, HTTP port, and UDP discovery port.
+  - Log level selection.
+  - Rich output enable/disable switch.
+  - Invalid port and invalid log-level rejection.
+- Application configuration:
+  - Defaults match the firmware fallback environment.
+  - CLI overrides are applied deterministically.
+  - Discovery metadata derives from the active configuration.
+- REST API behavior:
+  - `POST /api/v1/measurements` accepts valid schema-version-1 JSON.
+  - Invalid JSON returns non-2xx.
+  - Missing required measurement fields return non-2xx.
+  - Other `POST` paths return `404`.
+  - `GET /api/v1/time` returns integer `unix_ms` and source metadata.
+  - `GET /.well-known/sleep-environment-monitor` returns paths and UDP port.
+- Measurement model validation:
+  - Required identity and sequence fields.
+  - `time_status` allowed values.
+  - Optional `wall_clock_unix_ms`.
+  - Nullable sensor values.
+  - Duplicate `(device_id, sequence)` acceptance or idempotent handling policy.
+- UDP discovery logic:
+  - Correct query payload is accepted.
+  - Wrong query payload is ignored.
+  - Response contains `host`, `port`, `api_base`, `measurement_upload`, and
+    `time`.
+  - Response host selection is deterministic in tests.
+- Logging/output:
+  - Human-readable Rich output can be enabled.
+  - Machine-readable or plain output path remains testable.
+  - Upload acceptance logs include source and payload size or equivalent
+    diagnostic metadata without dumping unbounded payloads.
+
+## Unit Test Quality Requirements
+
+- Tests must assert externally visible behavior rather than implementation
+  details unless the unit under test is explicitly a pure helper.
+- Tests must use deterministic time sources where time values are asserted.
+- Tests must avoid real network dependencies; use framework test clients,
+  fake sockets, or isolated loopback fixtures.
+- Tests must avoid sleeps except when explicitly validating timeout behavior;
+  timeout behavior should prefer fake clocks or short controlled fixtures.
+- Tests must not depend on test execution order.
+- Tests must name the behavior being validated, not only the function being
+  called.
+- Test fixtures should be small and local. Shared fixtures are acceptable only
+  when they reduce duplication without hiding important setup details.
+- Regression tests must be added for every hardware or integration bug that can
+  be reproduced without hardware.
+
+## Style And Tooling Policy
+
+- Comments and docstrings use Google style.
+- Type hints are expected for public server functions and data models.
+- Formatter and linter output is advisory only.
+- Never automatically apply formatter or linter rewrites across server code.
+- Do not run auto-fix or auto-format commands as an implementation step or
+  commit-preparation shortcut.
+- Formatter and linter commands are check-only gates. Review each suggestion
+  manually before editing code.
+- Narrow suppression markers such as formatter-disable regions or line-level
+  linter ignores are allowed when they preserve intentional readability,
+  especially manually aligned tabular data, protocol examples, or dense mapping
+  tables where extra whitespace is deliberate and automatic formatting would
+  make the code worse.
+- Suppression markers must be local to the smallest practical block and should
+  include a short reason when the reason is not obvious.
+
+## Manual Integration Checks
+
+- Start the formal server on `0.0.0.0:8080`.
+- Confirm the server prints clear Rich console startup information.
+- Confirm `GET /api/v1/time` and
+  `GET /.well-known/sleep-environment-monitor` work from the host.
+- Confirm UDP discovery on port `39022` responds to
+  `sleep-environment-monitor.discovery`.
+- Run the ESP32-C3 firmware against the formal server and confirm:
+  - Wi-Fi connects.
+  - Discovery finds the server.
+  - Time sync succeeds.
+  - JSON measurements upload through `POST /api/v1/measurements`.
+  - HTTP 2xx remains the only storage ACK condition.
+
+## Done When
+
+- Server documentation describes the formal app structure, toolchain, CLI,
+  style policy, and test expectations.
+- The formal server runs through an `argparse` CLI.
+- The temporary `post_receiver.py` is replaced or clearly demoted to a legacy
+  smoke tool.
+- The Phase 22 firmware/server API contract remains compatible.
+- Automated server tests cover CLI parsing, REST behavior, model validation,
+  UDP discovery helpers, and logging/output behavior.
+- Check commands are documented and run without requiring hardware.
+
+## Git Commit Message
+
+```text
+feat: add formal server foundation
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.

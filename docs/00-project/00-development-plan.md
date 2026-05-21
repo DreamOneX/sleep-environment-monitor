@@ -1067,7 +1067,8 @@ Phase 22 uses the versioned JSON REST API only. The old bring-up
   - WPA2-Personal.
   - WPA/WPA2-Personal mixed mode.
 - Defer WPA3 and Enterprise/EAP Wi-Fi until the dependency stack and target hardware are validated for those modes.
-- Shape config and interfaces so future BLE provisioning can provide Wi-Fi and REST endpoint settings.
+- Shape config and interfaces so future BLE upload can be enabled without
+  reshaping Wi-Fi, REST, storage, or acknowledgement ownership.
 - Update [../10-firmware/03-network.md](../10-firmware/03-network.md), [../20-server/01-rest-api.md](../20-server/01-rest-api.md), and [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md) as implementation decisions become concrete.
 
 ## Unit Tests
@@ -1097,7 +1098,8 @@ Add hardware-independent tests for:
 - Measurements upload through REST with HTTP-2xx-only acknowledgement.
 - Firmware can attach wall-clock time when synchronized and still upload uptime-only records otherwise.
 - Password-protected personal Wi-Fi networks can be configured for the common WPA/WPA2 PSK modes listed above.
-- BLE provisioning can be added later without reshaping the config model.
+- BLE upload can be added later without reshaping the storage or network
+  configuration model.
 
 ## Git Commit Message
 
@@ -1253,6 +1255,97 @@ feat: add formal server foundation
 
 ---
 
+# Phase 24: BLE Independent Upload Channel
+
+## Goal
+
+Add a real Bluetooth Low Energy upload path that can operate independently from
+Wi-Fi.
+
+BLE is not a provisioning-only feature in this phase. It is also not Bluetooth
+Classic SPP, a transparent UART, or a Nordic UART Service style serial stream.
+The firmware must expose a project-specific structured GATT service for
+measurement transfer.
+
+## Work Items
+
+- Add a BLE feature boundary that can be enabled or disabled independently from
+  Wi-Fi.
+- Keep Wi-Fi REST upload and BLE upload as separate upload paths over the same
+  persistent measurement spool.
+- Define a project-specific GATT service with structured characteristics for:
+  - status
+  - oldest-record metadata
+  - record fragments
+  - control and acknowledgement
+- Frame measurement data with explicit sequence, offset, length, and integrity
+  metadata instead of treating JSON or CSV as serial text.
+- Add a `ble_task` boundary that owns BLE advertising, pairing, connection
+  state, GATT transfer, and BLE-side acknowledgement handling.
+- Keep `storage_task` as the only owner of persistent spool append, peek, and
+  acknowledge operations.
+- Preserve Wi-Fi acknowledgement semantics:
+  - HTTP 2xx remains the only Wi-Fi REST ACK condition.
+  - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
+    must not ACK the spool in that state.
+  - BLE may ACK exactly one oldest record only when Wi-Fi upload is disabled or
+    unavailable and a paired central confirms complete receipt.
+- Use BOOT / IO9 only as a runtime input for a future pairing or authorization
+  gesture.
+- Preserve BOOT / IO9 download-mode behavior during reset or power-on.
+- Update [../10-firmware/05-ble.md](../10-firmware/05-ble.md) as implementation
+  details become concrete.
+
+## Unit Tests
+
+Add hardware-independent tests for:
+
+- BLE frame encode/decode.
+- Fragment ordering and bounds checks.
+- ACK behavior when Wi-Fi upload is available.
+- ACK behavior when Wi-Fi upload is unavailable.
+- Disconnect before ACK preserves the pending record.
+- Wi-Fi and BLE observing the same record cannot acknowledge more than one
+  oldest pending record.
+- BLE enable/disable config selection.
+- BOOT / IO9 pairing gesture state logic.
+
+## Manual Integration Checks
+
+- Confirm BLE advertises only when enabled.
+- Confirm a paired BLE central can connect and read structured status.
+- Confirm a paired BLE central can receive a full measurement record through
+  GATT fragments.
+- Confirm unpaired centrals cannot read measurement records.
+- Confirm BLE transfer does not stop sensor sampling, aggregation, storage, or
+  Wi-Fi reconnect.
+- Confirm BLE does not ACK storage while Wi-Fi REST upload is succeeding.
+- Disable or break Wi-Fi upload and confirm BLE can ACK after central-confirmed
+  complete receipt.
+- Confirm disconnect during record transfer preserves the pending record.
+- Confirm BOOT / IO9 can be read as a runtime input without configuring it as an
+  output or changing the hardware pull-up behavior.
+- Confirm holding BOOT during reset or power-on still enters download mode.
+
+## Done When
+
+- BLE and Wi-Fi can be independently enabled or disabled.
+- BLE uses a structured project GATT protocol, not a serial-port emulation.
+- BLE upload reads the oldest persisted records without bypassing
+  `storage_task`.
+- Storage ACK behavior is deterministic when Wi-Fi and BLE are both enabled.
+- Pairing or authorization prevents unpaired BLE measurement access.
+- BOOT / IO9 pairing entry is validated without breaking download mode.
+- Hardware-independent tests cover BLE protocol framing and ACK policy.
+
+## Git Commit Message
+
+```text
+feat: add BLE upload channel
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.
@@ -1289,4 +1382,12 @@ All must be automated and hardware-free.
 [ ] flash model erased-byte behavior
 [ ] flash model write-without-erase failure
 [ ] flash region range validation
+[ ] BLE frame encode / decode
+[ ] BLE fragment ordering and bounds checks
+[ ] BLE ACK behavior when Wi-Fi upload is available
+[ ] BLE ACK behavior when Wi-Fi upload is unavailable
+[ ] BLE disconnect before ACK preserves pending record
+[ ] BLE / Wi-Fi duplicate ACK prevention
+[ ] BLE enable / disable config selection
+[ ] BOOT / IO9 pairing gesture state logic
 ```

@@ -37,6 +37,10 @@ Phase 23 intentionally uses process-local duplicate tracking only. Durable
 storage, deployment service management, authentication, authorization, and
 long-term retention policy remain future work.
 
+Phase 24 BLE upload planning does not add a server-side BLE protocol. If a
+future phone or gateway receives measurements over BLE and forwards them to the
+server, it should use the existing REST API contract.
+
 ## Related Docs
 
 - [01-rest-api.md](01-rest-api.md): firmware/server REST API contract.

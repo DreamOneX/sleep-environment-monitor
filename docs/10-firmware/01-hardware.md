@@ -149,6 +149,12 @@ No debounce capacitor should be placed on IO9.
 
 A capacitor on IO9 can delay the BOOT pin rising during power-up and may cause unreliable startup.
 
+Future BLE pairing or authorization may reuse BOOT / IO9 only as a runtime
+input after the firmware has booted. Firmware must not configure IO9 as an
+output, must not enable a pull-down that fights the board's 10k pull-up, and
+must not require any hardware debounce capacitor. Holding BOOT during reset or
+power-on must continue to select download mode.
+
 ### IO8
 
 ```text
@@ -354,7 +360,10 @@ SDA / IO4
 SCL / IO5
 ```
 
-Optional spare GPIOs may be routed to pads or headers, but IO8 and IO9 should be treated as boot-related pins.
+Optional spare GPIOs may be routed to pads or headers, but IO8 and IO9 should
+be treated as boot-related pins. IO9 may be read after boot for a future BLE
+pairing gesture only if hardware validation confirms that download mode still
+works normally.
 
 ---
 
@@ -372,5 +381,6 @@ LEDs are active-low.
 The microphone signal is an analog biased signal and requires DC removal in processing.
 The microphone path is not calibrated for absolute dB SPL.
 IO9 must not have a debounce capacitor.
+IO9 must not be driven as an output for BLE pairing or any other runtime feature.
 IO8 is pulled high and should not be externally pulled low during boot.
 ```

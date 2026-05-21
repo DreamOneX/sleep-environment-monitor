@@ -47,6 +47,11 @@ Firmware requirements:
 - Retry the oldest pending record first.
 - Continue sampling while uploads fail.
 
+Phase 24 BLE upload does not change this server contract. BLE is a firmware-side
+GATT upload path to a nearby central. If that central later forwards records to
+the server, it should submit the same JSON schema version 1 payload to
+`POST /api/v1/measurements`.
+
 ## Measurement Payload
 
 The firmware sends JSON schema version 1:

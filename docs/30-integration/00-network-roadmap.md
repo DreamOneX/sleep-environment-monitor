@@ -1,6 +1,6 @@
 # Network Roadmap
 
-This roadmap coordinates firmware, server, discovery, time, and future provisioning work.
+This roadmap coordinates firmware, server, discovery, time, Wi-Fi upload, and BLE upload work.
 
 ## Direction
 
@@ -8,7 +8,9 @@ This roadmap coordinates firmware, server, discovery, time, and future provision
 - Do not introduce MQTT in the current plan.
 - Make automatic discovery available while preserving a static fallback endpoint.
 - Make real-world time synchronization a required network capability.
-- Shape configuration so BLE can later provision Wi-Fi and server settings.
+- Add BLE as a real low-power, structured GATT upload path, not as Bluetooth
+  Classic SPP or transparent serial emulation.
+- Keep Wi-Fi and BLE independently enabled or disabled.
 
 ## Phase 21
 
@@ -35,7 +37,8 @@ REST network redesign.
 - Extend the measurement payload so wall-clock time is included when known while preserving `uptime_ms`.
 - Support open, WPA-Personal, WPA2-Personal, and WPA/WPA2-Personal mixed Wi-Fi configuration.
 - Defer WPA3 and Enterprise/EAP Wi-Fi until validated separately.
-- Keep BLE as a future provisioning path, with config shaped for it.
+- Keep the network and storage boundaries shaped so a future BLE upload path can
+  share the persistent spool without bypassing storage ownership.
 
 See [../10-firmware/03-network.md](../10-firmware/03-network.md) and [../20-server/01-rest-api.md](../20-server/01-rest-api.md).
 
@@ -61,15 +64,37 @@ See [../20-server/00-overview.md](../20-server/00-overview.md),
 [../20-server/02-toolchain.md](../20-server/02-toolchain.md), and
 [../20-server/03-cli.md](../20-server/03-cli.md).
 
+## Phase 24
+
+BLE independent upload channel.
+
+- Add a real BLE GATT service for structured measurement transfer.
+- Do not use Bluetooth Classic SPP, transparent UART, or Nordic UART Service
+  style byte streaming.
+- Keep BLE and Wi-Fi independently enabled or disabled.
+- Reuse the persistent measurement spool as the upload source.
+- Keep Wi-Fi REST upload as the primary remote server path.
+- Let BLE transmit copies while Wi-Fi upload is available and succeeding, but do
+  not let BLE ACK storage in that state.
+- Let BLE ACK the oldest pending record only when Wi-Fi upload is disabled or
+  unavailable and a paired central confirms complete receipt.
+- Use BOOT / IO9 only as a runtime input for pairing or authorization, and
+  preserve download-mode behavior during reset or power-on.
+
+See [../10-firmware/05-ble.md](../10-firmware/05-ble.md).
+
 ## Discovery Precedence
 
 Endpoint selection uses:
 
-1. Provisioned endpoint from future BLE or persistent config.
+1. Provisioned endpoint from persistent config.
 2. Automatically discovered endpoint.
 3. Static fallback endpoint from firmware config.
 
 This order keeps development and recovery practical while allowing deployment without recompiling firmware.
+
+BLE upload does not replace REST endpoint discovery. If a future BLE central or
+gateway forwards data to the server, it should use the documented REST API.
 
 ## Time Strategy
 

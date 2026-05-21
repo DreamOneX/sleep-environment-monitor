@@ -1379,3 +1379,54 @@ Notes:
 - No ESP32-C3 hardware validation was run for this implementation milestone.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 25: BLE Upload Channel Documentation Plan
+
+Phase 24 documentation planning:
+
+- Add Phase 24 to [00-development-plan.md](00-development-plan.md) for a real
+  Bluetooth Low Energy upload channel that can operate independently from
+  Wi-Fi.
+- Define BLE as a structured GATT upload path, not Bluetooth Classic SPP, a
+  transparent UART, or Nordic UART Service style serial streaming.
+- Add [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to describe the BLE
+  role, GATT protocol boundary, storage ACK policy, Wi-Fi coexistence, pairing
+  entry, and security expectations.
+- Document that BLE and Wi-Fi can be independently enabled or disabled.
+- Document BLE storage ACK rules:
+  - Wi-Fi REST still ACKs only after HTTP 2xx.
+  - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
+    must not ACK storage in that state.
+  - BLE may ACK exactly one oldest record only when Wi-Fi upload is disabled or
+    unavailable and a paired central confirms complete receipt.
+- Document BOOT / IO9 as a possible future runtime pairing or authorization
+  input only, with constraints that preserve the default pull-up and download
+  mode behavior.
+- Clarify that Phase 24 BLE upload does not add a server-side BLE protocol; a
+  phone or gateway that forwards BLE records should use the existing REST API.
+- Update the documentation index, AGENTS entrypoint, firmware architecture,
+  hardware notes, firmware network/configuration docs, server docs, and
+  integration roadmap to point at the Phase 24 boundary.
+
+Validation commands run from the repository root:
+
+```bash
+find docs -maxdepth 3 -type f | sort
+rg -n 'Phase 24|05-ble|Bluetooth Low Energy|Nordic UART|BOOT / IO9|serial-port emulation|BLE ACK|Wi-Fi upload is unavailable' docs AGENTS.md server/README.md
+rg -n 'BLE readiness|BLE provisioning|future BLE provisioning|future provisioned config' AGENTS.md docs/README.md docs/10-firmware docs/20-server docs/30-integration server/README.md
+git diff --check
+```
+
+Observed results:
+
+- The documentation set now contains the BLE upload design boundary document.
+- Phase 24 is linked from the project plan, firmware docs, integration roadmap,
+  documentation index, server boundary docs, and agent entrypoint.
+- Current docs explicitly prohibit using BLE as a transparent serial port.
+- Current docs describe BOOT / IO9 reuse only as a future runtime input and do
+  not change the hardware requirement that BOOT still enter download mode during
+  reset or power-on.
+- No firmware or server implementation code was changed.
+- No hardware validation was run for this docs-only milestone.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

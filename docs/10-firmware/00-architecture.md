@@ -40,6 +40,8 @@ The final firmware should provide:
 - Internal SPI flash persistent spool for measurements that cannot be uploaded immediately.
 - Recovery of pending measurements after reset or power loss.
 - RESTful upload, server discovery, and real-world time support as described in [03-network.md](03-network.md).
+- Future Bluetooth Low Energy upload through a structured project GATT protocol
+  as described in [05-ble.md](05-ble.md).
 - Status LEDs:
   - LED1: runtime heartbeat
   - LED2: error / Wi-Fi / upload status
@@ -81,7 +83,7 @@ The firmware validates this layout at runtime before enabling flash writes. A ze
 | LED2 | IO1 | Active-low |
 | UART RX | IO20 | Debug header |
 | UART TX | IO21 | Debug header |
-| BOOT | IO9 | Active-low |
+| BOOT | IO9 | Active-low; future BLE pairing input only after boot |
 | RESET | EN | Active-low |
 | Strap pin | IO8 | Pulled high, do not use as normal I/O |
 
@@ -452,7 +454,7 @@ Embassy task for upload.
 Responsibilities:
 
 - Read the oldest pending JSON field-fragment payload from the storage task.
-- Resolve the REST endpoint from future provisioned config, UDP discovery, or static fallback.
+- Resolve the REST endpoint from persistent config, UDP discovery, or static fallback.
 - Synchronize wall-clock time with SNTP/NTP or `GET /api/v1/time` when possible.
 - Build the JSON schema version 1 upload body.
 - Upload when IP networking is available.
@@ -462,6 +464,30 @@ Responsibilities:
 - Report upload errors.
 
 Payload encoding must be unit tested.
+
+---
+
+## Future `tasks/ble.rs`
+
+Planned Embassy task for Bluetooth Low Energy upload.
+
+Responsibilities:
+
+- Own BLE advertising, pairing or authorization, connection state, and GATT
+  transfer.
+- Expose a project-specific structured GATT service, not Bluetooth Classic SPP,
+  transparent UART, or Nordic UART Service style serial streaming.
+- Read the oldest pending record through the storage task.
+- Transfer records as explicit metadata and fragments with sequence, offset,
+  length, and integrity information.
+- Acknowledge storage only when Wi-Fi upload is disabled or unavailable and a
+  paired central confirms complete receipt.
+- Never write flash directly.
+- Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
+  reconnect, or REST upload.
+
+BLE protocol framing and ACK policy should be unit tested as pure logic before
+hardware bring-up.
 
 ---
 
@@ -483,8 +509,9 @@ LED status mapping should be tested in `util/status.rs`.
 
 ```text
 sensor_task ── EnvSample ┐
-                         ├── aggregator_task ── storage_task ── MeasurementSpool ── uploader_task ── Wi-Fi
+                         ├── aggregator_task ── storage_task ── MeasurementSpool ── uploader_task ── Wi-Fi REST
 mic_task ───── MicSample ┘
+                                                    └────────── future ble_task ── BLE GATT
 
 wifi_task ── NetworkState
 led_task  ── BoardStatus / ErrorFlags
@@ -501,12 +528,15 @@ Rules:
 
 ```text
 sensor_task does not depend on Wi-Fi
+sensor_task does not depend on BLE
 mic_task does not depend on Wi-Fi
+mic_task does not depend on BLE
 aggregator_task does not upload
 aggregator_task does not write flash directly
 storage_task is the only task that writes the measurement flash region
 uploader_task does not read sensors
 uploader_task does not erase flash except through storage/spool acknowledgement
+future ble_task does not erase flash except through storage/spool acknowledgement
 wifi_task does not process sensor data
 ```
 
@@ -516,6 +546,7 @@ Persistence rules:
 append measurement before treating it as durable
 upload oldest valid record first
 acknowledge only after HTTP 2xx
+for BLE, acknowledge only after paired-central confirmation when Wi-Fi upload is unavailable
 preserve pending records across reset
 drop oldest when the configured persistent spool is full
 never write outside the configured flash spool region
@@ -563,6 +594,9 @@ build_measurement_json
 resolve_endpoint
 http_response_class
 select_timestamp
+BLE frame encode / decode
+BLE fragment ordering
+BLE ACK policy with Wi-Fi available / unavailable
 Wi-Fi state transition
 Wi-Fi backoff calculation
 Spool record encode / decode

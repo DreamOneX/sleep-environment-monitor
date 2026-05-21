@@ -9,8 +9,9 @@ Start with [docs/README.md](docs/README.md).
 - [docs/10-firmware/00-architecture.md](docs/10-firmware/00-architecture.md): firmware architecture, task boundaries, storage flow, and status behavior.
 - [docs/10-firmware/01-hardware.md](docs/10-firmware/01-hardware.md): tracked board hardware facts, pin mapping, and component references.
 - [docs/10-firmware/02-conventions.md](docs/10-firmware/02-conventions.md): Rust toolchain, formatting, linting, testing, and embedded build conventions.
-- [docs/10-firmware/03-network.md](docs/10-firmware/03-network.md): firmware networking responsibilities, REST upload, discovery, time sync, and BLE readiness.
+- [docs/10-firmware/03-network.md](docs/10-firmware/03-network.md): firmware networking responsibilities, REST upload, discovery, time sync, and BLE upload boundary.
 - [docs/10-firmware/04-configuration.md](docs/10-firmware/04-configuration.md): planned firmware configuration boundary for Phase 21.
+- [docs/10-firmware/05-ble.md](docs/10-firmware/05-ble.md): planned BLE upload channel, GATT protocol boundary, pairing entry, and Wi-Fi coexistence rules.
 - [docs/20-server/00-overview.md](docs/20-server/00-overview.md): measurement ingestion server role, current temporary receiver, and formal server direction.
 - [docs/20-server/01-rest-api.md](docs/20-server/01-rest-api.md): REST API contract between firmware and server.
 - [docs/20-server/02-toolchain.md](docs/20-server/02-toolchain.md): planned Python server toolchain, style policy, formatter/linter policy, and unit-test expectations.

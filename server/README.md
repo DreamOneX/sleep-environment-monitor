@@ -47,6 +47,10 @@ UDP discovery:
   `measurement_upload`, and `time`.
 - Other payloads are ignored silently.
 
+Planned BLE upload is firmware-side only from the server's perspective. A phone
+or gateway that receives BLE records should forward them through the same
+`POST /api/v1/measurements` JSON API if server ingestion is needed.
+
 ## Checks
 
 Run from this directory:

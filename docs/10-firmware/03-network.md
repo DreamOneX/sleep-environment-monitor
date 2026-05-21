@@ -13,9 +13,12 @@ Firmware networking must support:
 - Upload acknowledgement only after server HTTP 2xx.
 - Automatic server discovery when available.
 - Real-world time synchronization.
-- Future BLE provisioning of network and server settings.
+- Future BLE measurement upload through a real low-power GATT protocol.
 
-MQTT is out of scope for the current roadmap. The persistent spool already provides offline durability, and REST keeps the server contract simple and inspectable.
+MQTT is out of scope for the current roadmap. The persistent spool already
+provides offline durability, REST keeps the server contract simple and
+inspectable, and BLE is planned as a local upload path rather than another
+server-side protocol.
 
 ## Boundaries
 
@@ -29,8 +32,10 @@ Network work should stay separated into these responsibilities:
 | REST endpoint resolution and discovery | `tasks/upload.rs` |
 | HTTP transport and response classification | `tasks/upload.rs` |
 | Persistent upload ordering and acknowledgement | `tasks/storage.rs` and `tasks/upload.rs` |
+| BLE advertising, pairing, GATT transfer, and BLE ACK handling | future `tasks/ble.rs` |
 
-Sensor sampling, microphone sampling, aggregation, and flash spooling must not depend on Wi-Fi or server availability.
+Sensor sampling, microphone sampling, aggregation, and flash spooling must not
+depend on Wi-Fi, BLE, or server availability.
 
 ## REST Upload
 
@@ -69,7 +74,7 @@ Discovery should find a REST server without rebuilding firmware.
 
 Resolution precedence:
 
-1. Provisioned endpoint from future BLE or persistent configuration.
+1. Provisioned endpoint from persistent configuration.
 2. Automatic discovery result.
 3. Static fallback endpoint from firmware configuration.
 
@@ -116,15 +121,34 @@ WPA3 and Enterprise/EAP are intentionally deferred. The current dependency stack
 exposes some WPA3 variants, but the crate documentation does not make WPA3 a
 validated target capability, and the firmware does not enable EAP features.
 
-## BLE Readiness
+## BLE Upload
 
-BLE is a future provisioning path, not part of Phase 22.
+BLE is a future independent upload path, not part of Phase 22 or Phase 23. See
+[05-ble.md](05-ble.md).
 
-Network configuration should be shaped so BLE can later provide:
+BLE must be implemented as Bluetooth Low Energy:
 
-- Wi-Fi SSID.
-- Wi-Fi authentication mode and credential material.
-- REST server endpoint or discovery preference.
-- Time sync preference if needed.
+- Use project-specific GATT services and characteristics.
+- Do not use Bluetooth Classic SPP.
+- Do not use transparent UART or Nordic UART Service style byte streams.
+- Do not push CSV or JSON as unframed serial text.
 
-Firmware code should not bake deployment-specific network details into upload or Wi-Fi tasks.
+Wi-Fi and BLE are independent features. Either can be enabled or disabled
+without disabling sensor sampling, aggregation, or persistent storage.
+
+BLE upload reads from the same persistent measurement spool as Wi-Fi REST
+upload. `storage_task` remains the only owner of append, peek, and acknowledge
+operations.
+
+ACK rules:
+
+- Wi-Fi REST upload acknowledges a record only after HTTP 2xx.
+- BLE may transmit copies while Wi-Fi upload is available and succeeding, but it
+  must not acknowledge storage in that state.
+- BLE may acknowledge exactly one oldest pending record only when Wi-Fi upload
+  is disabled or unavailable and a paired central confirms complete receipt.
+- BLE disconnect before confirmation preserves the pending record.
+
+Wi-Fi upload is unavailable when Wi-Fi is disabled, disconnected, lacks IP
+configuration, cannot resolve an endpoint, fails transport, or receives a
+non-2xx HTTP response.

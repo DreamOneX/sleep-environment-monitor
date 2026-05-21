@@ -10,6 +10,12 @@ Start with [docs/README.md](docs/README.md).
 - [docs/conventions.md](docs/conventions.md): Rust toolchain, formatting, linting, testing, and embedded build conventions.
 - [docs/hardware_information.md](docs/hardware_information.md): tracked board hardware facts, pin mapping, and component references.
 
+## Repository Layout
+
+- [firmware/](firmware/): ESP32-C3 firmware package.
+- [server/](server/): measurement ingestion server workspace.
+- [docs/](docs/): tracked project documentation.
+
 ## Working Rules
 
 - Follow `docs/development_plan.md` for phase scope and done criteria.

@@ -2,6 +2,12 @@
 
 This directory contains the tracked project documentation.
 
+## Repository Layout
+
+- [../firmware/](../firmware/): ESP32-C3 firmware package.
+- [../server/](../server/): measurement ingestion server workspace.
+- [../Cargo.toml](../Cargo.toml): root Cargo workspace with `firmware` as the default member.
+
 ## Start Here
 
 1. [development_plan.md](development_plan.md) defines the phase plan and acceptance criteria.

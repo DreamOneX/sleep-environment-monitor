@@ -93,42 +93,58 @@ The firmware validates this layout at runtime before enabling flash writes. A ze
 
 ---
 
-## 4. Recommended Source Tree
+## 4. Current Source Tree
 
 ```text
-src
-├── bin
-│   └── main.rs
-├── lib.rs
-├── board.rs
-├── types.rs
-├── drivers
-│   ├── mod.rs
-│   ├── sht40.rs
-│   ├── opt3001.rs
-│   ├── mic.rs
-│   └── flash.rs
-├── storage
-│   ├── mod.rs
-│   └── spool.rs
-├── tasks
-│   ├── mod.rs
-│   ├── sensor.rs
-│   ├── mic.rs
-│   ├── aggregator.rs
-│   ├── storage.rs
-│   ├── wifi.rs
-│   ├── upload.rs
-│   └── led.rs
-└── util
-    ├── mod.rs
-    ├── queue.rs
-    └── status.rs
+Cargo.toml
+firmware/
+├── Cargo.toml
+├── build.rs
+├── README.md
+└── src
+    ├── bin
+    │   └── main.rs
+    ├── lib.rs
+    ├── board.rs
+    ├── types.rs
+    ├── drivers
+    │   ├── mod.rs
+    │   ├── sht40.rs
+    │   ├── opt3001.rs
+    │   ├── mic.rs
+    │   └── flash.rs
+    ├── storage
+    │   ├── mod.rs
+    │   ├── flash_model.rs
+    │   └── spool.rs
+    ├── tasks
+    │   ├── mod.rs
+    │   ├── sensor.rs
+    │   ├── mic.rs
+    │   ├── aggregator.rs
+    │   ├── storage.rs
+    │   ├── net.rs
+    │   ├── wifi.rs
+    │   ├── upload.rs
+    │   └── led.rs
+    └── util
+        ├── mod.rs
+        ├── logging.rs
+        ├── queue.rs
+        └── status.rs
+server/
+├── README.md
+└── post_receiver.py
+docs/
 ```
+
+The root `Cargo.toml` is a workspace manifest. The firmware package remains named `sleep-environment-monitor`, and root-level Cargo commands target `firmware` by default.
 
 ---
 
 ## 5. Module Responsibilities
+
+Firmware module paths in this section are relative to `firmware/src/`.
 
 ## `board.rs`
 

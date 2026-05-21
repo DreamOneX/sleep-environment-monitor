@@ -931,3 +931,31 @@ Notes:
 - Receiver return drained the recovered backlog and ACKed successful uploads.
 - Full-spool oldest-drop behavior remained visible through `dropped_oldest` during both pre-reset and post-reset offline windows.
 - Remaining Phase 20 physical checks: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.
+
+## Milestone 17: Repository Split For Firmware And Server
+
+Repository layout update:
+
+- Move the ESP32-C3 firmware package into `firmware/`.
+- Move the temporary upload receiver into `server/post_receiver.py`.
+- Add a root Cargo workspace with `firmware` as the default member, keeping existing root-level Cargo commands usable.
+- Add `firmware/README.md` and `server/README.md` as directory entrypoints.
+- Update tracked documentation and `AGENTS.md` to describe the current `firmware/`, `server/`, and `docs/` layout.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+python3 -m py_compile server/post_receiver.py
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+```
+
+Observed results:
+
+- `cargo test --lib` passed with 108 tests.
+- The firmware package still builds as `sleep-environment-monitor` from the root workspace.
+- Target firmware build and both clippy runs completed without warnings or errors.
+- No hardware validation was run for this layout-only milestone, and no firmware flash-write range was exercised.

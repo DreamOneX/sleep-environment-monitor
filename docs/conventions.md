@@ -36,6 +36,23 @@ Host-side unit tests may use `std` where necessary, but hardware-independent log
 
 ---
 
+## Repository Layout
+
+The repository root is a Cargo workspace:
+
+```text
+Cargo.toml
+firmware/
+server/
+docs/
+```
+
+The `firmware` package contains the ESP32-C3 firmware and is the workspace default member. Run standard Cargo commands from the repository root unless a task explicitly says otherwise.
+
+The `server` directory is reserved for measurement ingestion server work. The current `server/post_receiver.py` file is a temporary local receiver for firmware upload validation.
+
+---
+
 ## Formatting
 
 All Rust code must be formatted with:
@@ -127,7 +144,7 @@ Wi-Fi state machine
 Build firmware with:
 
 ```bash
-cargo build
+cargo build --target riscv32imc-unknown-none-elf
 ```
 
 Build should not depend on host-only test code.
@@ -149,7 +166,7 @@ Keep hardware access separate from pure logic.
 Recommended pattern:
 
 ```text
-drivers/sht40.rs
+firmware/src/drivers/sht40.rs
   pure logic:
     crc8()
     convert_temperature()
@@ -312,8 +329,9 @@ Before committing, run:
 ```bash
 cargo fmt
 cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
 cargo clippy --all-targets
-cargo build
+cargo clippy --target riscv32imc-unknown-none-elf
 ```
 
 A commit should not mix unrelated work.

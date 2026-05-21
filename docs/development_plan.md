@@ -52,7 +52,7 @@ Implement SHT40 CRC and raw data conversion.
 Create:
 
 ```text
-src/drivers/sht40.rs
+firmware/src/drivers/sht40.rs
 ```
 
 Implement:
@@ -98,7 +98,7 @@ Implement OPT3001 lux conversion.
 Create:
 
 ```text
-src/drivers/opt3001.rs
+firmware/src/drivers/opt3001.rs
 ```
 
 Implement:
@@ -140,7 +140,7 @@ Implement ADC sample statistics.
 Create:
 
 ```text
-src/drivers/mic.rs
+firmware/src/drivers/mic.rs
 ```
 
 Implement:
@@ -189,8 +189,8 @@ Implement upload buffering and LED status mapping.
 Create:
 
 ```text
-src/util/queue.rs
-src/util/status.rs
+firmware/src/util/queue.rs
+firmware/src/util/status.rs
 ```
 
 Implement queue:
@@ -253,7 +253,7 @@ Merge environment and microphone samples into one record.
 Create:
 
 ```text
-src/tasks/aggregator.rs
+firmware/src/tasks/aggregator.rs
 ```
 
 Implement pure function:
@@ -300,7 +300,7 @@ Encode `Measurement` into a network payload.
 Create encoding function in:
 
 ```text
-src/tasks/upload.rs
+firmware/src/tasks/upload.rs
 ```
 
 First version may use CSV or JSON.
@@ -351,7 +351,7 @@ Implement testable Wi-Fi connection state logic.
 In:
 
 ```text
-src/tasks/wifi.rs
+firmware/src/tasks/wifi.rs
 ```
 
 Implement:
@@ -412,7 +412,7 @@ Bring up the board with minimal hardware use.
 
 ## Work Items
 
-In `src/bin/main.rs`:
+In `firmware/src/bin/main.rs`:
 
 - Initialize clocks.
 - Initialize GPIO.

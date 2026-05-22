@@ -1491,3 +1491,63 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 27: BLE Transfer ACK Core
+
+Phase 24B implementation:
+
+- Added storage payload flag exposure so BLE metadata can report the persisted
+  record payload format without changing the flash record format.
+- Changed storage ACK requests to include the record sequence and acknowledge
+  only when the current oldest pending record still matches that sequence.
+  This prevents stale Wi-Fi or future BLE ACKs from deleting a newer oldest
+  record.
+- Split target-side storage responses into Wi-Fi and BLE response signals so
+  concurrent upload clients cannot consume each other's storage replies.
+- Updated the Wi-Fi REST uploader to use the Wi-Fi storage client route while
+  preserving the existing HTTP 2xx-only ACK condition.
+- Added a hardware-independent BLE transfer session model for:
+  - metadata derived from the stored payload
+  - ordered fragment requests
+  - complete-record confirmation
+  - ACK suppression while Wi-Fi upload is succeeding
+  - ACK eligibility when Wi-Fi upload is unavailable
+  - duplicate ACK suppression
+  - disconnect reset without storage acknowledgement
+- Kept the target BLE task as an HCI/controller boundary only. It still does
+  not advertise, run a GATT server, accept central connections, transfer
+  records, or ACK storage at runtime.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24B as
+  transfer/ACK core work, not full BLE runtime bring-up.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Observed results:
+
+- `cargo test --lib` passed 140 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- Normal host/all-target Clippy passed.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+
+Notes:
+
+- BLE functionality was not tested in this milestone: no advertising check, no
+  central connection, no pairing/security validation, no GATT read/write/notify
+  validation, no live BLE record transfer, and no BLE storage-drain validation.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

@@ -544,7 +544,7 @@ impl Write for FixedBufferWriter<'_> {
 use crate::{
     tasks::{
         StorageRequestChannel, StorageResponseSignal, TaskSignal,
-        storage::{StorageCommand, StorageResponse, StoredPayload},
+        storage::{StorageClient, StorageCommand, StorageResponse, StoredPayload},
     },
     types::UploadResult,
 };
@@ -661,7 +661,9 @@ pub async fn uploader_task(
 
         match post_json_payload(stack, endpoint, &payload, time_sync).await {
             Ok(()) => {
-                let acked = acknowledge_payload(storage_requests, storage_responses).await;
+                let acked =
+                    acknowledge_payload(storage_requests, storage_responses, payload.sequence)
+                        .await;
                 upload_result.signal(UploadResult::Success);
                 if !acked
                     || upload_success_count == 0
@@ -697,7 +699,9 @@ async fn peek_payload(
     storage_requests: &StorageRequestChannel,
     storage_responses: &StorageResponseSignal,
 ) -> Option<StoredPayload> {
-    storage_requests.send(StorageCommand::Peek).await;
+    storage_requests
+        .send(StorageCommand::Peek(StorageClient::Wifi))
+        .await;
     match storage_responses.wait().await {
         StorageResponse::Peeked(payload) => payload,
         StorageResponse::Acked(_) => None,
@@ -712,8 +716,14 @@ async fn peek_payload(
 async fn acknowledge_payload(
     storage_requests: &StorageRequestChannel,
     storage_responses: &StorageResponseSignal,
+    sequence: u64,
 ) -> bool {
-    storage_requests.send(StorageCommand::Ack).await;
+    storage_requests
+        .send(StorageCommand::Ack {
+            client: StorageClient::Wifi,
+            sequence,
+        })
+        .await;
     match storage_responses.wait().await {
         StorageResponse::Acked(acked) => acked,
         StorageResponse::Peeked(_) => false,

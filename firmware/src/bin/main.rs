@@ -73,7 +73,10 @@ static STORAGE_REQUESTS: StorageRequestChannel = Channel::<
     { sleep_environment_monitor::tasks::STORAGE_REQUEST_CAPACITY },
 >::new();
 #[cfg(target_arch = "riscv32")]
-static STORAGE_RESPONSES: StorageResponseSignal =
+static WIFI_STORAGE_RESPONSES: StorageResponseSignal =
+    Signal::<CriticalSectionRawMutex, StorageResponse>::new();
+#[cfg(target_arch = "riscv32")]
+static BLE_STORAGE_RESPONSES: StorageResponseSignal =
     Signal::<CriticalSectionRawMutex, StorageResponse>::new();
 #[cfg(target_arch = "riscv32")]
 static NET_RESOURCES: static_cell::StaticCell<
@@ -214,7 +217,12 @@ async fn main(spawner: Spawner) -> ! {
 
     spawn_task(
         &spawner,
-        storage_task(&STORAGE_REQUESTS, &STORAGE_RESPONSES, &ERROR_FLAGS_SIGNAL),
+        storage_task(
+            &STORAGE_REQUESTS,
+            &WIFI_STORAGE_RESPONSES,
+            &BLE_STORAGE_RESPONSES,
+            &ERROR_FLAGS_SIGNAL,
+        ),
         "storage",
     );
 
@@ -264,7 +272,7 @@ async fn main(spawner: Spawner) -> ! {
                     uploader_task(
                         stack,
                         &STORAGE_REQUESTS,
-                        &STORAGE_RESPONSES,
+                        &WIFI_STORAGE_RESPONSES,
                         &NETWORK_STATE_SIGNAL,
                         &UPLOAD_RESULT_SIGNAL,
                     ),

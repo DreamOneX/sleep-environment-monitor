@@ -1,4 +1,8 @@
-use crate::types::{ErrorFlags, NetworkState, UploadResult};
+use crate::{
+    storage::spool::crc32,
+    tasks::storage::StoredPayload,
+    types::{ErrorFlags, NetworkState, UploadResult},
+};
 
 pub const SERVICE_UUID: [u8; 16] = [
     0x53, 0x45, 0x4d, 0x53, 0x24, 0x0a, 0x4b, 0x1e, 0x9b, 0xb2, 0x51, 0x0e, 0x7d, 0x01, 0x00, 0x01,
@@ -119,6 +123,21 @@ impl RecordMetadata {
 
         Ok(Self::ENCODED_LEN)
     }
+
+    pub fn from_payload<const PAYLOAD_SIZE: usize>(
+        payload: &StoredPayload<PAYLOAD_SIZE>,
+    ) -> Result<Self, BleTransferError> {
+        let payload_len =
+            u16::try_from(payload.payload_len).map_err(|_| BleTransferError::PayloadTooLarge)?;
+
+        Ok(Self::new(
+            payload.sequence,
+            payload_len,
+            payload.payload_flags,
+            crc32(payload.as_slice()),
+            payload.current_boot,
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -205,6 +224,20 @@ impl ControlFrame {
         }
     }
 
+    pub fn encode(self, out: &mut [u8]) -> Result<usize, BleProtocolError> {
+        if out.len() < Self::ENCODED_LEN {
+            return Err(BleProtocolError::BufferTooSmall);
+        }
+
+        out[0] = PROTOCOL_VERSION;
+        out[1] = self.opcode as u8;
+        out[2..10].copy_from_slice(&self.sequence.to_le_bytes());
+        out[10..12].copy_from_slice(&self.offset.to_le_bytes());
+        out[12..14].copy_from_slice(&self.length.to_le_bytes());
+
+        Ok(Self::ENCODED_LEN)
+    }
+
     pub fn decode(input: &[u8]) -> Result<Self, BleProtocolError> {
         if input.len() != Self::ENCODED_LEN {
             return Err(BleProtocolError::BadLength);
@@ -229,6 +262,224 @@ impl ControlFrame {
             offset: u16::from_le_bytes([input[10], input[11]]),
             length: u16::from_le_bytes([input[12], input[13]]),
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BleTransferState {
+    #[default]
+    Idle,
+    Active {
+        sequence: u64,
+        total_len: u16,
+        delivered_until: u16,
+        complete: bool,
+        ack_sent: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BleAckAction {
+    Suppress,
+    SendStorageAck { sequence: u64 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BleTransferError {
+    PayloadTooLarge,
+    NoActiveRecord,
+    SequenceMismatch,
+    UnexpectedOpcode,
+    InvalidFragmentLength,
+    FragmentOutOfBounds,
+    FragmentOutOfOrder,
+    TransferIncomplete,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub struct BleTransferSession {
+    state: BleTransferState,
+}
+
+impl BleTransferSession {
+    pub const fn new() -> Self {
+        Self {
+            state: BleTransferState::Idle,
+        }
+    }
+
+    pub const fn state(&self) -> BleTransferState {
+        self.state
+    }
+
+    pub fn reset_after_disconnect(&mut self) {
+        self.state = BleTransferState::Idle;
+    }
+
+    pub fn start_record<const PAYLOAD_SIZE: usize>(
+        &mut self,
+        payload: &StoredPayload<PAYLOAD_SIZE>,
+    ) -> Result<RecordMetadata, BleTransferError> {
+        let metadata = RecordMetadata::from_payload(payload)?;
+        self.state = BleTransferState::Active {
+            sequence: metadata.sequence,
+            total_len: metadata.payload_len,
+            delivered_until: 0,
+            complete: metadata.payload_len == 0,
+            ack_sent: false,
+        };
+
+        Ok(metadata)
+    }
+
+    pub fn fragment_for_request<'a, const PAYLOAD_SIZE: usize>(
+        &mut self,
+        payload: &'a StoredPayload<PAYLOAD_SIZE>,
+        request: ControlFrame,
+    ) -> Result<RecordFragment<'a>, BleTransferError> {
+        if request.opcode != ControlOpcode::RequestFragment {
+            return Err(BleTransferError::UnexpectedOpcode);
+        }
+        if request.length == 0 {
+            return Err(BleTransferError::InvalidFragmentLength);
+        }
+
+        let (sequence, total_len, delivered_until) = self.active_record_state()?;
+        if request.sequence != sequence || payload.sequence != sequence {
+            return Err(BleTransferError::SequenceMismatch);
+        }
+
+        let offset = request.offset as usize;
+        let payload_len = payload.payload_len;
+        if offset > payload_len || offset > total_len as usize {
+            return Err(BleTransferError::FragmentOutOfBounds);
+        }
+        if request.offset > delivered_until {
+            return Err(BleTransferError::FragmentOutOfOrder);
+        }
+
+        let remaining = payload_len.saturating_sub(offset);
+        let fragment_len = remaining
+            .min(request.length as usize)
+            .min(MAX_FRAGMENT_PAYLOAD_LEN);
+        if fragment_len == 0 && offset != payload_len {
+            return Err(BleTransferError::InvalidFragmentLength);
+        }
+
+        let fragment = RecordFragment::new(
+            sequence,
+            request.offset,
+            total_len,
+            &payload.as_slice()[offset..offset + fragment_len],
+        )
+        .map_err(transfer_error_from_protocol)?;
+
+        self.mark_delivered(request.offset.saturating_add(fragment_len as u16));
+        Ok(fragment)
+    }
+
+    pub fn complete_record<const PAYLOAD_SIZE: usize>(
+        &mut self,
+        payload: &StoredPayload<PAYLOAD_SIZE>,
+        request: ControlFrame,
+    ) -> Result<(), BleTransferError> {
+        if request.opcode != ControlOpcode::CompleteRecord {
+            return Err(BleTransferError::UnexpectedOpcode);
+        }
+
+        let (sequence, total_len, delivered_until) = self.active_record_state()?;
+        if request.sequence != sequence || payload.sequence != sequence {
+            return Err(BleTransferError::SequenceMismatch);
+        }
+        if delivered_until < total_len || payload.payload_len != total_len as usize {
+            return Err(BleTransferError::TransferIncomplete);
+        }
+
+        self.mark_complete();
+        Ok(())
+    }
+
+    pub fn ack_action<const PAYLOAD_SIZE: usize>(
+        &mut self,
+        payload: &StoredPayload<PAYLOAD_SIZE>,
+        request: ControlFrame,
+        network_state: NetworkState,
+        upload_result: UploadResult,
+    ) -> Result<BleAckAction, BleTransferError> {
+        if request.opcode != ControlOpcode::AckRecord {
+            return Err(BleTransferError::UnexpectedOpcode);
+        }
+
+        let BleTransferState::Active {
+            sequence,
+            complete,
+            ack_sent,
+            ..
+        } = self.state
+        else {
+            return Err(BleTransferError::NoActiveRecord);
+        };
+
+        if request.sequence != sequence || payload.sequence != sequence {
+            return Err(BleTransferError::SequenceMismatch);
+        }
+        if !complete {
+            return Err(BleTransferError::TransferIncomplete);
+        }
+        if ack_policy(network_state, upload_result) == BleAckPolicy::CopyOnly || ack_sent {
+            return Ok(BleAckAction::Suppress);
+        }
+
+        self.mark_ack_sent();
+        Ok(BleAckAction::SendStorageAck { sequence })
+    }
+
+    fn active_record_state(&self) -> Result<(u64, u16, u16), BleTransferError> {
+        match self.state {
+            BleTransferState::Active {
+                sequence,
+                total_len,
+                delivered_until,
+                ..
+            } => Ok((sequence, total_len, delivered_until)),
+            BleTransferState::Idle => Err(BleTransferError::NoActiveRecord),
+        }
+    }
+
+    fn mark_delivered(&mut self, delivered: u16) {
+        if let BleTransferState::Active {
+            delivered_until, ..
+        } = &mut self.state
+        {
+            *delivered_until = (*delivered_until).max(delivered);
+        }
+    }
+
+    fn mark_complete(&mut self) {
+        if let BleTransferState::Active { complete, .. } = &mut self.state {
+            *complete = true;
+        }
+    }
+
+    fn mark_ack_sent(&mut self) {
+        if let BleTransferState::Active { ack_sent, .. } = &mut self.state {
+            *ack_sent = true;
+        }
+    }
+}
+
+const fn transfer_error_from_protocol(error: BleProtocolError) -> BleTransferError {
+    match error {
+        BleProtocolError::FragmentTooLarge => BleTransferError::InvalidFragmentLength,
+        BleProtocolError::FragmentOutOfBounds => BleTransferError::FragmentOutOfBounds,
+        BleProtocolError::BufferTooSmall
+        | BleProtocolError::BadLength
+        | BleProtocolError::UnsupportedVersion
+        | BleProtocolError::UnknownOpcode => BleTransferError::InvalidFragmentLength,
     }
 }
 
@@ -313,6 +564,22 @@ pub async fn ble_task(mut connector: BleConnector<'static>) {
 mod tests {
     use super::*;
 
+    fn stored_payload<const N: usize>(
+        sequence: u64,
+        payload: &[u8],
+        payload_flags: u8,
+    ) -> StoredPayload<N> {
+        let mut stored = StoredPayload {
+            sequence,
+            payload: [0_u8; N],
+            payload_len: payload.len(),
+            payload_flags,
+            current_boot: true,
+        };
+        stored.payload[..payload.len()].copy_from_slice(payload);
+        stored
+    }
+
     #[test]
     fn status_encoding_is_stable() {
         let status = BleStatus::new(
@@ -340,6 +607,16 @@ mod tests {
         assert_eq!(out[11], 0x01);
         assert_eq!(&out[12..16], &0x1234_5678_u32.to_le_bytes());
         assert_eq!(out[16], 1);
+    }
+
+    #[test]
+    fn metadata_from_payload_uses_storage_flags_and_crc() {
+        let payload = stored_payload::<16>(7, b"abcdef", 0x01);
+
+        assert_eq!(
+            RecordMetadata::from_payload(&payload),
+            Ok(RecordMetadata::new(7, 6, 0x01, crc32(b"abcdef"), true))
+        );
     }
 
     #[test]
@@ -378,6 +655,217 @@ mod tests {
         assert_eq!(
             ControlFrame::decode(&input),
             Ok(ControlFrame::new(ControlOpcode::RequestFragment, 5, 16, 32))
+        );
+    }
+
+    #[test]
+    fn control_frame_round_trips_through_binary_encoding() {
+        let frame = ControlFrame::new(ControlOpcode::AckRecord, 12, 34, 56);
+        let mut out = [0_u8; ControlFrame::ENCODED_LEN];
+
+        assert_eq!(frame.encode(&mut out), Ok(ControlFrame::ENCODED_LEN));
+        assert_eq!(ControlFrame::decode(&out), Ok(frame));
+    }
+
+    #[test]
+    fn transfer_session_sends_ordered_fragments_and_ack_when_wifi_unavailable() {
+        let payload = stored_payload::<16>(9, b"abcdef", 0x01);
+        let mut session = BleTransferSession::new();
+
+        assert_eq!(
+            session.start_record(&payload),
+            Ok(RecordMetadata::new(9, 6, 0x01, crc32(b"abcdef"), true))
+        );
+
+        let first = session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 9, 0, 3),
+            )
+            .unwrap();
+        assert_eq!(first.payload, b"abc");
+        assert_eq!(
+            session.state(),
+            BleTransferState::Active {
+                sequence: 9,
+                total_len: 6,
+                delivered_until: 3,
+                complete: false,
+                ack_sent: false,
+            }
+        );
+
+        let second = session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 9, 3, 32),
+            )
+            .unwrap();
+        assert_eq!(second.payload, b"def");
+
+        assert_eq!(
+            session.complete_record(
+                &payload,
+                ControlFrame::new(ControlOpcode::CompleteRecord, 9, 0, 0),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 9, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::TransportFailed,
+            ),
+            Ok(BleAckAction::SendStorageAck { sequence: 9 })
+        );
+    }
+
+    #[test]
+    fn transfer_session_suppresses_ack_while_wifi_upload_is_succeeding() {
+        let payload = stored_payload::<16>(4, b"abc", 0x01);
+        let mut session = BleTransferSession::new();
+
+        session.start_record(&payload).unwrap();
+        session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 4, 0, 3),
+            )
+            .unwrap();
+        session
+            .complete_record(
+                &payload,
+                ControlFrame::new(ControlOpcode::CompleteRecord, 4, 0, 0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 4, 0, 0),
+                NetworkState::IpReady,
+                UploadResult::Success,
+            ),
+            Ok(BleAckAction::Suppress)
+        );
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 4, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::TransportFailed,
+            ),
+            Ok(BleAckAction::SendStorageAck { sequence: 4 })
+        );
+    }
+
+    #[test]
+    fn transfer_session_rejects_out_of_order_fragment_requests() {
+        let payload = stored_payload::<16>(3, b"abcdef", 0x01);
+        let mut session = BleTransferSession::new();
+        session.start_record(&payload).unwrap();
+
+        assert_eq!(
+            session.fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 3, 3, 3),
+            ),
+            Err(BleTransferError::FragmentOutOfOrder)
+        );
+    }
+
+    #[test]
+    fn transfer_session_requires_complete_record_before_ack() {
+        let payload = stored_payload::<16>(3, b"abcdef", 0x01);
+        let mut session = BleTransferSession::new();
+        session.start_record(&payload).unwrap();
+        session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 3, 0, 3),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session.complete_record(
+                &payload,
+                ControlFrame::new(ControlOpcode::CompleteRecord, 3, 0, 0),
+            ),
+            Err(BleTransferError::TransferIncomplete)
+        );
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 3, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::Failed,
+            ),
+            Err(BleTransferError::TransferIncomplete)
+        );
+    }
+
+    #[test]
+    fn transfer_session_suppresses_duplicate_ack_after_storage_ack_action() {
+        let payload = stored_payload::<16>(11, b"abc", 0x01);
+        let mut session = BleTransferSession::new();
+        session.start_record(&payload).unwrap();
+        session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 11, 0, 3),
+            )
+            .unwrap();
+        session
+            .complete_record(
+                &payload,
+                ControlFrame::new(ControlOpcode::CompleteRecord, 11, 0, 0),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 11, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::Failed,
+            ),
+            Ok(BleAckAction::SendStorageAck { sequence: 11 })
+        );
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 11, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::Failed,
+            ),
+            Ok(BleAckAction::Suppress)
+        );
+    }
+
+    #[test]
+    fn transfer_session_disconnect_preserves_storage_by_resetting_without_ack() {
+        let payload = stored_payload::<16>(5, b"abc", 0x01);
+        let mut session = BleTransferSession::new();
+        session.start_record(&payload).unwrap();
+        session
+            .fragment_for_request(
+                &payload,
+                ControlFrame::new(ControlOpcode::RequestFragment, 5, 0, 3),
+            )
+            .unwrap();
+
+        session.reset_after_disconnect();
+
+        assert_eq!(session.state(), BleTransferState::Idle);
+        assert_eq!(
+            session.ack_action(
+                &payload,
+                ControlFrame::new(ControlOpcode::AckRecord, 5, 0, 0),
+                NetworkState::Disconnected,
+                UploadResult::Failed,
+            ),
+            Err(BleTransferError::NoActiveRecord)
         );
     }
 

@@ -316,7 +316,11 @@ Rules:
 - `sequence` is monotonic and used only for ordering/recovery.
 - Phase 22 JSON field-fragment records use a payload flag so legacy unflagged CSV records can be skipped during migration.
 - A record is uploadable only after its CRC validates.
-- A record is removed from the spool only after upload returns HTTP 2xx.
+- A record is removed from the spool only after Wi-Fi upload returns HTTP 2xx,
+  or after future BLE upload receives paired-central complete-record
+  confirmation while Wi-Fi upload is unavailable.
+- Upload acknowledgements are sequence-checked so a stale Wi-Fi or BLE ACK does
+  not delete a different oldest pending record.
 - If the storage region is full, delete the oldest acknowledged or pending record required to make room, preserving the newest measurements.
 - A corrupt tail record is ignored during recovery; earlier valid records remain uploadable.
 - A corrupt middle record is skipped and reported through storage error status; later valid records may still be recovered if scanning can resynchronize on `magic`.
@@ -470,12 +474,16 @@ Payload encoding must be unit tested.
 
 ## `tasks/ble.rs`
 
-Compile-integrated Embassy task boundary for Bluetooth Low Energy upload.
+Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A responsibilities:
+Current Phase 24A/24B responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
+- Model oldest-record metadata, ordered fragment delivery, complete-record
+  confirmation, disconnect reset, and ACK decisions without requiring hardware.
+- Keep BLE and Wi-Fi storage responses routed as separate clients; BLE runtime
+  code does not acknowledge storage in Phase 24B.
 - Own `esp_radio::ble::controller::BleConnector` when the firmware is built
   with `--features ble-upload`.
 - Keep GATT host/server behavior inactive until later runtime bring-up.
@@ -495,9 +503,10 @@ Future runtime responsibilities:
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
 
-BLE protocol framing and ACK policy have hardware-independent Phase 24A helper
-tests. Advertising, pairing, GATT transfer, and storage ACK behavior still need
-future hardware/runtime validation.
+BLE protocol framing, fragment ordering, sequence-checked ACK policy, and
+disconnect reset have hardware-independent Phase 24A/24B tests. Advertising,
+pairing, GATT transfer, and runtime BLE storage ACK behavior still need future
+hardware/runtime validation.
 
 ---
 

@@ -1304,6 +1304,44 @@ Phase 24A commit message:
 feat: add BLE compile integration boundary
 ```
 
+## Phase 24B: BLE Transfer And ACK Core
+
+Phase 24B adds hardware-independent transfer and acknowledgement core logic.
+It still does not accept BLE runtime behavior because no GATT host/server,
+advertising, pairing, or central connection path is active yet.
+
+Phase 24B scope:
+
+- Preserve the default non-BLE firmware path.
+- Keep Wi-Fi REST upload and BLE upload routed as separate storage clients.
+- Make storage acknowledgements sequence-checked so stale Wi-Fi or BLE ACKs
+  cannot delete a newer oldest pending record.
+- Expose stored payload flags to upload clients without changing the flash
+  record format or measurement JSON payload shape.
+- Add a BLE transfer session model for oldest-record metadata, ordered
+  fragments, complete-record confirmation, disconnect reset, and ACK decision.
+- Keep BLE ACK behavior pure; do not send `StorageCommand::Ack` from BLE
+  runtime code in this slice.
+- Do not implement or validate advertising, pairing, GATT reads/writes,
+  notifications, BLE record transfer, or BLE storage drain on hardware.
+
+Phase 24B verification:
+
+```bash
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Phase 24B commit message:
+
+```text
+feat: add BLE transfer ACK core
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

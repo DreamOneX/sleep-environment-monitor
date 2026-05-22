@@ -49,6 +49,7 @@ pub struct StoredPayload<const PAYLOAD_SIZE: usize = MEASUREMENT_PAYLOAD_SIZE> {
     pub sequence: u64,
     pub payload: [u8; PAYLOAD_SIZE],
     pub payload_len: usize,
+    pub payload_flags: u8,
     pub current_boot: bool,
 }
 
@@ -62,6 +63,7 @@ impl<const PAYLOAD_SIZE: usize> StoredPayload<PAYLOAD_SIZE> {
             sequence: record.sequence,
             payload,
             payload_len,
+            payload_flags: record.flags,
             current_boot,
         }
     }
@@ -185,6 +187,17 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> StorageBacklog<CAPACITY, 
         }
     }
 
+    pub fn acknowledge_sequence(
+        &mut self,
+        flash: &mut impl FlashStorage,
+        sequence: u64,
+    ) -> Result<Option<StoredPayload<PAYLOAD_SIZE>>, StorageError> {
+        match self.spool.peek() {
+            Some(record) if record.sequence == sequence => self.acknowledge(flash),
+            Some(_) | None => Ok(None),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.spool.len()
     }
@@ -267,10 +280,21 @@ impl<const CAPACITY: usize, const PAYLOAD_SIZE: usize> Default
 
 #[cfg(target_arch = "riscv32")]
 #[derive(Clone, Copy)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum StorageClient {
+    Wifi,
+    Ble,
+}
+
+#[cfg(target_arch = "riscv32")]
+#[derive(Clone, Copy)]
 pub enum StorageCommand {
     Append(Measurement),
-    Peek,
-    Ack,
+    Peek(StorageClient),
+    Ack {
+        client: StorageClient,
+        sequence: u64,
+    },
 }
 
 #[cfg(target_arch = "riscv32")]
@@ -301,7 +325,8 @@ const STORAGE_METRICS_LOG_EVERY_EVENTS: u32 = config::storage::METRICS_LOG_EVERY
 #[embassy_executor::task]
 pub async fn storage_task(
     requests: &'static StorageRequestChannel,
-    responses: &'static StorageResponseSignal,
+    wifi_responses: &'static StorageResponseSignal,
+    ble_responses: &'static StorageResponseSignal,
     error_flags: &'static TaskSignal<ErrorFlags>,
 ) {
     let mut flash = match RomSpoolFlash::new() {
@@ -312,10 +337,15 @@ pub async fn storage_task(
             loop {
                 match requests.receive().await {
                     StorageCommand::Append(_) => {}
-                    StorageCommand::Peek | StorageCommand::Ack => {
-                        responses.signal(StorageResponse::Error(StorageError::Spool(
-                            SpoolError::Flash(FlashError::OutOfBounds),
-                        )));
+                    StorageCommand::Peek(client) | StorageCommand::Ack { client, .. } => {
+                        signal_storage_response(
+                            wifi_responses,
+                            ble_responses,
+                            client,
+                            StorageResponse::Error(StorageError::Spool(SpoolError::Flash(
+                                FlashError::OutOfBounds,
+                            ))),
+                        );
                     }
                 }
             }
@@ -370,39 +400,68 @@ pub async fn storage_task(
                     }
                 }
             }
-            StorageCommand::Peek => match backlog.as_ref() {
-                Some(backlog) => responses.signal(StorageResponse::Peeked(backlog.peek_payload())),
-                None => {
-                    responses.signal(StorageResponse::Error(storage_unavailable_error.unwrap_or(
+            StorageCommand::Peek(client) => {
+                let response = match backlog.as_ref() {
+                    Some(backlog) => StorageResponse::Peeked(backlog.peek_payload()),
+                    None => StorageResponse::Error(storage_unavailable_error.unwrap_or(
                         StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
-                    )))
-                }
-            },
-            StorageCommand::Ack => {
+                    )),
+                };
+                signal_storage_response(wifi_responses, ble_responses, client, response);
+            }
+            StorageCommand::Ack { client, sequence } => {
                 let Some(backlog) = backlog.as_mut() else {
-                    responses.signal(StorageResponse::Error(storage_unavailable_error.unwrap_or(
-                        StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
-                    )));
+                    signal_storage_response(
+                        wifi_responses,
+                        ble_responses,
+                        client,
+                        StorageResponse::Error(storage_unavailable_error.unwrap_or(
+                            StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
+                        )),
+                    );
                     error_flags.signal(ErrorFlags::STORAGE);
                     continue;
                 };
 
-                match backlog.acknowledge(&mut flash) {
+                match backlog.acknowledge_sequence(&mut flash, sequence) {
                     Ok(acknowledged) => {
                         storage_event_count = storage_event_count.wrapping_add(1);
                         log_storage_metrics(backlog.metrics(), false, storage_event_count);
-                        responses.signal(StorageResponse::Acked(acknowledged.is_some()));
+                        signal_storage_response(
+                            wifi_responses,
+                            ble_responses,
+                            client,
+                            StorageResponse::Acked(acknowledged.is_some()),
+                        );
                     }
                     Err(error) => {
                         warn!("storage ack failed error={:?}", error);
                         storage_event_count = storage_event_count.wrapping_add(1);
                         log_storage_metrics(backlog.metrics(), true, storage_event_count);
-                        responses.signal(StorageResponse::Error(error));
+                        signal_storage_response(
+                            wifi_responses,
+                            ble_responses,
+                            client,
+                            StorageResponse::Error(error),
+                        );
                         error_flags.signal(ErrorFlags::STORAGE);
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn signal_storage_response(
+    wifi_responses: &'static StorageResponseSignal,
+    ble_responses: &'static StorageResponseSignal,
+    client: StorageClient,
+    response: StorageResponse,
+) {
+    match client {
+        StorageClient::Wifi => wifi_responses.signal(response),
+        StorageClient::Ble => ble_responses.signal(response),
     }
 }
 
@@ -486,6 +545,10 @@ mod tests {
             .unwrap();
 
         assert_payload_uptime(&backlog.peek_payload().unwrap(), 1);
+        assert_eq!(
+            backlog.peek_payload().unwrap().payload_flags,
+            PAYLOAD_FLAG_JSON_FIELDS
+        );
         backlog.acknowledge(&mut flash).unwrap();
         assert_payload_uptime(&backlog.peek_payload().unwrap(), 2);
     }
@@ -505,6 +568,54 @@ mod tests {
         let acknowledged = backlog.acknowledge(&mut flash).unwrap().unwrap();
 
         assert_payload_uptime(&acknowledged, 10);
+        assert_eq!(backlog.len(), 1);
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 20);
+    }
+
+    #[test]
+    fn sequence_ack_removes_matching_oldest_record() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut backlog = StorageBacklog::<4, 192>::new();
+
+        backlog
+            .append_measurement(&mut flash, measurement(10))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(20))
+            .unwrap();
+        let oldest = backlog.peek_payload().unwrap();
+
+        let acknowledged = backlog
+            .acknowledge_sequence(&mut flash, oldest.sequence)
+            .unwrap()
+            .unwrap();
+
+        assert_payload_uptime(&acknowledged, 10);
+        assert_eq!(backlog.len(), 1);
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 20);
+    }
+
+    #[test]
+    fn stale_sequence_ack_does_not_remove_new_oldest_record() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut backlog = StorageBacklog::<4, 192>::new();
+
+        backlog
+            .append_measurement(&mut flash, measurement(10))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(20))
+            .unwrap();
+        let stale_sequence = backlog.peek_payload().unwrap().sequence;
+        backlog
+            .acknowledge_sequence(&mut flash, stale_sequence)
+            .unwrap();
+
+        let not_acknowledged = backlog
+            .acknowledge_sequence(&mut flash, stale_sequence)
+            .unwrap();
+
+        assert_eq!(not_acknowledged, None);
         assert_eq!(backlog.len(), 1);
         assert_payload_uptime(&backlog.peek_payload().unwrap(), 20);
     }

@@ -11,7 +11,7 @@
 use defmt::{info, warn};
 #[cfg(target_arch = "riscv32")]
 use embassy_executor::{SpawnError, SpawnToken, Spawner};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embassy_net::StackResources;
 #[cfg(target_arch = "riscv32")]
 use embassy_sync::{
@@ -29,7 +29,7 @@ use esp_hal::gpio::{Input, InputConfig};
 use esp_hal::gpio::{Level, Output, OutputConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use esp_hal::rng::Rng;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::time::Rate;
@@ -41,6 +41,8 @@ use panic_rtt_target as _;
 use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use sleep_environment_monitor::tasks::ble::{ble_pairing_task, ble_task};
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
+use sleep_environment_monitor::tasks::{net::net_task, upload::uploader_task, wifi::wifi_task};
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     config,
@@ -49,11 +51,8 @@ use sleep_environment_monitor::{
         aggregator::aggregator_task,
         led::{heartbeat_task, status_task},
         mic::mic_task,
-        net::net_task,
         sensor::sensor_task,
         storage::{StorageCommand, StorageResponse, storage_task},
-        upload::uploader_task,
-        wifi::wifi_task,
     },
     types::{EnvSample, ErrorFlags, MicSample, NetworkState, NetworkUploadStatus, UploadResult},
 };
@@ -84,7 +83,7 @@ static WIFI_STORAGE_RESPONSES: StorageResponseSignal =
 #[cfg(target_arch = "riscv32")]
 static BLE_STORAGE_RESPONSES: StorageResponseSignal =
     Signal::<CriticalSectionRawMutex, StorageResponse>::new();
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 static NET_RESOURCES: static_cell::StaticCell<
     StackResources<{ config::network::STACK_RESOURCE_COUNT }>,
 > = static_cell::StaticCell::new();
@@ -270,19 +269,60 @@ async fn main(spawner: Spawner) -> ! {
         }
     }
 
-    match esp_radio::wifi::new(peripherals.WIFI, Default::default()) {
+    #[cfg(feature = "wifi-upload")]
+    start_wifi_upload(peripherals.WIFI, &spawner).await;
+    #[cfg(not(feature = "wifi-upload"))]
+    {
+        NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
+        UPLOAD_RESULT_SIGNAL.signal(UploadResult::Idle);
+        set_network_upload_status(NetworkState::Disconnected, UploadResult::Idle).await;
+        info!("Wi-Fi upload feature disabled; REST uploader not started");
+    }
+
+    info!(
+        "measurement aggregation initialized wifi_upload={=bool} ble_upload={=bool}",
+        config::wifi::ENABLED,
+        config::ble::ENABLED
+    );
+
+    loop {
+        Timer::after(Duration::from_secs(config::runtime::MAIN_IDLE_SLEEP_SECS)).await;
+    }
+
+    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
+async fn update_network_upload_status(upload_result: UploadResult) {
+    let mut status = NETWORK_UPLOAD_STATUS.lock().await;
+    *status = status
+        .with_network_state(NetworkState::Disconnected)
+        .with_upload_result(upload_result);
+}
+
+#[cfg(all(target_arch = "riscv32", not(feature = "wifi-upload")))]
+async fn set_network_upload_status(network_state: NetworkState, upload_result: UploadResult) {
+    let mut status = NETWORK_UPLOAD_STATUS.lock().await;
+    *status = status
+        .with_network_state(network_state)
+        .with_upload_result(upload_result);
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
+async fn start_wifi_upload(wifi: esp_hal::peripherals::WIFI<'static>, spawner: &Spawner) {
+    match esp_radio::wifi::new(wifi, Default::default()) {
         Ok((wifi_controller, wifi_interfaces)) => {
             let net_config = config::network::default_config();
             let random_seed = Rng::new().random() as u64;
             let (stack, runner) = embassy_net::new(
                 wifi_interfaces.station,
                 net_config,
-                NET_RESOURCES.init(StackResources::new()),
+                NET_RESOURCES.init_with(StackResources::new),
                 random_seed,
             );
-            let net_started = spawn_task(&spawner, net_task(runner), "network");
+            let net_started = spawn_task(spawner, net_task(runner), "network");
             let wifi_started = spawn_task(
-                &spawner,
+                spawner,
                 wifi_task(
                     wifi_controller,
                     &NETWORK_STATE_SIGNAL,
@@ -293,7 +333,7 @@ async fn main(spawner: Spawner) -> ! {
 
             if net_started && wifi_started {
                 if !spawn_task(
-                    &spawner,
+                    spawner,
                     uploader_task(
                         stack,
                         &STORAGE_REQUESTS,
@@ -320,23 +360,4 @@ async fn main(spawner: Spawner) -> ! {
             update_network_upload_status(UploadResult::Failed).await;
         }
     }
-
-    #[cfg(feature = "ble-upload")]
-    info!("measurement aggregation, Wi-Fi manager, uploader, and BLE boundary initialized");
-    #[cfg(not(feature = "ble-upload"))]
-    info!("measurement aggregation, Wi-Fi manager, and uploader initialized");
-
-    loop {
-        Timer::after(Duration::from_secs(config::runtime::MAIN_IDLE_SLEEP_SECS)).await;
-    }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
-}
-
-#[cfg(target_arch = "riscv32")]
-async fn update_network_upload_status(upload_result: UploadResult) {
-    let mut status = NETWORK_UPLOAD_STATUS.lock().await;
-    *status = status
-        .with_network_state(NetworkState::Disconnected)
-        .with_upload_result(upload_result);
 }

@@ -70,7 +70,12 @@ No hardware flash validation is required unless Phase 21 changes the flash range
 
 When BLE upload is implemented, keep configuration ownership explicit:
 
-- Add independent Wi-Fi and BLE enablement flags.
+- `wifi-upload` is the default firmware feature and keeps the current REST
+  upload behavior enabled unless the build explicitly uses
+  `--no-default-features`.
+- `ble-upload` enables the BLE upload boundary independently from Wi-Fi.
+- `radio-coex` is the explicit BLE+Wi-Fi coexistence feature; it selects both
+  `wifi-upload` and `ble-upload` plus `esp-radio/coex`.
 - Keep BLE upload disabled by default until the BLE stack and pairing behavior
   are validated on hardware.
 - Add BLE advertising and pairing-window settings without embedding them inside

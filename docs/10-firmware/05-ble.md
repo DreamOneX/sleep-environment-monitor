@@ -7,8 +7,8 @@ This document defines the planned Phase 24 Bluetooth Low Energy upload channel.
 Phase 24A is implemented as a compile-integration milestone:
 
 - `ble-upload` enables the project BLE code path and `esp-radio/ble`.
-- `radio-coex` enables `esp-radio/coex`; `ble-upload` selects it so BLE feature
-  builds compile with the existing Wi-Fi path still present.
+- `radio-coex` enables `esp-radio/coex` for explicit BLE+Wi-Fi coexistence
+  builds.
 - `tasks::ble` defines the project-specific protocol constants and structured
   status, metadata, fragment, control, and ACK-policy helper types.
 - The firmware can construct `esp_radio::ble::controller::BleConnector` from
@@ -83,12 +83,26 @@ Phase 24F adds BLE runtime ACK wiring:
   its sequence check prevents stale BLE ACKs from deleting a different oldest
   pending record.
 
-Phase 24A through 24F do not change the flash format or measurement JSON
-payload shape. The GATT host/server, authorized read-only transfer path, and
-runtime ACK wiring now compile, but live advertising, central connection, real
-pairing/security, live BLE record transfer, notifications, and BLE
-storage-drain behavior have not been hardware-validated yet. Full BLE upload
-bring-up remains future Phase 24 work.
+Phase 24G adds independent radio feature selection:
+
+- `wifi-upload` is the default firmware feature and selects `esp-radio/wifi`.
+- `ble-upload` can be built without default features to compile a BLE-only
+  upload boundary.
+- `radio-coex` explicitly selects `ble-upload`, `wifi-upload`, and
+  `esp-radio/coex` for BLE+Wi-Fi coexistence builds.
+- `esp-radio/coex` is not enabled in BLE-only builds because `esp-radio 0.18.0`
+  references its Wi-Fi module when coexistence is enabled.
+- Target-side Wi-Fi setup, DHCP runner, and REST uploader startup are gated on
+  `wifi-upload`.
+- With `wifi-upload` disabled, sampling, aggregation, storage, status LED, and
+  optional BLE task startup still compile.
+
+Phase 24A through 24G do not change the flash format or measurement JSON
+payload shape. The GATT host/server, authorized read-only transfer path,
+runtime ACK wiring, and independent radio feature matrix now compile, but live
+advertising, central connection, real pairing/security, live BLE record
+transfer, notifications, and BLE storage-drain behavior have not been
+hardware-validated yet. Full BLE upload bring-up remains future Phase 24 work.
 
 ## Goals
 

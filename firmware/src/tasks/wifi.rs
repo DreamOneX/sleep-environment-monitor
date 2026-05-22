@@ -41,21 +41,21 @@ pub const fn backoff_seconds(attempt: u8) -> u32 {
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use defmt::{info, warn};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embassy_time::{Duration, Timer};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use esp_radio::wifi::{Config, WifiController, sta::StationConfig};
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use crate::{
     config,
     tasks::{NetworkUploadStatusMutex, TaskSignal},
     types::NetworkState,
 };
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 #[embassy_executor::task]
 pub async fn wifi_task(
     mut controller: WifiController<'static>,
@@ -158,7 +158,7 @@ pub async fn wifi_task(
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn station_config() -> StationConfig {
     let station_config = StationConfig::default()
         .with_ssid(config::wifi::SSID)
@@ -171,7 +171,7 @@ fn station_config() -> StationConfig {
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn publish_network_state(
     network_state: &'static TaskSignal<NetworkState>,
     network_upload_status: &'static NetworkUploadStatusMutex,

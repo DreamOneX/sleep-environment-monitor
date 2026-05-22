@@ -6,7 +6,7 @@ pub mod runtime {
 pub mod network {
     pub const STACK_RESOURCE_COUNT: usize = 3;
 
-    #[cfg(target_arch = "riscv32")]
+    #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
     pub fn default_config() -> embassy_net::Config {
         embassy_net::Config::dhcpv4(Default::default())
     }
@@ -24,6 +24,8 @@ pub mod ble {
 }
 
 pub mod wifi {
+    pub const ENABLED: bool = cfg!(feature = "wifi-upload");
+
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
     pub enum AuthMode {
@@ -78,7 +80,7 @@ pub mod wifi {
         Ok(())
     }
 
-    #[cfg(target_arch = "riscv32")]
+    #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
     pub fn authentication_method() -> esp_radio::wifi::AuthenticationMethod {
         match AUTH_MODE {
             AuthMode::Open => esp_radio::wifi::AuthenticationMethod::None,
@@ -153,8 +155,9 @@ mod tests {
     };
 
     #[test]
-    fn ble_feature_selection_matches_cargo_feature() {
+    fn radio_feature_selection_matches_cargo_features() {
         assert_eq!(ble::ENABLED, cfg!(feature = "ble-upload"));
+        assert_eq!(wifi::ENABLED, cfg!(feature = "wifi-upload"));
         assert_eq!(ble::ADVERTISING_NAME, "sleep-env-esp32c3");
     }
 

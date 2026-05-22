@@ -1519,6 +1519,58 @@ Phase 24F commit message:
 feat: add BLE runtime ACK wiring
 ```
 
+## Phase 24G: Independent Radio Feature Selection
+
+Phase 24G makes BLE and Wi-Fi upload feature selection independently
+compile-selectable. It accepts compile-validated feature boundaries, but it
+still does not accept full BLE upload completion because live BLE central flow,
+Wi-Fi/BLE race behavior, and BOOT / IO9 entry still need hardware validation.
+
+Phase 24G scope:
+
+- Preserve the default firmware behavior with Wi-Fi REST upload enabled and BLE
+  disabled.
+- Add a default `wifi-upload` feature that selects `esp-radio/wifi`.
+- Keep `ble-upload` selecting project BLE code, TrouBLE, and `esp-radio/ble`
+  without forcing Wi-Fi on.
+- Make `radio-coex` an explicit BLE+Wi-Fi coexistence feature that selects
+  `ble-upload`, `wifi-upload`, and `esp-radio/coex`.
+- Do not enable `esp-radio/coex` in BLE-only builds because `esp-radio 0.18.0`
+  references its Wi-Fi module when coexistence is enabled.
+- Gate target-side Wi-Fi radio setup, DHCP runner, and REST uploader startup on
+  `wifi-upload`.
+- When `wifi-upload` is disabled, leave sensor sampling, aggregation, storage,
+  status LED task, and optional BLE task running with disconnected/idle network
+  upload status.
+- Keep flash format, measurement JSON payload shape, and storage ACK semantics
+  unchanged.
+- Do not validate live BLE advertising, central connection behavior, GATT
+  transfer, notifications, storage drain, or BOOT / IO9 behavior on hardware in
+  this slice.
+
+Phase 24G verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo clippy --all-targets
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --no-default-features
+cargo clippy --target riscv32imc-unknown-none-elf --no-default-features
+cargo build --target riscv32imc-unknown-none-elf --no-default-features --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --no-default-features --features ble-upload
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24G commit message:
+
+```text
+feat: add independent radio feature selection
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

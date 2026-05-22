@@ -12,15 +12,16 @@ path = "./src/bin/main.rs"
 embedded-hal = "1.0.0"
 
 [features]
+default = ["wifi-upload"]
 ble-upload = [
   "dep:embassy-futures",
   "dep:embassy-sync-07",
   "dep:trouble-host",
   "esp-radio/ble",
-  "radio-coex",
 ]
 flash-smoke = []
-radio-coex = ["esp-radio/coex"]
+radio-coex = ["ble-upload", "wifi-upload", "esp-radio/coex"]
+wifi-upload = ["esp-radio/wifi"]
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 esp-hal = { version = "~1.1.0", features = ["defmt", "esp32c3", "unstable"] }
@@ -59,7 +60,6 @@ esp-radio = { version = "0.18.0", features = [
   "esp-alloc",
   "esp32c3",
   "unstable",
-  "wifi",
 ] }
 trouble-host = { version = "0.6.0", default-features = false, optional = true, features = [
   "defmt",

@@ -124,11 +124,12 @@ validated target capability, and the firmware does not enable EAP features.
 
 ## BLE Upload
 
-BLE is an independent upload path, not part of Phase 22 or Phase 23. Phase 24A,
-24B, and 24C add the compile boundary, protocol helpers, transfer/ACK core, and
-BOOT / IO9 pairing-window input logic. Advertising, real pairing or
-authorization, GATT transfer, and runtime BLE ACK behavior remain future
-runtime work. See [05-ble.md](05-ble.md).
+BLE is an independent upload path, not part of Phase 22 or Phase 23. Phase 24A
+through 24G add the compile boundary, protocol helpers, transfer/ACK core,
+BOOT / IO9 pairing-window input logic, GATT runtime skeleton, authorized record
+read path, runtime ACK wiring, and independent radio feature selection. Live
+advertising, real pairing or authorization, GATT transfer, and runtime BLE ACK
+behavior still require hardware validation. See [05-ble.md](05-ble.md).
 
 BLE must be implemented as Bluetooth Low Energy:
 
@@ -137,8 +138,18 @@ BLE must be implemented as Bluetooth Low Energy:
 - Do not use transparent UART or Nordic UART Service style byte streams.
 - Do not push CSV or JSON as unframed serial text.
 
-Wi-Fi and BLE are independent features. Either can be enabled or disabled
-without disabling sensor sampling, aggregation, or persistent storage.
+Wi-Fi and BLE are independent firmware features:
+
+- Default build: `wifi-upload` is enabled and BLE is disabled.
+- `--no-default-features`: both radio upload paths are disabled while sampling,
+  aggregation, and persistent storage still compile.
+- `--no-default-features --features ble-upload`: BLE upload boundary compiles
+  without Wi-Fi.
+- `--features ble-upload,radio-coex`: Wi-Fi, BLE, and `esp-radio/coex` compile
+  together.
+
+Either upload path can be enabled or disabled without disabling sensor
+sampling, aggregation, or persistent storage.
 
 BLE upload reads from the same persistent measurement spool as Wi-Fi REST
 upload. `storage_task` remains the only owner of append, peek, and acknowledge

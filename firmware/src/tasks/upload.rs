@@ -271,7 +271,7 @@ pub fn select_timestamp(sync: Option<TimeSyncState>, uptime_ms: u64) -> Timestam
     }
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn select_payload_timestamp(
     current_boot: bool,
     sync: Option<TimeSyncState>,
@@ -305,7 +305,7 @@ fn http_body(response: &[u8]) -> Option<&[u8]> {
         .map(|index| &response[index + 4..])
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn http_response_total_len(response: &[u8]) -> Option<usize> {
     let header_end = response
         .windows(4)
@@ -316,7 +316,7 @@ fn http_response_total_len(response: &[u8]) -> Option<usize> {
     header_end.checked_add(content_len)
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn http_content_length(headers: &[u8]) -> Option<usize> {
     for line in headers.split(|byte| *byte == b'\n') {
         let line = trim_http_line(line);
@@ -331,13 +331,13 @@ fn http_content_length(headers: &[u8]) -> Option<usize> {
     None
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn split_header(line: &[u8]) -> Option<(&[u8], &[u8])> {
     let index = line.iter().position(|byte| *byte == b':')?;
     Some((&line[..index], &line[index + 1..]))
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn trim_http_line(mut input: &[u8]) -> &[u8] {
     while input
         .first()
@@ -354,7 +354,7 @@ fn trim_http_line(mut input: &[u8]) -> &[u8] {
     input
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn ascii_eq_ignore_case(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len()
         && left
@@ -363,7 +363,7 @@ fn ascii_eq_ignore_case(left: &[u8], right: &[u8]) -> bool {
             .all(|(left, right)| left.eq_ignore_ascii_case(right))
 }
 
-#[cfg(any(test, target_arch = "riscv32"))]
+#[cfg(any(test, all(target_arch = "riscv32", feature = "wifi-upload")))]
 fn parse_usize_decimal(input: &[u8]) -> Option<usize> {
     let mut parsed = 0_usize;
     let mut consumed = false;
@@ -540,7 +540,7 @@ impl Write for FixedBufferWriter<'_> {
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use crate::{
     tasks::{
         NetworkUploadStatusMutex, StorageRequestChannel, StorageResponseSignal, TaskSignal,
@@ -548,20 +548,20 @@ use crate::{
     },
     types::{NetworkState, UploadResult},
 };
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use defmt::{info, warn};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embassy_net::{
     IpAddress, IpEndpoint, Stack,
     tcp::{ConnectError, TcpSocket},
     udp::{PacketMetadata, UdpSocket},
 };
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embassy_time::{Duration, Instant, Timer, with_timeout};
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embedded_io_async::Write as _;
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, defmt::Format)]
 enum UploadError {
     Encode,
@@ -577,7 +577,7 @@ enum UploadError {
     Response,
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 #[embassy_executor::task]
 pub async fn uploader_task(
     stack: Stack<'static>,
@@ -705,7 +705,7 @@ pub async fn uploader_task(
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn publish_network_state(
     network_state: &'static TaskSignal<NetworkState>,
     network_upload_status: &'static NetworkUploadStatusMutex,
@@ -716,7 +716,7 @@ async fn publish_network_state(
     *status = status.with_network_state(state);
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn publish_upload_result(
     upload_result: &'static TaskSignal<UploadResult>,
     network_upload_status: &'static NetworkUploadStatusMutex,
@@ -727,13 +727,13 @@ async fn publish_upload_result(
     *status = status.with_upload_result(result);
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn should_retry(last_attempt_ms: Option<u64>, now_ms: u64, interval_secs: u64) -> bool {
     last_attempt_ms
         .is_none_or(|last| now_ms.saturating_sub(last) >= interval_secs.saturating_mul(1000))
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn peek_payload(
     storage_requests: &StorageRequestChannel,
     storage_responses: &StorageResponseSignal,
@@ -751,7 +751,7 @@ async fn peek_payload(
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn acknowledge_payload(
     storage_requests: &StorageRequestChannel,
     storage_responses: &StorageResponseSignal,
@@ -773,7 +773,7 @@ async fn acknowledge_payload(
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn post_json_payload(
     stack: Stack<'static>,
     endpoint: Endpoint,
@@ -814,7 +814,7 @@ async fn post_json_payload(
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn send_http_request<'a>(
     stack: Stack<'static>,
     endpoint: Endpoint,
@@ -862,7 +862,7 @@ async fn send_http_request<'a>(
     Ok(&response[..read_len])
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn read_http_response(
     socket: &mut TcpSocket<'_>,
     response: &mut [u8],
@@ -903,7 +903,7 @@ async fn read_http_response(
     Ok(total_len)
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn discover_endpoint(stack: Stack<'static>) -> Result<Endpoint, UploadError> {
     let Some(config) = stack.config_v4() else {
         return Err(UploadError::Discovery);
@@ -945,7 +945,7 @@ async fn discover_endpoint(stack: Stack<'static>) -> Result<Endpoint, UploadErro
     parse_discovery_endpoint(&response[..len]).map_err(|_| UploadError::Discovery)
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn sync_time(stack: Stack<'static>, endpoint: Endpoint) -> Result<u64, UploadError> {
     match sync_time_sntp(stack).await {
         Ok(unix_ms) => Ok(unix_ms),
@@ -953,7 +953,7 @@ async fn sync_time(stack: Stack<'static>, endpoint: Endpoint) -> Result<u64, Upl
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn sync_time_sntp(stack: Stack<'static>) -> Result<u64, UploadError> {
     let [a, b, c, d] = config::upload::NTP_SERVER_IPV4_OCTETS;
     let remote = IpEndpoint::new(IpAddress::v4(a, b, c, d), config::upload::NTP_PORT);
@@ -988,7 +988,7 @@ async fn sync_time_sntp(stack: Stack<'static>) -> Result<u64, UploadError> {
     parse_sntp_unix_ms(&response[..len]).map_err(|_| UploadError::Time)
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 async fn sync_time_rest(stack: Stack<'static>, endpoint: Endpoint) -> Result<u64, UploadError> {
     let mut response = [0_u8; config::upload::RESPONSE_BUFFER_SIZE];
     let response = send_http_request(
@@ -1009,12 +1009,12 @@ async fn sync_time_rest(stack: Stack<'static>, endpoint: Endpoint) -> Result<u64
     parse_rest_time_unix_ms(response).map_err(|_| UploadError::Time)
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn stored_payload_uptime(payload: &[u8]) -> u64 {
     parse_json_u64(payload, "uptime_ms").unwrap_or(0)
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn endpoint_host_header(endpoint: Endpoint, out: &mut [u8]) -> Result<usize, EncodeError> {
     let mut writer = FixedBufferWriter::new(out);
     write!(
@@ -1026,7 +1026,7 @@ fn endpoint_host_header(endpoint: Endpoint, out: &mut [u8]) -> Result<usize, Enc
     Ok(writer.len())
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn upload_result_for_error(error: UploadError) -> UploadResult {
     match error {
         UploadError::Discovery => UploadResult::DiscoveryFailed,
@@ -1043,7 +1043,7 @@ fn upload_result_for_error(error: UploadError) -> UploadResult {
     }
 }
 
-#[cfg(target_arch = "riscv32")]
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 fn map_connect_error(error: ConnectError) -> UploadError {
     match error {
         ConnectError::InvalidState => UploadError::ConnectInvalidState,

@@ -1667,3 +1667,66 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 30: BLE Authorized Record Read Skeleton
+
+Phase 24E implementation:
+
+- Shared the BOOT / IO9 pairing-window state with the BLE GATT task.
+- Changed record metadata, record fragment, and control characteristics from
+  attribute-level disabled access to task-level authorization checks.
+- Rejects closed-window record metadata, record fragment, and control access
+  with ATT authorization errors.
+- Wired authorized BLE metadata/control requests to read the oldest pending
+  record through `storage_task` using `StorageCommand::Peek(StorageClient::Ble)`.
+- Added a per-connection transfer runtime that prepares structured metadata and
+  ordered fragments in the project GATT characteristics.
+- Sends fragment notifications when subscribed, while keeping the same
+  structured fragment characteristic readable for centrals that poll after a
+  control request.
+- Treats `CompleteRecord` as an in-memory transfer-session marker only.
+- Explicitly rejects `AckRecord`; BLE runtime still does not send
+  `StorageCommand::Ack` or delete storage records.
+- Preserved the existing Wi-Fi initialization, network stack, REST uploader,
+  storage task behavior, flash format, and measurement JSON payload shape.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24E as
+  an authorized read-only transfer skeleton, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+git diff --check
+```
+
+Observed results:
+
+- `cargo test --lib` passed 146 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- Normal host/all-target Clippy passed.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+- `git diff --check` passed.
+
+Notes:
+
+- BLE hardware behavior was not tested in this milestone: no live advertising
+  scan, no central connection, no real pairing/security validation, no live GATT
+  read/write/notify validation, no BLE record transfer, and no BLE storage-drain
+  validation.
+- BLE ACK behavior remains disabled in runtime code. ACK policy is still only
+  hardware-independent logic until live transfer and Wi-Fi-unavailable cases are
+  validated.
+- BOOT / IO9 was not hardware-validated in this milestone.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

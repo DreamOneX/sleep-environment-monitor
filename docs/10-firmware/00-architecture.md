@@ -476,14 +476,13 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D responsibilities:
+Current Phase 24A/24B/24C/24D/24E responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
 - Model oldest-record metadata, ordered fragment delivery, complete-record
   confirmation, disconnect reset, and ACK decisions without requiring hardware.
-- Keep BLE and Wi-Fi storage responses routed as separate clients; BLE runtime
-  code does not acknowledge storage in Phase 24B.
+- Keep BLE and Wi-Fi storage responses routed as separate clients.
 - Monitor BOOT / IO9 as an active-low input in BLE feature builds and maintain
   a pure pairing-window gesture state machine.
 - Keep BOOT / IO9 configured as input-only with no internal pull resistor.
@@ -491,17 +490,21 @@ Current Phase 24A/24B/24C/24D responsibilities:
   when the firmware is built with `--features ble-upload`.
 - Advertise a project-specific GATT service skeleton with status, record
   metadata, record fragment, and control characteristics.
-- Keep status readable for BLE runtime state while leaving record metadata,
-  fragment, and control access disabled until pairing, authorization, transfer,
-  and ACK runtime behavior is implemented.
+- Keep status readable for BLE runtime state.
+- Share the BOOT / IO9 pairing-window state with the GATT task and reject
+  closed-window record metadata, record fragment, and control access with ATT
+  authorization errors.
+- Read the oldest pending record through `storage_task` using the BLE storage
+  client and prepare structured metadata and ordered fragments for authorized
+  GATT requests.
+- Mark `CompleteRecord` in the in-memory transfer session only.
+- Reject `AckRecord`; BLE runtime still does not send `StorageCommand::Ack`.
 
 Future runtime responsibilities:
 
-- Add real pairing or authorization and connect the BOOT / IO9 pairing window to
-  that security boundary.
-- Read the oldest pending record through the storage task.
-- Transfer records as explicit metadata and fragments with sequence, offset,
-  length, and integrity information.
+- Replace the pairing-window authorization skeleton with validated real BLE
+  pairing/security or a documented equivalent authorization flow.
+- Validate live GATT record transfer with a BLE central.
 - Acknowledge storage only when Wi-Fi upload is disabled or unavailable and a
   paired central confirms complete receipt.
 - Never write flash directly.
@@ -510,10 +513,11 @@ Future runtime responsibilities:
 
 BLE protocol framing, fragment ordering, sequence-checked ACK policy,
 disconnect reset, and BOOT / IO9 pairing-window gesture logic have
-hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton
-compiles for the ESP32-C3 target with BLE enabled. Live advertising, central
-connection, real pairing or authorization, GATT record transfer, and runtime BLE
-storage ACK behavior still need future hardware/runtime validation.
+hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton and
+Phase 24E authorized read-only record path compile for the ESP32-C3 target with
+BLE enabled. Live advertising, central connection, real pairing or
+authorization, GATT record transfer, and runtime BLE storage ACK behavior still
+need future hardware/runtime validation.
 
 ---
 

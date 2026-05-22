@@ -51,11 +51,27 @@ Phase 24D adds the first real GATT runtime skeleton:
 - BOOT / IO9 pairing-window monitoring remains a separate BLE feature task so
   GATT advertising and connection waits do not stop the gesture state machine.
 
-Phase 24A through 24D do not change the flash format or measurement JSON
-payload shape. The GATT host/server path now compiles, but live advertising,
-central connection, real pairing/security, live BLE record transfer, and BLE
-storage-drain behavior have not been hardware-validated yet. Full BLE upload
-bring-up remains future Phase 24 work.
+Phase 24E adds an authorized read-only record transfer skeleton:
+
+- The BOOT / IO9 pairing-window task now shares its current state with the GATT
+  task.
+- Record metadata, record fragment, and control access require the pairing
+  window to be open. Closed-window access is rejected with ATT authorization
+  errors.
+- Authorized metadata/control requests read the oldest pending record through
+  `storage_task` using the BLE storage client.
+- The BLE task can prepare project-structured metadata and ordered fragments in
+  the GATT characteristics.
+- `CompleteRecord` only marks the in-memory transfer session complete.
+- `AckRecord` is explicitly rejected; BLE runtime still does not acknowledge or
+  delete storage records.
+
+Phase 24A through 24E do not change the flash format or measurement JSON
+payload shape. The GATT host/server and authorized read-only transfer path now
+compile, but live advertising, central connection, real pairing/security, live
+BLE record transfer, notifications, and BLE storage-drain behavior have not
+been hardware-validated yet. Full BLE upload bring-up remains future Phase 24
+work.
 
 ## Goals
 

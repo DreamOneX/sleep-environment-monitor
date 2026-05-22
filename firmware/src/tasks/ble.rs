@@ -653,9 +653,16 @@ const fn upload_result_code(result: UploadResult) -> u8 {
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use crate::tasks::{
+    StorageRequestChannel, StorageResponseSignal,
+    storage::{StorageClient, StorageCommand, StorageResponse},
+};
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use defmt::{error, info, warn};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use embassy_futures::select::{Either, select};
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use embassy_time::{Duration, Timer};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -711,10 +718,43 @@ struct BleGatt {
 #[derive(Clone, Copy)]
 struct GattHandles {
     status: Characteristic<[u8; BleStatus::ENCODED_LEN]>,
+    metadata: Characteristic<[u8; RecordMetadata::ENCODED_LEN]>,
+    fragment: Characteristic<[u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN]>,
+    control: Characteristic<[u8; ControlFrame::ENCODED_LEN]>,
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+struct BleRecordTransferRuntime {
+    payload: Option<StoredPayload>,
+    session: BleTransferSession,
+    last_fragment: [u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN],
+    last_fragment_len: usize,
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+impl BleRecordTransferRuntime {
+    const fn new() -> Self {
+        Self {
+            payload: None,
+            session: BleTransferSession::new(),
+            last_fragment: [0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN],
+            last_fragment_len: 0,
+        }
+    }
+
+    fn reset_after_disconnect(&mut self) {
+        self.payload = None;
+        self.session.reset_after_disconnect();
+        self.last_fragment = [0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN];
+        self.last_fragment_len = 0;
+    }
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 static BLE_HOST_RESOURCES: StaticCell<BleHostResources> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_PAIRING_STATE: Mutex<CriticalSectionRawMutex, BlePairingState> =
+    Mutex::new(BlePairingState::Closed);
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 static BLE_DEVICE_NAME: StaticCell<[u8; crate::config::ble::ADVERTISING_NAME.len()]> =
     StaticCell::new();
@@ -742,7 +782,11 @@ static BLE_CONTROL_STORE: StaticCell<[u8; ControlFrame::ENCODED_LEN]> = StaticCe
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 #[embassy_executor::task]
-pub async fn ble_task(connector: BleConnector<'static>) {
+pub async fn ble_task(
+    connector: BleConnector<'static>,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+) {
     info!(
         "ble controller initialized name={=str} protocol_version={=u8}",
         crate::config::ble::ADVERTISING_NAME,
@@ -763,7 +807,13 @@ pub async fn ble_task(connector: BleConnector<'static>) {
 
     match select(
         runner.run(),
-        gatt_advertise_loop(&mut peripheral, &gatt.server, gatt.handles),
+        gatt_advertise_loop(
+            &mut peripheral,
+            &gatt.server,
+            gatt.handles,
+            storage_requests,
+            storage_responses,
+        ),
     )
     .await
     {
@@ -790,6 +840,11 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
             BootButtonState::from_active_low(boot_button.is_low()),
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         );
+        {
+            let mut state = BLE_PAIRING_STATE.lock().await;
+            *state = pairing_gesture.state();
+        }
+
         match pairing_event {
             BlePairingEvent::WindowOpened => info!(
                 "ble pairing window opened remaining_ms={=u64}",
@@ -852,32 +907,29 @@ fn build_gatt_server(initial_status: [u8; BleStatus::ENCODED_LEN]) -> BleGatt {
             BLE_STATUS_STORE.init([0_u8; BleStatus::ENCODED_LEN]),
         )
         .build();
-    let _ = project_service
+    let metadata_handle = project_service
         .add_characteristic(
             Uuid::new_long(RECORD_METADATA_CHARACTERISTIC_UUID),
             [CharacteristicProp::Read],
             *metadata_value,
             BLE_METADATA_STORE.init([0_u8; RecordMetadata::ENCODED_LEN]),
         )
-        .read_permission(PermissionLevel::NotAllowed)
         .build();
-    let _ = project_service
+    let fragment_handle = project_service
         .add_characteristic(
             Uuid::new_long(RECORD_FRAGMENT_CHARACTERISTIC_UUID),
             [CharacteristicProp::Read, CharacteristicProp::Notify],
             *fragment_value,
             BLE_FRAGMENT_STORE.init([0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN]),
         )
-        .read_permission(PermissionLevel::NotAllowed)
         .build();
-    let _ = project_service
+    let control_handle = project_service
         .add_characteristic(
             Uuid::new_long(CONTROL_CHARACTERISTIC_UUID),
             [CharacteristicProp::Write],
             *control_value,
             BLE_CONTROL_STORE.init([0_u8; ControlFrame::ENCODED_LEN]),
         )
-        .write_permission(PermissionLevel::NotAllowed)
         .build();
     project_service.build();
 
@@ -885,6 +937,9 @@ fn build_gatt_server(initial_status: [u8; BleStatus::ENCODED_LEN]) -> BleGatt {
         server: AttributeServer::new(table),
         handles: GattHandles {
             status: status_handle,
+            metadata: metadata_handle,
+            fragment: fragment_handle,
+            control: control_handle,
         },
     }
 }
@@ -906,6 +961,8 @@ async fn gatt_advertise_loop(
     peripheral: &mut Peripheral<'_, BleController, DefaultPacketPool>,
     server: &GattServer<'static>,
     handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
 ) {
     let mut adv_data = [0_u8; 31];
     let adv_len = match AdStructure::encode_slice(
@@ -981,33 +1038,378 @@ async fn gatt_advertise_loop(
 
         set_gatt_status(server, handles, BleRuntimeState::Connected);
         info!("ble central connected");
-        run_gatt_connection(connection).await;
+        run_gatt_connection(
+            connection,
+            server,
+            handles,
+            storage_requests,
+            storage_responses,
+        )
+        .await;
     }
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-async fn run_gatt_connection(connection: GattConnection<'_, '_, DefaultPacketPool>) {
+async fn run_gatt_connection(
+    connection: GattConnection<'_, '_, DefaultPacketPool>,
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+) {
+    let mut transfer = BleRecordTransferRuntime::new();
+
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { reason } => {
                 info!("ble central disconnected reason={:?}", reason);
+                transfer.reset_after_disconnect();
                 break;
             }
             GattConnectionEvent::Gatt { event } => {
-                let handle = event.payload().handle().unwrap_or(0);
-                match event.accept() {
-                    Ok(reply) => reply.send().await,
-                    Err(error) => warn!(
-                        "ble GATT event handling failed handle={=u16} error={:?}",
-                        handle, error
-                    ),
-                }
+                handle_gatt_event(
+                    &connection,
+                    server,
+                    handles,
+                    storage_requests,
+                    storage_responses,
+                    &mut transfer,
+                    event,
+                )
+                .await;
             }
             GattConnectionEvent::RequestConnectionParams(_) => {
                 warn!("ble connection parameter update request ignored in GATT skeleton");
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn handle_gatt_event(
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+    transfer: &mut BleRecordTransferRuntime,
+    event: GattEvent<'_, '_, DefaultPacketPool>,
+) {
+    match event {
+        GattEvent::Read(event) => {
+            let handle = event.handle();
+            let result = if handle == handles.metadata.handle {
+                prepare_metadata_read(
+                    server,
+                    handles,
+                    storage_requests,
+                    storage_responses,
+                    transfer,
+                )
+                .await
+            } else if handle == handles.fragment.handle {
+                prepare_fragment_read(server, handles, transfer).await
+            } else {
+                Ok(())
+            };
+            send_gatt_reply(
+                match result {
+                    Ok(()) => event.accept(),
+                    Err(error) => event.reject(error),
+                },
+                handle,
+                "read",
+            )
+            .await;
+        }
+        GattEvent::Write(event) => {
+            let handle = event.handle();
+            let result = if handle == handles.control.handle {
+                handle_control_write(
+                    connection,
+                    server,
+                    handles,
+                    storage_requests,
+                    storage_responses,
+                    transfer,
+                    event.data(),
+                )
+                .await
+            } else {
+                Ok(())
+            };
+            send_gatt_reply(
+                match result {
+                    Ok(()) => event.accept(),
+                    Err(error) => event.reject(error),
+                },
+                handle,
+                "write",
+            )
+            .await;
+        }
+        event => {
+            let handle = event.payload().handle().unwrap_or(0);
+            send_gatt_reply(event.accept(), handle, "other").await;
+        }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn send_gatt_reply(
+    reply: Result<Reply<'_, DefaultPacketPool>, trouble_host::Error>,
+    handle: u16,
+    operation: &'static str,
+) {
+    match reply {
+        Ok(reply) => reply.send().await,
+        Err(error) => warn!(
+            "ble GATT event handling failed op={=str} handle={=u16} error={:?}",
+            operation, handle, error
+        ),
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn handle_control_write(
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+    transfer: &mut BleRecordTransferRuntime,
+    data: &[u8],
+) -> Result<(), AttErrorCode> {
+    ensure_ble_authorized().await?;
+    let request = ControlFrame::decode(data).map_err(att_error_from_protocol)?;
+
+    match request.opcode {
+        ControlOpcode::RequestMetadata => {
+            start_metadata_request(
+                server,
+                handles,
+                storage_requests,
+                storage_responses,
+                transfer,
+            )
+            .await
+        }
+        ControlOpcode::RequestFragment => {
+            prepare_fragment_request(connection, server, handles, transfer, request).await
+        }
+        ControlOpcode::CompleteRecord => complete_record_request(transfer, request),
+        ControlOpcode::AckRecord => {
+            warn!("ble storage ACK request rejected; ACK disabled in this slice");
+            Err(AttErrorCode::WRITE_REQUEST_REJECTED)
+        }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn prepare_metadata_read(
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+    transfer: &mut BleRecordTransferRuntime,
+) -> Result<(), AttErrorCode> {
+    ensure_ble_authorized().await?;
+
+    if transfer.payload.is_none() {
+        start_metadata_request(
+            server,
+            handles,
+            storage_requests,
+            storage_responses,
+            transfer,
+        )
+        .await
+    } else {
+        let metadata = RecordMetadata::from_payload(
+            transfer
+                .payload
+                .as_ref()
+                .ok_or(AttErrorCode::ATTRIBUTE_NOT_FOUND)?,
+        )
+        .map_err(att_error_from_transfer)?;
+        set_metadata_value(server, handles, metadata)
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn start_metadata_request(
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+    transfer: &mut BleRecordTransferRuntime,
+) -> Result<(), AttErrorCode> {
+    let Some(payload) = peek_ble_payload(storage_requests, storage_responses).await else {
+        transfer.reset_after_disconnect();
+        return Err(AttErrorCode::ATTRIBUTE_NOT_FOUND);
+    };
+
+    let metadata = transfer
+        .session
+        .start_record(&payload)
+        .map_err(att_error_from_transfer)?;
+    set_metadata_value(server, handles, metadata)?;
+    transfer.payload = Some(payload);
+    transfer.last_fragment = [0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN];
+    transfer.last_fragment_len = 0;
+
+    info!(
+        "ble metadata prepared sequence={=u64} payload_len={=u16}",
+        metadata.sequence, metadata.payload_len
+    );
+    Ok(())
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn prepare_fragment_read(
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    transfer: &mut BleRecordTransferRuntime,
+) -> Result<(), AttErrorCode> {
+    ensure_ble_authorized().await?;
+    if transfer.last_fragment_len == 0 {
+        return Err(AttErrorCode::VALUE_NOT_ALLOWED);
+    }
+    handles
+        .fragment
+        .set(server, &transfer.last_fragment)
+        .map_err(|_| AttErrorCode::UNLIKELY_ERROR)
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn prepare_fragment_request(
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    transfer: &mut BleRecordTransferRuntime,
+    request: ControlFrame,
+) -> Result<(), AttErrorCode> {
+    let Some(payload) = transfer.payload.as_ref() else {
+        return Err(AttErrorCode::VALUE_NOT_ALLOWED);
+    };
+
+    let mut encoded = [0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN];
+    let encoded_len = transfer
+        .session
+        .fragment_for_request(payload, request)
+        .map_err(att_error_from_transfer)?
+        .encode(&mut encoded)
+        .map_err(att_error_from_protocol)?;
+
+    transfer.last_fragment = [0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN];
+    transfer.last_fragment[..encoded_len].copy_from_slice(&encoded[..encoded_len]);
+    transfer.last_fragment_len = encoded_len;
+    handles
+        .fragment
+        .set(server, &transfer.last_fragment)
+        .map_err(|_| AttErrorCode::UNLIKELY_ERROR)?;
+
+    if let Err(error) = handles
+        .fragment
+        .notify(connection, &transfer.last_fragment)
+        .await
+    {
+        warn!("ble fragment notify failed error={:?}", error);
+    }
+    info!(
+        "ble fragment prepared sequence={=u64} offset={=u16} encoded_len={=usize}",
+        request.sequence, request.offset, encoded_len
+    );
+    Ok(())
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn complete_record_request(
+    transfer: &mut BleRecordTransferRuntime,
+    request: ControlFrame,
+) -> Result<(), AttErrorCode> {
+    let Some(payload) = transfer.payload.as_ref() else {
+        return Err(AttErrorCode::VALUE_NOT_ALLOWED);
+    };
+    transfer
+        .session
+        .complete_record(payload, request)
+        .map_err(att_error_from_transfer)?;
+    info!(
+        "ble record marked complete without storage ACK sequence={=u64}",
+        request.sequence
+    );
+    Ok(())
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn set_metadata_value(
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    metadata: RecordMetadata,
+) -> Result<(), AttErrorCode> {
+    let mut encoded = [0_u8; RecordMetadata::ENCODED_LEN];
+    metadata
+        .encode(&mut encoded)
+        .map_err(att_error_from_protocol)?;
+    handles
+        .metadata
+        .set(server, &encoded)
+        .map_err(|_| AttErrorCode::UNLIKELY_ERROR)
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn peek_ble_payload(
+    storage_requests: &'static StorageRequestChannel,
+    storage_responses: &'static StorageResponseSignal,
+) -> Option<StoredPayload> {
+    storage_requests
+        .send(StorageCommand::Peek(StorageClient::Ble))
+        .await;
+    match storage_responses.wait().await {
+        StorageResponse::Peeked(payload) => payload,
+        StorageResponse::Acked(_) => None,
+        StorageResponse::Error(error) => {
+            warn!("ble storage peek failed error={:?}", error);
+            None
+        }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn ensure_ble_authorized() -> Result<(), AttErrorCode> {
+    if BLE_PAIRING_STATE.lock().await.is_open() {
+        Ok(())
+    } else {
+        Err(AttErrorCode::INSUFFICIENT_AUTHORISATION)
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const fn att_error_from_protocol(error: BleProtocolError) -> AttErrorCode {
+    match error {
+        BleProtocolError::BufferTooSmall => AttErrorCode::INSUFFICIENT_RESOURCES,
+        BleProtocolError::FragmentTooLarge => AttErrorCode::INVALID_ATTRIBUTE_VALUE_LENGTH,
+        BleProtocolError::FragmentOutOfBounds => AttErrorCode::OUT_OF_RANGE,
+        BleProtocolError::BadLength => AttErrorCode::INVALID_ATTRIBUTE_VALUE_LENGTH,
+        BleProtocolError::UnsupportedVersion | BleProtocolError::UnknownOpcode => {
+            AttErrorCode::VALUE_NOT_ALLOWED
+        }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const fn att_error_from_transfer(error: BleTransferError) -> AttErrorCode {
+    match error {
+        BleTransferError::PayloadTooLarge => AttErrorCode::INSUFFICIENT_RESOURCES,
+        BleTransferError::NoActiveRecord => AttErrorCode::VALUE_NOT_ALLOWED,
+        BleTransferError::SequenceMismatch => AttErrorCode::VALUE_NOT_ALLOWED,
+        BleTransferError::UnexpectedOpcode => AttErrorCode::VALUE_NOT_ALLOWED,
+        BleTransferError::InvalidFragmentLength => AttErrorCode::INVALID_ATTRIBUTE_VALUE_LENGTH,
+        BleTransferError::FragmentOutOfBounds => AttErrorCode::OUT_OF_RANGE,
+        BleTransferError::FragmentOutOfOrder => AttErrorCode::VALUE_NOT_ALLOWED,
+        BleTransferError::TransferIncomplete => AttErrorCode::VALUE_NOT_ALLOWED,
     }
 }
 

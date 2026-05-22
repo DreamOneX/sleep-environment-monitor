@@ -1424,6 +1424,51 @@ Phase 24D commit message:
 feat: add BLE GATT runtime skeleton
 ```
 
+## Phase 24E: BLE Authorized Record Read Skeleton
+
+Phase 24E connects the BOOT / IO9 pairing window to the project GATT record
+characteristics and adds a read-only oldest-record transfer path. It accepts
+compile-validated GATT access control and storage peek wiring, but it still
+does not accept full BLE upload behavior because BLE storage acknowledgement
+and live hardware validation are not complete yet.
+
+Phase 24E scope:
+
+- Preserve the default non-BLE firmware path.
+- Keep Wi-Fi REST upload and BLE upload routed as separate storage clients.
+- Share the BOOT / IO9 pairing-window state with the GATT task.
+- Reject unpaired record metadata, record fragment, and control access with ATT
+  authorization errors.
+- Let authorized GATT control/metadata requests read the oldest pending record
+  through `storage_task` using `StorageCommand::Peek(StorageClient::Ble)`.
+- Prepare structured metadata and ordered record fragments in the existing
+  project GATT characteristics.
+- Treat `CompleteRecord` as a transfer-session marker only.
+- Explicitly reject `AckRecord`; do not send `StorageCommand::Ack` from BLE
+  runtime code in this slice.
+- Do not change flash format, measurement JSON payload shape, or Wi-Fi upload
+  acknowledgement behavior.
+- Do not validate live BLE advertising, central connection behavior, GATT
+  transfer, notifications, or BOOT / IO9 behavior on hardware in this slice.
+
+Phase 24E verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Phase 24E commit message:
+
+```text
+feat: add BLE authorized record read skeleton
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

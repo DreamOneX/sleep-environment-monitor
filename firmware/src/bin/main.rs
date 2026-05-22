@@ -248,7 +248,11 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     match esp_radio::ble::controller::BleConnector::new(peripherals.BT, Default::default()) {
         Ok(connector) => {
-            if !spawn_task(&spawner, ble_task(connector), "ble") {
+            if !spawn_task(
+                &spawner,
+                ble_task(connector, &STORAGE_REQUESTS, &BLE_STORAGE_RESPONSES),
+                "ble",
+            ) {
                 warn!("BLE task spawn failed; BLE upload boundary disabled");
             }
         }

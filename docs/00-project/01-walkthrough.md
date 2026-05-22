@@ -1730,3 +1730,61 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 31: BLE Runtime ACK Wiring
+
+Phase 24F implementation:
+
+- Added a shared latest network/upload status snapshot.
+- Kept Wi-Fi and uploader tasks publishing their existing `Signal`s for the
+  LED/status task while also updating the shared snapshot.
+- Updated the BLE task to read the shared snapshot instead of consuming the
+  existing single-consumer status `Signal`s.
+- Wired authorized `AckRecord` requests through the existing BLE transfer ACK
+  policy.
+- Suppressed BLE storage ACK while Wi-Fi is connected or IP-ready and the last
+  upload result is success.
+- Sent `StorageCommand::Ack { client: StorageClient::Ble, sequence }` when a
+  complete record is confirmed and the ACK policy permits BLE drain.
+- Kept `storage_task` as the flash-backed deletion owner; its existing sequence
+  check prevents stale BLE ACKs from deleting a different oldest pending record.
+- Preserved the Wi-Fi upload path, flash format, and measurement JSON payload
+  shape.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24F as
+  runtime ACK wiring, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+git diff --check
+```
+
+Observed results:
+
+- `cargo test --lib` passed 147 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- Normal host/all-target Clippy passed.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+- `git diff --check` passed.
+
+Notes:
+
+- BLE hardware behavior was not tested in this milestone: no live advertising
+  scan, no central connection, no real pairing/security validation, no live GATT
+  read/write/notify validation, no BLE record transfer, and no BLE storage-drain
+  validation.
+- BOOT / IO9 was not hardware-validated in this milestone.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

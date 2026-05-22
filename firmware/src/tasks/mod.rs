@@ -13,6 +13,12 @@ pub type TaskSignal<T> =
     embassy_sync::signal::Signal<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, T>;
 
 #[cfg(target_arch = "riscv32")]
+pub type NetworkUploadStatusMutex = embassy_sync::mutex::Mutex<
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    crate::types::NetworkUploadStatus,
+>;
+
+#[cfg(target_arch = "riscv32")]
 pub type SampleSignal<T> = TaskSignal<T>;
 
 #[cfg(target_arch = "riscv32")]

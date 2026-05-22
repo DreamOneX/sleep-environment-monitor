@@ -49,18 +49,28 @@ use embassy_time::{Duration, Timer};
 use esp_radio::wifi::{Config, WifiController, sta::StationConfig};
 
 #[cfg(target_arch = "riscv32")]
-use crate::{config, tasks::TaskSignal, types::NetworkState};
+use crate::{
+    config,
+    tasks::{NetworkUploadStatusMutex, TaskSignal},
+    types::NetworkState,
+};
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
 pub async fn wifi_task(
     mut controller: WifiController<'static>,
     network_state: &'static TaskSignal<NetworkState>,
+    network_upload_status: &'static NetworkUploadStatusMutex,
 ) {
     let mut attempt = 0_u8;
 
     loop {
-        network_state.signal(NetworkState::Connecting);
+        publish_network_state(
+            network_state,
+            network_upload_status,
+            NetworkState::Connecting,
+        )
+        .await;
         info!(
             "wifi connecting ssid={=str} auth={:?}",
             config::wifi::SSID,
@@ -74,7 +84,12 @@ pub async fn wifi_task(
         ) {
             Ok(()) => station_config(),
             Err(error) => {
-                network_state.signal(NetworkState::Disconnected);
+                publish_network_state(
+                    network_state,
+                    network_upload_status,
+                    NetworkState::Disconnected,
+                )
+                .await;
                 warn!("wifi config invalid error={:?}", error);
                 Timer::after(Duration::from_secs(backoff_seconds(1) as u64)).await;
                 continue;
@@ -93,7 +108,12 @@ pub async fn wifi_task(
 
         match connect_result {
             Ok(info) => {
-                network_state.signal(NetworkState::Connected);
+                publish_network_state(
+                    network_state,
+                    network_upload_status,
+                    NetworkState::Connected,
+                )
+                .await;
                 info!(
                     "wifi connected ssid={=str} channel={=u8} aid={=u16}",
                     info.ssid.as_str(),
@@ -109,11 +129,21 @@ pub async fn wifi_task(
                     Err(error) => warn!("wifi disconnect wait ended: {:?}", error),
                 }
 
-                network_state.signal(NetworkState::Disconnected);
+                publish_network_state(
+                    network_state,
+                    network_upload_status,
+                    NetworkState::Disconnected,
+                )
+                .await;
                 attempt = 1;
             }
             Err(error) => {
-                network_state.signal(NetworkState::Disconnected);
+                publish_network_state(
+                    network_state,
+                    network_upload_status,
+                    NetworkState::Disconnected,
+                )
+                .await;
                 attempt = attempt.saturating_add(1).max(1);
                 warn!("wifi connect failed: {:?}", error);
             }
@@ -139,6 +169,17 @@ fn station_config() -> StationConfig {
     } else {
         station_config.with_password(config::wifi::PASSWORD.into())
     }
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_network_state(
+    network_state: &'static TaskSignal<NetworkState>,
+    network_upload_status: &'static NetworkUploadStatusMutex,
+    state: NetworkState,
+) {
+    network_state.signal(state);
+    let mut status = network_upload_status.lock().await;
+    *status = status.with_network_state(state);
 }
 
 #[cfg(test)]

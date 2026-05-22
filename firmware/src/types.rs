@@ -163,6 +163,36 @@ pub enum UploadResult {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub struct NetworkUploadStatus {
+    pub network_state: NetworkState,
+    pub upload_result: UploadResult,
+}
+
+impl NetworkUploadStatus {
+    pub const fn new(network_state: NetworkState, upload_result: UploadResult) -> Self {
+        Self {
+            network_state,
+            upload_result,
+        }
+    }
+
+    pub const fn with_network_state(self, network_state: NetworkState) -> Self {
+        Self {
+            network_state,
+            ..self
+        }
+    }
+
+    pub const fn with_upload_result(self, upload_result: UploadResult) -> Self {
+        Self {
+            upload_result,
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum TimeStatus {
     #[default]
     Unknown,
@@ -230,6 +260,18 @@ mod tests {
         assert_eq!(
             TimeStatus::WallClockSynced.as_json_str(),
             "wall_clock_synced"
+        );
+    }
+
+    #[test]
+    fn network_upload_status_updates_fields_independently() {
+        let status = NetworkUploadStatus::default()
+            .with_network_state(NetworkState::IpReady)
+            .with_upload_result(UploadResult::Success);
+
+        assert_eq!(
+            status,
+            NetworkUploadStatus::new(NetworkState::IpReady, UploadResult::Success)
         );
     }
 

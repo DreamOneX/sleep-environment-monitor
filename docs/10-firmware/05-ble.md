@@ -66,12 +66,29 @@ Phase 24E adds an authorized read-only record transfer skeleton:
 - `AckRecord` is explicitly rejected; BLE runtime still does not acknowledge or
   delete storage records.
 
-Phase 24A through 24E do not change the flash format or measurement JSON
-payload shape. The GATT host/server and authorized read-only transfer path now
-compile, but live advertising, central connection, real pairing/security, live
-BLE record transfer, notifications, and BLE storage-drain behavior have not
-been hardware-validated yet. Full BLE upload bring-up remains future Phase 24
-work.
+Phase 24F adds BLE runtime ACK wiring:
+
+- Wi-Fi and uploader tasks keep publishing their existing status `Signal`s for
+  the LED/status task and also update a shared latest network/upload status
+  snapshot.
+- The BLE task reads that shared snapshot instead of consuming the existing
+  single-consumer status `Signal`s.
+- Authorized `AckRecord` now evaluates the existing BLE ACK policy against the
+  latest Wi-Fi/upload snapshot.
+- BLE suppresses storage ACK while Wi-Fi is connected or IP-ready and the last
+  upload result is success.
+- When the ACK policy permits BLE drain, BLE sends
+  `StorageCommand::Ack { client: StorageClient::Ble, sequence }`.
+- `storage_task` remains the only owner of flash-backed record deletion, and
+  its sequence check prevents stale BLE ACKs from deleting a different oldest
+  pending record.
+
+Phase 24A through 24F do not change the flash format or measurement JSON
+payload shape. The GATT host/server, authorized read-only transfer path, and
+runtime ACK wiring now compile, but live advertising, central connection, real
+pairing/security, live BLE record transfer, notifications, and BLE
+storage-drain behavior have not been hardware-validated yet. Full BLE upload
+bring-up remains future Phase 24 work.
 
 ## Goals
 

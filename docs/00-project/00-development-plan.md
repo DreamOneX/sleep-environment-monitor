@@ -1469,6 +1469,56 @@ Phase 24E commit message:
 feat: add BLE authorized record read skeleton
 ```
 
+## Phase 24F: BLE Runtime ACK Wiring
+
+Phase 24F connects the BLE GATT `AckRecord` control path to the existing
+sequence-checked storage acknowledgement command. It accepts compile-validated
+runtime ACK wiring, but it still does not accept full BLE upload completion
+because the BLE central flow, Wi-Fi/BLE race behavior, and BOOT / IO9 entry
+have not been hardware-validated yet.
+
+Phase 24F scope:
+
+- Preserve the default non-BLE firmware path.
+- Keep Wi-Fi REST upload and BLE upload routed as separate storage clients.
+- Add a shared latest network/upload status snapshot so BLE can evaluate ACK
+  policy without consuming the existing single-consumer status `Signal`s used
+  by the LED/status task.
+- Keep Wi-Fi and uploader tasks publishing their existing status `Signal`s.
+- Update the shared snapshot from Wi-Fi and uploader state transitions.
+- On authorized `AckRecord`, use the existing BLE transfer session ACK policy
+  with the shared network/upload status snapshot.
+- Suppress BLE storage ACK while Wi-Fi upload is connected/IP-ready and the
+  last upload result is success.
+- Send `StorageCommand::Ack { client: StorageClient::Ble, sequence }` only
+  after complete-record confirmation when the policy permits BLE ACK.
+- Rely on `storage_task` sequence checking so stale BLE ACKs cannot delete a
+  different oldest pending record.
+- Do not change flash format, measurement JSON payload shape, or Wi-Fi upload
+  acknowledgement behavior.
+- Do not validate live BLE advertising, central connection behavior, GATT
+  transfer, notifications, storage drain, or BOOT / IO9 behavior on hardware in
+  this slice.
+
+Phase 24F verification:
+
+```bash
+cargo fmt
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+git diff --check
+```
+
+Phase 24F commit message:
+
+```text
+feat: add BLE runtime ACK wiring
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

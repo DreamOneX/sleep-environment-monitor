@@ -543,10 +543,10 @@ impl Write for FixedBufferWriter<'_> {
 #[cfg(target_arch = "riscv32")]
 use crate::{
     tasks::{
-        StorageRequestChannel, StorageResponseSignal, TaskSignal,
+        NetworkUploadStatusMutex, StorageRequestChannel, StorageResponseSignal, TaskSignal,
         storage::{StorageClient, StorageCommand, StorageResponse, StoredPayload},
     },
-    types::UploadResult,
+    types::{NetworkState, UploadResult},
 };
 #[cfg(target_arch = "riscv32")]
 use defmt::{info, warn};
@@ -583,8 +583,9 @@ pub async fn uploader_task(
     stack: Stack<'static>,
     storage_requests: &'static StorageRequestChannel,
     storage_responses: &'static StorageResponseSignal,
-    network_state: &'static TaskSignal<crate::types::NetworkState>,
+    network_state: &'static TaskSignal<NetworkState>,
     upload_result: &'static TaskSignal<UploadResult>,
+    network_upload_status: &'static NetworkUploadStatusMutex,
 ) {
     let mut logged_network_config = false;
     let mut upload_success_count = 0_u32;
@@ -595,7 +596,7 @@ pub async fn uploader_task(
 
     loop {
         stack.wait_config_up().await;
-        network_state.signal(crate::types::NetworkState::IpReady);
+        publish_network_state(network_state, network_upload_status, NetworkState::IpReady).await;
         if !logged_network_config && let Some(config) = stack.config_v4() {
             info!("network ipv4 config={:?}", config);
             logged_network_config = true;
@@ -621,7 +622,12 @@ pub async fn uploader_task(
                     discovered_endpoint = Some(endpoint);
                 }
                 Err(error) => {
-                    upload_result.signal(UploadResult::DiscoveryFailed);
+                    publish_upload_result(
+                        upload_result,
+                        network_upload_status,
+                        UploadResult::DiscoveryFailed,
+                    )
+                    .await;
                     warn!("discovery failed error={:?}", error);
                 }
             }
@@ -645,7 +651,12 @@ pub async fn uploader_task(
                     info!("time synced unix_ms={=u64}", unix_ms);
                 }
                 Err(error) => {
-                    upload_result.signal(UploadResult::TimeFailed);
+                    publish_upload_result(
+                        upload_result,
+                        network_upload_status,
+                        UploadResult::TimeFailed,
+                    )
+                    .await;
                     warn!("time sync failed error={:?}", error);
                 }
             }
@@ -664,7 +675,8 @@ pub async fn uploader_task(
                 let acked =
                     acknowledge_payload(storage_requests, storage_responses, payload.sequence)
                         .await;
-                upload_result.signal(UploadResult::Success);
+                publish_upload_result(upload_result, network_upload_status, UploadResult::Success)
+                    .await;
                 if !acked
                     || upload_success_count == 0
                     || upload_success_count.is_multiple_of(config::upload::SUCCESS_LOG_EVERY)
@@ -677,7 +689,12 @@ pub async fn uploader_task(
                 upload_success_count = upload_success_count.wrapping_add(1);
             }
             Err(error) => {
-                upload_result.signal(upload_result_for_error(error));
+                publish_upload_result(
+                    upload_result,
+                    network_upload_status,
+                    upload_result_for_error(error),
+                )
+                .await;
                 warn!(
                     "upload failed error={:?} sequence={=u64}",
                     error, payload.sequence
@@ -686,6 +703,28 @@ pub async fn uploader_task(
             }
         }
     }
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_network_state(
+    network_state: &'static TaskSignal<NetworkState>,
+    network_upload_status: &'static NetworkUploadStatusMutex,
+    state: NetworkState,
+) {
+    network_state.signal(state);
+    let mut status = network_upload_status.lock().await;
+    *status = status.with_network_state(state);
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_upload_result(
+    upload_result: &'static TaskSignal<UploadResult>,
+    network_upload_status: &'static NetworkUploadStatusMutex,
+    result: UploadResult,
+) {
+    upload_result.signal(result);
+    let mut status = network_upload_status.lock().await;
+    *status = status.with_upload_result(result);
 }
 
 #[cfg(target_arch = "riscv32")]

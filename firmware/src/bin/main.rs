@@ -45,7 +45,7 @@ use sleep_environment_monitor::tasks::ble::{ble_pairing_task, ble_task};
 use sleep_environment_monitor::{
     config,
     tasks::{
-        StorageRequestChannel, StorageResponseSignal,
+        NetworkUploadStatusMutex, StorageRequestChannel, StorageResponseSignal,
         aggregator::aggregator_task,
         led::{heartbeat_task, status_task},
         mic::mic_task,
@@ -55,7 +55,7 @@ use sleep_environment_monitor::{
         upload::uploader_task,
         wifi::wifi_task,
     },
-    types::{EnvSample, ErrorFlags, MicSample, NetworkState, UploadResult},
+    types::{EnvSample, ErrorFlags, MicSample, NetworkState, NetworkUploadStatus, UploadResult},
 };
 
 #[cfg(target_arch = "riscv32")]
@@ -68,6 +68,10 @@ static NETWORK_STATE_SIGNAL: Signal<CriticalSectionRawMutex, NetworkState> = Sig
 static UPLOAD_RESULT_SIGNAL: Signal<CriticalSectionRawMutex, UploadResult> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static ERROR_FLAGS_SIGNAL: Signal<CriticalSectionRawMutex, ErrorFlags> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static NETWORK_UPLOAD_STATUS: NetworkUploadStatusMutex = NetworkUploadStatusMutex::new(
+    NetworkUploadStatus::new(NetworkState::Disconnected, UploadResult::Idle),
+);
 #[cfg(target_arch = "riscv32")]
 static STORAGE_REQUESTS: StorageRequestChannel = Channel::<
     CriticalSectionRawMutex,
@@ -250,7 +254,12 @@ async fn main(spawner: Spawner) -> ! {
         Ok(connector) => {
             if !spawn_task(
                 &spawner,
-                ble_task(connector, &STORAGE_REQUESTS, &BLE_STORAGE_RESPONSES),
+                ble_task(
+                    connector,
+                    &STORAGE_REQUESTS,
+                    &BLE_STORAGE_RESPONSES,
+                    &NETWORK_UPLOAD_STATUS,
+                ),
                 "ble",
             ) {
                 warn!("BLE task spawn failed; BLE upload boundary disabled");
@@ -274,7 +283,11 @@ async fn main(spawner: Spawner) -> ! {
             let net_started = spawn_task(&spawner, net_task(runner), "network");
             let wifi_started = spawn_task(
                 &spawner,
-                wifi_task(wifi_controller, &NETWORK_STATE_SIGNAL),
+                wifi_task(
+                    wifi_controller,
+                    &NETWORK_STATE_SIGNAL,
+                    &NETWORK_UPLOAD_STATUS,
+                ),
                 "wifi",
             );
 
@@ -287,20 +300,24 @@ async fn main(spawner: Spawner) -> ! {
                         &WIFI_STORAGE_RESPONSES,
                         &NETWORK_STATE_SIGNAL,
                         &UPLOAD_RESULT_SIGNAL,
+                        &NETWORK_UPLOAD_STATUS,
                     ),
                     "uploader",
                 ) {
                     UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+                    update_network_upload_status(UploadResult::Failed).await;
                 }
             } else {
                 NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
                 UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+                update_network_upload_status(UploadResult::Failed).await;
             }
         }
         Err(_) => {
             warn!("Wi-Fi controller initialization failed; network and uploader disabled");
             NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
             UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
+            update_network_upload_status(UploadResult::Failed).await;
         }
     }
 
@@ -314,4 +331,12 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.1.0/examples
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn update_network_upload_status(upload_result: UploadResult) {
+    let mut status = NETWORK_UPLOAD_STATUS.lock().await;
+    *status = status
+        .with_network_state(NetworkState::Disconnected)
+        .with_upload_result(upload_result);
 }

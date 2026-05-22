@@ -476,7 +476,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E responsibilities:
+Current Phase 24A/24B/24C/24D/24E/24F responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
@@ -497,27 +497,33 @@ Current Phase 24A/24B/24C/24D/24E responsibilities:
 - Read the oldest pending record through `storage_task` using the BLE storage
   client and prepare structured metadata and ordered fragments for authorized
   GATT requests.
-- Mark `CompleteRecord` in the in-memory transfer session only.
-- Reject `AckRecord`; BLE runtime still does not send `StorageCommand::Ack`.
+- Mark `CompleteRecord` in the in-memory transfer session.
+- Maintain a shared latest network/upload status snapshot for BLE ACK policy
+  decisions without consuming the existing single-consumer status `Signal`s
+  used by the LED/status task.
+- On authorized `AckRecord`, suppress BLE storage ACK while Wi-Fi upload is
+  connected/IP-ready and the last upload result is success.
+- When the ACK policy permits BLE drain, send
+  `StorageCommand::Ack { client: StorageClient::Ble, sequence }`; storage still
+  owns flash-backed deletion and sequence-checks the ACK.
 
 Future runtime responsibilities:
 
 - Replace the pairing-window authorization skeleton with validated real BLE
   pairing/security or a documented equivalent authorization flow.
-- Validate live GATT record transfer with a BLE central.
-- Acknowledge storage only when Wi-Fi upload is disabled or unavailable and a
-  paired central confirms complete receipt.
+- Validate live GATT record transfer and BLE storage drain with a BLE central.
 - Never write flash directly.
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
 
 BLE protocol framing, fragment ordering, sequence-checked ACK policy,
 disconnect reset, and BOOT / IO9 pairing-window gesture logic have
-hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton and
-Phase 24E authorized read-only record path compile for the ESP32-C3 target with
-BLE enabled. Live advertising, central connection, real pairing or
-authorization, GATT record transfer, and runtime BLE storage ACK behavior still
-need future hardware/runtime validation.
+hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton,
+Phase 24E authorized read-only record path, and Phase 24F runtime BLE ACK
+wiring compile for the ESP32-C3 target with BLE enabled. Live advertising,
+central connection, real pairing or authorization, GATT record transfer, and
+runtime BLE storage ACK behavior still need future hardware/runtime
+validation.
 
 ---
 

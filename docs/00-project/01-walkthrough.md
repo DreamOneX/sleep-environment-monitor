@@ -1551,3 +1551,58 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 28: BLE Pairing Gesture Core
+
+Phase 24C implementation:
+
+- Added BLE pairing-window timing constants in `config::ble`.
+- Added a hardware-independent active-low BOOT button model.
+- Added a pure BLE pairing-window gesture state machine for long press, short
+  press rejection, release-before-retrigger behavior, and timeout.
+- Updated the BLE feature target path to configure GPIO9 / BOOT as input-only
+  with the default no-pull configuration.
+- Updated the BLE task boundary to monitor BOOT / IO9 and log pairing-window
+  open/expire events.
+- Kept the target BLE task as an HCI/controller boundary only. The pairing
+  window is not yet connected to GATT security, authorization, bonded state, or
+  record access.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md),
+  [../10-firmware/01-hardware.md](../10-firmware/01-hardware.md),
+  [../10-firmware/03-network.md](../10-firmware/03-network.md),
+  [../10-firmware/04-configuration.md](../10-firmware/04-configuration.md),
+  and [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase
+  24C as pairing gesture core work, not full BLE pairing/security bring-up.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Observed results:
+
+- `cargo test --lib` passed 146 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- Normal host/all-target Clippy passed.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+
+Notes:
+
+- BOOT / IO9 was not hardware-validated in this milestone.
+- BLE functionality was not tested in this milestone: no advertising check, no
+  central connection, no real pairing/security validation, no GATT
+  read/write/notify validation, no live BLE record transfer, and no BLE
+  storage-drain validation.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

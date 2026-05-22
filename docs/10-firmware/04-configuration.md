@@ -11,7 +11,7 @@ Phase 21 was behavior-preserving. Phase 22 extends this module with the JSON RES
 | Category | Examples |
 |---|---|
 | Wi-Fi | SSID, authentication mode, credential defaults, credential validation |
-| BLE | BLE feature enablement, advertising name, pairing window, GATT transfer sizing, ACK policy tuning |
+| BLE | BLE feature enablement, advertising name, pairing-window timing, GATT transfer sizing, ACK policy tuning |
 | REST upload | fallback host/IP, port, JSON upload path, time path, discovery path, user-agent |
 | Network timing | upload retry delay, TCP/read timeouts, discovery retry, time-sync retry, empty-spool poll interval |
 | Network resources | stack resource count, socket buffers, request/response buffers |
@@ -75,6 +75,8 @@ When BLE upload is implemented, keep configuration ownership explicit:
   are validated on hardware.
 - Add BLE advertising and pairing-window settings without embedding them inside
   upload or storage task logic.
+- Keep BOOT / IO9 pairing-window timing in config and keep the pin input-only
+  with no internal pull resistor.
 - Add GATT fragment-size and transfer-timeout policy values.
 - Keep project GATT protocol constants in the BLE protocol module, not in
   `config.rs`.

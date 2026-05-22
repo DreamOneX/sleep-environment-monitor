@@ -499,6 +499,127 @@ pub const fn ack_policy(network_state: NetworkState, upload_result: UploadResult
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BootButtonState {
+    Pressed,
+    #[default]
+    Released,
+}
+
+impl BootButtonState {
+    pub const fn from_active_low(is_low: bool) -> Self {
+        if is_low {
+            Self::Pressed
+        } else {
+            Self::Released
+        }
+    }
+
+    pub const fn is_pressed(self) -> bool {
+        matches!(self, Self::Pressed)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BlePairingState {
+    #[default]
+    Closed,
+    Open {
+        remaining_millis: u64,
+    },
+}
+
+impl BlePairingState {
+    pub const fn is_open(self) -> bool {
+        matches!(self, Self::Open { .. })
+    }
+
+    pub const fn remaining_millis(self) -> u64 {
+        match self {
+            Self::Closed => 0,
+            Self::Open { remaining_millis } => remaining_millis,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub enum BlePairingEvent {
+    None,
+    WindowOpened,
+    WindowExpired,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BlePairingGesture {
+    hold_millis: u64,
+    window_millis: u64,
+    pressed_millis: u64,
+    opened_for_current_press: bool,
+    state: BlePairingState,
+}
+
+impl BlePairingGesture {
+    pub const fn new(hold_millis: u64, window_millis: u64) -> Self {
+        Self {
+            hold_millis,
+            window_millis,
+            pressed_millis: 0,
+            opened_for_current_press: false,
+            state: BlePairingState::Closed,
+        }
+    }
+
+    pub const fn state(&self) -> BlePairingState {
+        self.state
+    }
+
+    pub fn update(
+        &mut self,
+        button_state: BootButtonState,
+        elapsed_millis: u64,
+    ) -> BlePairingEvent {
+        let expired = self.tick_pairing_window(elapsed_millis);
+
+        if button_state.is_pressed() {
+            self.pressed_millis = self.pressed_millis.saturating_add(elapsed_millis);
+            if !self.opened_for_current_press && self.pressed_millis >= self.hold_millis {
+                self.state = BlePairingState::Open {
+                    remaining_millis: self.window_millis,
+                };
+                self.opened_for_current_press = true;
+                return BlePairingEvent::WindowOpened;
+            }
+        } else {
+            self.pressed_millis = 0;
+            self.opened_for_current_press = false;
+        }
+
+        if expired {
+            BlePairingEvent::WindowExpired
+        } else {
+            BlePairingEvent::None
+        }
+    }
+
+    fn tick_pairing_window(&mut self, elapsed_millis: u64) -> bool {
+        let BlePairingState::Open { remaining_millis } = self.state else {
+            return false;
+        };
+
+        let remaining_millis = remaining_millis.saturating_sub(elapsed_millis);
+        if remaining_millis == 0 {
+            self.state = BlePairingState::Closed;
+            true
+        } else {
+            self.state = BlePairingState::Open { remaining_millis };
+            false
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum BleProtocolError {
@@ -536,27 +657,50 @@ use defmt::{info, warn};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use embassy_time::{Duration, Timer};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use esp_hal::gpio::Input;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use esp_radio::ble::controller::BleConnector;
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 #[embassy_executor::task]
-pub async fn ble_task(mut connector: BleConnector<'static>) {
+pub async fn ble_task(mut connector: BleConnector<'static>, boot_button: Input<'static>) {
     info!(
         "ble controller initialized name={=str} protocol_version={=u8}",
         crate::config::ble::ADVERTISING_NAME,
         PROTOCOL_VERSION
     );
-    warn!("ble GATT host is not active in Phase 24A compile integration");
+    warn!("ble GATT host is not active; BOOT/IO9 pairing gesture is monitored only");
 
     let mut hci_scratch = [0_u8; crate::config::ble::HCI_SCRATCH_BUFFER_LEN];
+    let mut pairing_gesture = BlePairingGesture::new(
+        crate::config::ble::PAIRING_HOLD_MILLIS,
+        crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
+    );
+
     loop {
+        let pairing_event = pairing_gesture.update(
+            BootButtonState::from_active_low(boot_button.is_low()),
+            crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
+        );
+        match pairing_event {
+            BlePairingEvent::WindowOpened => info!(
+                "ble pairing window opened remaining_ms={=u64}",
+                pairing_gesture.state().remaining_millis()
+            ),
+            BlePairingEvent::WindowExpired => info!("ble pairing window expired"),
+            BlePairingEvent::None => {}
+        }
+
         match connector.next(&mut hci_scratch) {
             Ok(len) if len > 0 => info!("ble hci packet pending len={=usize}", len),
             Ok(_) => {}
             Err(error) => warn!("ble hci poll failed error={:?}", error),
         }
 
-        Timer::after(Duration::from_secs(crate::config::ble::IDLE_POLL_SECS)).await;
+        Timer::after(Duration::from_millis(
+            crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
+        ))
+        .await;
     }
 }
 
@@ -887,5 +1031,111 @@ mod tests {
             ack_policy(NetworkState::IpReady, UploadResult::TransportFailed),
             BleAckPolicy::CanAckOldestRecord
         );
+    }
+
+    #[test]
+    fn boot_button_state_uses_active_low_semantics() {
+        assert_eq!(
+            BootButtonState::from_active_low(true),
+            BootButtonState::Pressed
+        );
+        assert_eq!(
+            BootButtonState::from_active_low(false),
+            BootButtonState::Released
+        );
+    }
+
+    #[test]
+    fn pairing_gesture_ignores_short_press() {
+        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 1_900),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Released, 100),
+            BlePairingEvent::None
+        );
+        assert_eq!(gesture.state(), BlePairingState::Closed);
+    }
+
+    #[test]
+    fn pairing_gesture_opens_window_after_long_press() {
+        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 1_000),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 1_000),
+            BlePairingEvent::WindowOpened
+        );
+        assert_eq!(
+            gesture.state(),
+            BlePairingState::Open {
+                remaining_millis: 60_000
+            }
+        );
+    }
+
+    #[test]
+    fn pairing_gesture_does_not_retrigger_until_button_released() {
+        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::WindowOpened
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Released, 50),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::WindowOpened
+        );
+    }
+
+    #[test]
+    fn pairing_window_expires_after_configured_duration() {
+        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::WindowOpened
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Released, 59_999),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.state(),
+            BlePairingState::Open {
+                remaining_millis: 1
+            }
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Released, 1),
+            BlePairingEvent::WindowExpired
+        );
+        assert_eq!(gesture.state(), BlePairingState::Closed);
+    }
+
+    #[test]
+    fn pairing_state_reports_open_and_remaining_time() {
+        assert!(!BlePairingState::Closed.is_open());
+        assert_eq!(BlePairingState::Closed.remaining_millis(), 0);
+
+        let state = BlePairingState::Open {
+            remaining_millis: 42,
+        };
+        assert!(state.is_open());
+        assert_eq!(state.remaining_millis(), 42);
     }
 }

@@ -27,10 +27,19 @@ Phase 24B adds the hardware-independent transfer and ACK core:
 - BLE ACK decisions remain pure logic; the target BLE task still does not ACK
   storage at runtime.
 
-Phase 24A and 24B do not change the flash format or measurement JSON payload
-shape. No GATT server, advertising, pairing, central connection, live BLE
-record transfer, or BLE storage-drain behavior has been validated yet. Full BLE
-runtime bring-up remains future Phase 24 work.
+Phase 24C adds the BOOT / IO9 pairing-window core:
+
+- BOOT / IO9 is read only in `ble-upload` target builds.
+- The pin is configured as an input with the default no-pull configuration.
+- The BLE task monitors an active-low long press and opens a timed pairing
+  window in pure state-machine logic.
+- Hardware-independent tests cover active-low interpretation, short press,
+  long press, retrigger-after-release, and window timeout behavior.
+
+Phase 24A, 24B, and 24C do not change the flash format or measurement JSON
+payload shape. No GATT server, advertising, real pairing/security, central
+connection, live BLE record transfer, or BLE storage-drain behavior has been
+validated yet. Full BLE runtime bring-up remains future Phase 24 work.
 
 ## Goals
 

@@ -149,11 +149,14 @@ No debounce capacitor should be placed on IO9.
 
 A capacitor on IO9 can delay the BOOT pin rising during power-up and may cause unreliable startup.
 
-Future BLE pairing or authorization may reuse BOOT / IO9 only as a runtime
-input after the firmware has booted. Firmware must not configure IO9 as an
-output, must not enable a pull-down that fights the board's 10k pull-up, and
-must not require any hardware debounce capacitor. Holding BOOT during reset or
-power-on must continue to select download mode.
+BLE feature builds read BOOT / IO9 only as a runtime input after the firmware
+has booted. The Phase 24C firmware boundary configures IO9 as input-only with
+no internal pull resistor and uses an active-low long-press state machine for a
+future pairing window. Firmware must not configure IO9 as an output, must not
+enable a pull-down that fights the board's 10k pull-up, and must not require any
+hardware debounce capacitor. Holding BOOT during reset or power-on must continue
+to select download mode; this still requires hardware validation before the
+pairing gesture is treated as user-facing behavior.
 
 ### IO8
 

@@ -124,10 +124,11 @@ validated target capability, and the firmware does not enable EAP features.
 
 ## BLE Upload
 
-BLE is an independent upload path, not part of Phase 22 or Phase 23. Phase 24A
-adds only the compile boundary and protocol helpers; advertising, pairing, GATT
-transfer, and BLE ACK behavior remain future runtime work. See
-[05-ble.md](05-ble.md).
+BLE is an independent upload path, not part of Phase 22 or Phase 23. Phase 24A,
+24B, and 24C add the compile boundary, protocol helpers, transfer/ACK core, and
+BOOT / IO9 pairing-window input logic. Advertising, real pairing or
+authorization, GATT transfer, and runtime BLE ACK behavior remain future
+runtime work. See [05-ble.md](05-ble.md).
 
 BLE must be implemented as Bluetooth Low Energy:
 

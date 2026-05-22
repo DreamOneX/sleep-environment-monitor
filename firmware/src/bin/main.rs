@@ -23,6 +23,8 @@ use embassy_time::{Duration, Timer};
 use esp_hal::analog::adc::{Adc, AdcConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use esp_hal::gpio::{Input, InputConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::gpio::{Level, Output, OutputConfig};
 #[cfg(target_arch = "riscv32")]
@@ -238,9 +240,11 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     #[cfg(feature = "ble-upload")]
+    let boot_button = Input::new(peripherals.GPIO9, InputConfig::default());
+    #[cfg(feature = "ble-upload")]
     match esp_radio::ble::controller::BleConnector::new(peripherals.BT, Default::default()) {
         Ok(connector) => {
-            if !spawn_task(&spawner, ble_task(connector), "ble") {
+            if !spawn_task(&spawner, ble_task(connector, boot_button), "ble") {
                 warn!("BLE task spawn failed; BLE upload boundary disabled");
             }
         }

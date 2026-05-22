@@ -18,6 +18,9 @@ pub mod ble {
     pub const MAX_FRAGMENT_PAYLOAD_LEN: usize = 128;
     pub const HCI_SCRATCH_BUFFER_LEN: usize = 260;
     pub const IDLE_POLL_SECS: u64 = 5;
+    pub const PAIRING_BUTTON_POLL_MILLIS: u64 = 50;
+    pub const PAIRING_HOLD_MILLIS: u64 = 2_000;
+    pub const PAIRING_WINDOW_SECS: u64 = 60;
 }
 
 pub mod wifi {

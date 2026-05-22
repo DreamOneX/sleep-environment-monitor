@@ -1342,6 +1342,44 @@ Phase 24B commit message:
 feat: add BLE transfer ACK core
 ```
 
+## Phase 24C: BOOT / IO9 Pairing Gesture Core
+
+Phase 24C adds the hardware-independent pairing-window gesture core and the
+target-side GPIO input boundary for BOOT / IO9. It still does not accept BLE
+runtime behavior because the pairing window is not connected to a GATT security
+or authorization path yet.
+
+Phase 24C scope:
+
+- Preserve the default non-BLE firmware path.
+- Read BOOT / IO9 only when building with `--features ble-upload`.
+- Configure BOOT / IO9 as an input with no internal pull resistor.
+- Add a pure active-low BOOT button model.
+- Add a long-press pairing-window state machine with tests for short press,
+  long press, release/retrigger behavior, and timeout.
+- Log pairing-window open/expire events from the BLE task boundary.
+- Do not configure IO9 as an output.
+- Do not add an internal pull-down or require any hardware debounce capacitor.
+- Do not implement or validate advertising, GATT security, pairing, bonded
+  state, authorization, BLE record transfer, or BLE storage drain on hardware.
+
+Phase 24C verification:
+
+```bash
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Phase 24C commit message:
+
+```text
+feat: add BLE pairing gesture core
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

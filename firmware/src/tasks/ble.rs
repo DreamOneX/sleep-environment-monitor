@@ -653,25 +653,133 @@ const fn upload_result_code(result: UploadResult) -> u8 {
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-use defmt::{info, warn};
+use defmt::{error, info, warn};
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use embassy_futures::select::{Either, select};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use embassy_time::{Duration, Timer};
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use esp_hal::gpio::Input;
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use esp_radio::ble::controller::BleConnector;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use static_cell::StaticCell;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use trouble_host::prelude::*;
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GATT_CONNECTIONS_MAX: usize = 1;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GATT_L2CAP_CHANNELS_MAX: usize = 3;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GATT_ATTRIBUTE_MAX: usize = 17;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GATT_CCCD_MAX: usize = 2;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GATT_COMMAND_SLOTS: usize = 10;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const GAP_APPEARANCE_GENERIC_SENSOR: [u8; 2] = [0x40, 0x05];
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const RANDOM_STATIC_ADDRESS: [u8; 6] = [0xc3, 0xe2, 0x24, 0x10, 0x53, 0xf3];
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+type BleController = ExternalController<BleConnector<'static>, GATT_COMMAND_SLOTS>;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+type BleHostResources =
+    HostResources<DefaultPacketPool, GATT_CONNECTIONS_MAX, GATT_L2CAP_CHANNELS_MAX>;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+type GattMutex = embassy_sync_07::blocking_mutex::raw::NoopRawMutex;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+type GattTable<'values> = AttributeTable<'values, GattMutex, GATT_ATTRIBUTE_MAX>;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+type GattServer<'values> = AttributeServer<
+    'values,
+    GattMutex,
+    DefaultPacketPool,
+    GATT_ATTRIBUTE_MAX,
+    GATT_CCCD_MAX,
+    GATT_CONNECTIONS_MAX,
+>;
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+struct BleGatt {
+    server: GattServer<'static>,
+    handles: GattHandles,
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+#[derive(Clone, Copy)]
+struct GattHandles {
+    status: Characteristic<[u8; BleStatus::ENCODED_LEN]>,
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_HOST_RESOURCES: StaticCell<BleHostResources> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_DEVICE_NAME: StaticCell<[u8; crate::config::ble::ADVERTISING_NAME.len()]> =
+    StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_APPEARANCE: StaticCell<[u8; 2]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_STATUS_VALUE: StaticCell<[u8; BleStatus::ENCODED_LEN]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_RECORD_METADATA_VALUE: StaticCell<[u8; RecordMetadata::ENCODED_LEN]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_RECORD_FRAGMENT_VALUE: StaticCell<
+    [u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN],
+> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_CONTROL_VALUE: StaticCell<[u8; ControlFrame::ENCODED_LEN]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_STATUS_STORE: StaticCell<[u8; BleStatus::ENCODED_LEN]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_METADATA_STORE: StaticCell<[u8; RecordMetadata::ENCODED_LEN]> = StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_FRAGMENT_STORE: StaticCell<[u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN]> =
+    StaticCell::new();
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_CONTROL_STORE: StaticCell<[u8; ControlFrame::ENCODED_LEN]> = StaticCell::new();
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 #[embassy_executor::task]
-pub async fn ble_task(mut connector: BleConnector<'static>, boot_button: Input<'static>) {
+pub async fn ble_task(connector: BleConnector<'static>) {
     info!(
         "ble controller initialized name={=str} protocol_version={=u8}",
         crate::config::ble::ADVERTISING_NAME,
         PROTOCOL_VERSION
     );
-    warn!("ble GATT host is not active; BOOT/IO9 pairing gesture is monitored only");
 
-    let mut hci_scratch = [0_u8; crate::config::ble::HCI_SCRATCH_BUFFER_LEN];
+    let controller = ExternalController::new(connector);
+    let resources = BLE_HOST_RESOURCES.init(BleHostResources::new());
+    let stack = trouble_host::new(controller, resources)
+        .set_random_address(Address::random(RANDOM_STATIC_ADDRESS));
+    let Host {
+        mut peripheral,
+        mut runner,
+        ..
+    } = stack.build();
+
+    let gatt = build_gatt_server(encode_status(BleRuntimeState::HostPending));
+
+    match select(
+        runner.run(),
+        gatt_advertise_loop(&mut peripheral, &gatt.server, gatt.handles),
+    )
+    .await
+    {
+        Either::First(Ok(())) => warn!("ble host runner stopped"),
+        Either::First(Err(error)) => error!("ble host runner failed error={:?}", error),
+        Either::Second(()) => warn!("ble GATT loop stopped"),
+    }
+
+    loop {
+        Timer::after(Duration::from_secs(crate::config::ble::IDLE_POLL_SECS)).await;
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+#[embassy_executor::task]
+pub async fn ble_pairing_task(boot_button: Input<'static>) {
     let mut pairing_gesture = BlePairingGesture::new(
         crate::config::ble::PAIRING_HOLD_MILLIS,
         crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
@@ -691,16 +799,215 @@ pub async fn ble_task(mut connector: BleConnector<'static>, boot_button: Input<'
             BlePairingEvent::None => {}
         }
 
-        match connector.next(&mut hci_scratch) {
-            Ok(len) if len > 0 => info!("ble hci packet pending len={=usize}", len),
-            Ok(_) => {}
-            Err(error) => warn!("ble hci poll failed error={:?}", error),
-        }
-
         Timer::after(Duration::from_millis(
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         ))
         .await;
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn encode_status(runtime_state: BleRuntimeState) -> [u8; BleStatus::ENCODED_LEN] {
+    let status = BleStatus::new(
+        runtime_state,
+        NetworkState::Disconnected,
+        UploadResult::Idle,
+        0,
+        ErrorFlags::NONE,
+    );
+    let mut out = [0_u8; BleStatus::ENCODED_LEN];
+    let _ = status.encode(&mut out);
+    out
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn build_gatt_server(initial_status: [u8; BleStatus::ENCODED_LEN]) -> BleGatt {
+    let device_name = BLE_DEVICE_NAME.init_with(|| {
+        let mut name = [0_u8; crate::config::ble::ADVERTISING_NAME.len()];
+        name.copy_from_slice(crate::config::ble::ADVERTISING_NAME.as_bytes());
+        name
+    });
+    let appearance = BLE_APPEARANCE.init_with(|| GAP_APPEARANCE_GENERIC_SENSOR);
+    let status_value = BLE_STATUS_VALUE.init_with(|| initial_status);
+    let metadata_value = BLE_RECORD_METADATA_VALUE.init([0_u8; RecordMetadata::ENCODED_LEN]);
+    let fragment_value = BLE_RECORD_FRAGMENT_VALUE
+        .init([0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN]);
+    let control_value = BLE_CONTROL_VALUE.init([0_u8; ControlFrame::ENCODED_LEN]);
+
+    let mut table = GattTable::new();
+
+    let mut gap_service = table.add_service(Service::new(0x1800_u16));
+    let _ = gap_service.add_characteristic_ro(0x2a00_u16, &device_name[..]);
+    let _ = gap_service.add_characteristic_ro(0x2a01_u16, &appearance[..]);
+    gap_service.build();
+
+    table.add_service(Service::new(0x1801_u16)).build();
+
+    let mut project_service = table.add_service(Service::new(Uuid::new_long(SERVICE_UUID)));
+    let status_handle = project_service
+        .add_characteristic(
+            Uuid::new_long(STATUS_CHARACTERISTIC_UUID),
+            [CharacteristicProp::Read, CharacteristicProp::Notify],
+            *status_value,
+            BLE_STATUS_STORE.init([0_u8; BleStatus::ENCODED_LEN]),
+        )
+        .build();
+    let _ = project_service
+        .add_characteristic(
+            Uuid::new_long(RECORD_METADATA_CHARACTERISTIC_UUID),
+            [CharacteristicProp::Read],
+            *metadata_value,
+            BLE_METADATA_STORE.init([0_u8; RecordMetadata::ENCODED_LEN]),
+        )
+        .read_permission(PermissionLevel::NotAllowed)
+        .build();
+    let _ = project_service
+        .add_characteristic(
+            Uuid::new_long(RECORD_FRAGMENT_CHARACTERISTIC_UUID),
+            [CharacteristicProp::Read, CharacteristicProp::Notify],
+            *fragment_value,
+            BLE_FRAGMENT_STORE.init([0_u8; RecordFragment::HEADER_LEN + MAX_FRAGMENT_PAYLOAD_LEN]),
+        )
+        .read_permission(PermissionLevel::NotAllowed)
+        .build();
+    let _ = project_service
+        .add_characteristic(
+            Uuid::new_long(CONTROL_CHARACTERISTIC_UUID),
+            [CharacteristicProp::Write],
+            *control_value,
+            BLE_CONTROL_STORE.init([0_u8; ControlFrame::ENCODED_LEN]),
+        )
+        .write_permission(PermissionLevel::NotAllowed)
+        .build();
+    project_service.build();
+
+    BleGatt {
+        server: AttributeServer::new(table),
+        handles: GattHandles {
+            status: status_handle,
+        },
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn set_gatt_status(
+    server: &GattServer<'static>,
+    handles: GattHandles,
+    runtime_state: BleRuntimeState,
+) {
+    let status = encode_status(runtime_state);
+    if let Err(error) = handles.status.set(server, &status) {
+        warn!("ble status characteristic update failed error={:?}", error);
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn gatt_advertise_loop(
+    peripheral: &mut Peripheral<'_, BleController, DefaultPacketPool>,
+    server: &GattServer<'static>,
+    handles: GattHandles,
+) {
+    let mut adv_data = [0_u8; 31];
+    let adv_len = match AdStructure::encode_slice(
+        &[AdStructure::Flags(
+            LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED,
+        )],
+        &mut adv_data,
+    ) {
+        Ok(len) => len,
+        Err(error) => {
+            error!("ble advertising data encode failed error={:?}", error);
+            return;
+        }
+    };
+
+    let mut scan_data = [0_u8; 31];
+    let scan_len = match AdStructure::encode_slice(
+        &[
+            AdStructure::ServiceUuids128(&[SERVICE_UUID]),
+            AdStructure::CompleteLocalName(crate::config::ble::ADVERTISING_NAME.as_bytes()),
+        ],
+        &mut scan_data,
+    ) {
+        Ok(len) => len,
+        Err(error) => {
+            error!("ble scan response encode failed error={:?}", error);
+            return;
+        }
+    };
+
+    loop {
+        set_gatt_status(server, handles, BleRuntimeState::Advertising);
+        info!(
+            "ble advertising name={=str} protocol_version={=u8}",
+            crate::config::ble::ADVERTISING_NAME,
+            PROTOCOL_VERSION
+        );
+
+        let acceptor = match peripheral
+            .advertise(
+                &Default::default(),
+                Advertisement::ConnectableScannableUndirected {
+                    adv_data: &adv_data[..adv_len],
+                    scan_data: &scan_data[..scan_len],
+                },
+            )
+            .await
+        {
+            Ok(acceptor) => acceptor,
+            Err(error) => {
+                set_gatt_status(server, handles, BleRuntimeState::Error);
+                warn!("ble advertise failed error={:?}", error);
+                Timer::after(Duration::from_secs(crate::config::ble::IDLE_POLL_SECS)).await;
+                continue;
+            }
+        };
+
+        let connection = match acceptor.accept().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                warn!("ble advertise accept failed error={:?}", error);
+                continue;
+            }
+        };
+        let connection = match connection.with_attribute_server(server) {
+            Ok(connection) => connection,
+            Err(error) => {
+                set_gatt_status(server, handles, BleRuntimeState::Error);
+                warn!("ble GATT attach failed error={:?}", error);
+                continue;
+            }
+        };
+
+        set_gatt_status(server, handles, BleRuntimeState::Connected);
+        info!("ble central connected");
+        run_gatt_connection(connection).await;
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn run_gatt_connection(connection: GattConnection<'_, '_, DefaultPacketPool>) {
+    loop {
+        match connection.next().await {
+            GattConnectionEvent::Disconnected { reason } => {
+                info!("ble central disconnected reason={:?}", reason);
+                break;
+            }
+            GattConnectionEvent::Gatt { event } => {
+                let handle = event.payload().handle().unwrap_or(0);
+                match event.accept() {
+                    Ok(reply) => reply.send().await,
+                    Err(error) => warn!(
+                        "ble GATT event handling failed handle={=u16} error={:?}",
+                        handle, error
+                    ),
+                }
+            }
+            GattConnectionEvent::RequestConnectionParams(_) => {
+                warn!("ble connection parameter update request ignored in GATT skeleton");
+            }
+            _ => {}
+        }
     }
 }
 

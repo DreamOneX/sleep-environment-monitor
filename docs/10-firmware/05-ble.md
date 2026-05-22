@@ -36,10 +36,26 @@ Phase 24C adds the BOOT / IO9 pairing-window core:
 - Hardware-independent tests cover active-low interpretation, short press,
   long press, retrigger-after-release, and window timeout behavior.
 
-Phase 24A, 24B, and 24C do not change the flash format or measurement JSON
-payload shape. No GATT server, advertising, real pairing/security, central
-connection, live BLE record transfer, or BLE storage-drain behavior has been
-validated yet. Full BLE runtime bring-up remains future Phase 24 work.
+Phase 24D adds the first real GATT runtime skeleton:
+
+- `ble-upload` now enables the TrouBLE BLE host dependency and the ESP32-C3
+  build compiles a real BLE peripheral host on top of
+  `esp_radio::ble::controller::BleConnector`.
+- The BLE task owns a project-specific GATT service with status, record
+  metadata, record fragment, and control characteristics.
+- The status characteristic is readable and reflects the BLE runtime state for
+  host pending, advertising, connected, and error states.
+- The record metadata, record fragment, and control characteristics are present
+  as the project protocol shape, but access is disabled until pairing,
+  authorization, record transfer, and ACK handling are implemented.
+- BOOT / IO9 pairing-window monitoring remains a separate BLE feature task so
+  GATT advertising and connection waits do not stop the gesture state machine.
+
+Phase 24A through 24D do not change the flash format or measurement JSON
+payload shape. The GATT host/server path now compiles, but live advertising,
+central connection, real pairing/security, live BLE record transfer, and BLE
+storage-drain behavior have not been hardware-validated yet. Full BLE upload
+bring-up remains future Phase 24 work.
 
 ## Goals
 

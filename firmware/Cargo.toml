@@ -12,7 +12,13 @@ path = "./src/bin/main.rs"
 embedded-hal = "1.0.0"
 
 [features]
-ble-upload = ["esp-radio/ble", "radio-coex"]
+ble-upload = [
+  "dep:embassy-futures",
+  "dep:embassy-sync-07",
+  "dep:trouble-host",
+  "esp-radio/ble",
+  "radio-coex",
+]
 flash-smoke = []
 radio-coex = ["esp-radio/coex"]
 
@@ -44,7 +50,9 @@ panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 rtt-target = { version = "0.6.2", features = ["defmt"] }
 # for more networking protocol support see https://crates.io/crates/edge-net
 embassy-executor = { version = "0.10.0", features = ["defmt"] }
+embassy-futures = { version = "0.1.2", optional = true }
 embassy-sync = "0.8.0"
+embassy-sync-07 = { package = "embassy-sync", version = "0.7.2", optional = true }
 embassy-time = { version = "0.5.0", features = ["defmt"] }
 esp-radio = { version = "0.18.0", features = [
   "defmt",
@@ -52,6 +60,12 @@ esp-radio = { version = "0.18.0", features = [
   "esp32c3",
   "unstable",
   "wifi",
+] }
+trouble-host = { version = "0.6.0", default-features = false, optional = true, features = [
+  "defmt",
+  "default-packet-pool",
+  "gatt",
+  "peripheral",
 ] }
 smoltcp = { version = "0.13.0", default-features = false, features = [
   "defmt",

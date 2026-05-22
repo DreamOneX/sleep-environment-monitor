@@ -40,7 +40,7 @@ use panic_rtt_target as _;
 #[cfg(all(target_arch = "riscv32", feature = "flash-smoke"))]
 use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-use sleep_environment_monitor::tasks::ble::ble_task;
+use sleep_environment_monitor::tasks::ble::{ble_pairing_task, ble_task};
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     config,
@@ -242,9 +242,13 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     let boot_button = Input::new(peripherals.GPIO9, InputConfig::default());
     #[cfg(feature = "ble-upload")]
+    if !spawn_task(&spawner, ble_pairing_task(boot_button), "ble-pairing") {
+        warn!("BLE pairing task spawn failed; BOOT/IO9 pairing window disabled");
+    }
+    #[cfg(feature = "ble-upload")]
     match esp_radio::ble::controller::BleConnector::new(peripherals.BT, Default::default()) {
         Ok(connector) => {
-            if !spawn_task(&spawner, ble_task(connector, boot_button), "ble") {
+            if !spawn_task(&spawner, ble_task(connector), "ble") {
                 warn!("BLE task spawn failed; BLE upload boundary disabled");
             }
         }

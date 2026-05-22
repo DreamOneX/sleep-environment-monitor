@@ -1606,3 +1606,64 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 29: BLE GATT Runtime Skeleton
+
+Phase 24D implementation:
+
+- Added TrouBLE BLE host dependencies behind the `ble-upload` feature so the
+  default non-BLE firmware path does not enable the GATT host stack.
+- Replaced the BLE feature target task's HCI polling loop with a real TrouBLE
+  peripheral host built on `esp_radio::ble::controller::BleConnector`.
+- Added a project-specific GATT service skeleton with characteristics for:
+  - status
+  - record metadata
+  - record fragment
+  - control
+- Kept the status characteristic readable and updated it with BLE runtime state
+  for host-pending, advertising, connected, and error states.
+- Left record metadata, record fragment, and control characteristic access
+  disabled until pairing, authorization, record transfer, and BLE ACK behavior
+  are implemented.
+- Split BOOT / IO9 pairing-window monitoring into its own BLE feature task so
+  GATT advertising and connection waits do not stop the pairing gesture state
+  machine.
+- Preserved the existing Wi-Fi initialization, network stack, REST uploader,
+  and storage task behavior in BLE feature builds.
+- Kept BLE runtime code from sending `StorageCommand::Ack` in this milestone.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24D as
+  a GATT runtime skeleton, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Observed results:
+
+- `cargo test --lib` passed 146 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- Normal host/all-target Clippy passed.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+
+Notes:
+
+- BLE hardware behavior was not tested in this milestone: no live advertising
+  scan, no central connection, no real pairing/security validation, no live GATT
+  read/write/notify validation, no BLE record transfer, and no BLE storage-drain
+  validation.
+- BOOT / IO9 was not hardware-validated in this milestone.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

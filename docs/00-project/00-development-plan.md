@@ -1380,6 +1380,50 @@ Phase 24C commit message:
 feat: add BLE pairing gesture core
 ```
 
+## Phase 24D: BLE GATT Runtime Skeleton
+
+Phase 24D adds the first real BLE GATT host/server runtime skeleton. It accepts
+BLE advertising and a status characteristic as compile-validated runtime shape,
+but it still does not accept full BLE upload behavior because pairing,
+authorization, record transfer, and BLE storage ACK are not connected yet.
+
+Phase 24D scope:
+
+- Preserve the default non-BLE firmware path.
+- Keep the TrouBLE host dependency enabled only by `ble-upload`.
+- Run a real BLE peripheral host on top of
+  `esp_radio::ble::controller::BleConnector`.
+- Advertise a project-specific GATT service, not Bluetooth Classic SPP, a
+  transparent UART, or Nordic UART Service style streaming.
+- Define GATT characteristics for status, record metadata, record fragment, and
+  control.
+- Keep the status characteristic readable and update it with BLE runtime state.
+- Keep record metadata, record fragment, and control characteristic access
+  disabled until pairing, authorization, transfer, and ACK handling are
+  implemented.
+- Keep BOOT / IO9 pairing-window monitoring active while GATT advertising and
+  connection waits run.
+- Do not send `StorageCommand::Ack` from BLE runtime code in this slice.
+- Do not implement or validate real pairing/security, live BLE record transfer,
+  or BLE storage drain on hardware.
+
+Phase 24D verification:
+
+```bash
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Phase 24D commit message:
+
+```text
+feat: add BLE GATT runtime skeleton
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

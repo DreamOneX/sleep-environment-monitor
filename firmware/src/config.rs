@@ -12,6 +12,14 @@ pub mod network {
     }
 }
 
+pub mod ble {
+    pub const ENABLED: bool = cfg!(feature = "ble-upload");
+    pub const ADVERTISING_NAME: &str = "sleep-env-esp32c3";
+    pub const MAX_FRAGMENT_PAYLOAD_LEN: usize = 128;
+    pub const HCI_SCRATCH_BUFFER_LEN: usize = 260;
+    pub const IDLE_POLL_SECS: u64 = 5;
+}
+
 pub mod wifi {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
@@ -136,7 +144,16 @@ pub mod storage {
 
 #[cfg(test)]
 mod tests {
-    use super::wifi::{self, AuthMode, WifiConfigError};
+    use super::{
+        ble,
+        wifi::{self, AuthMode, WifiConfigError},
+    };
+
+    #[test]
+    fn ble_feature_selection_matches_cargo_feature() {
+        assert_eq!(ble::ENABLED, cfg!(feature = "ble-upload"));
+        assert_eq!(ble::ADVERTISING_NAME, "sleep-env-esp32c3");
+    }
 
     #[test]
     fn open_network_allows_empty_password() {

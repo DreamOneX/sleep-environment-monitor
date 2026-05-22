@@ -1267,6 +1267,43 @@ Classic SPP, a transparent UART, or a Nordic UART Service style serial stream.
 The firmware must expose a project-specific structured GATT service for
 measurement transfer.
 
+## Phase 24A: BLE Compile Integration Boundary
+
+Phase 24A is the first implementation slice. It proves that the BLE code path
+compiles with the existing Wi-Fi firmware and coexistence feature enabled, but
+it does not accept BLE runtime behavior.
+
+Phase 24A scope:
+
+- Add `ble-upload` and `radio-coex` firmware features.
+- Keep default firmware behavior unchanged with BLE disabled.
+- Define project BLE protocol/status/metadata/fragment/control helper types.
+- Add a `ble_task` boundary that can own
+  `esp_radio::ble::controller::BleConnector` on ESP32-C3.
+- Preserve the existing Wi-Fi initialization, network stack, and REST uploader
+  in BLE-enabled builds.
+- Do not implement or validate advertising, pairing, GATT reads/writes,
+  notifications, BLE record transfer, or BLE storage ACK.
+- Do not change flash format, measurement JSON payload shape, or
+  `storage_task` acknowledgement semantics.
+
+Phase 24A verification:
+
+```bash
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Phase 24A commit message:
+
+```text
+feat: add BLE compile integration boundary
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

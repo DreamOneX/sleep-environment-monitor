@@ -37,6 +37,8 @@ use esp_hal::timer::timg::TimerGroup;
 use panic_rtt_target as _;
 #[cfg(all(target_arch = "riscv32", feature = "flash-smoke"))]
 use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use sleep_environment_monitor::tasks::ble::ble_task;
 #[cfg(target_arch = "riscv32")]
 use sleep_environment_monitor::{
     config,
@@ -227,6 +229,18 @@ async fn main(spawner: Spawner) -> ! {
         "aggregator",
     );
 
+    #[cfg(feature = "ble-upload")]
+    match esp_radio::ble::controller::BleConnector::new(peripherals.BT, Default::default()) {
+        Ok(connector) => {
+            if !spawn_task(&spawner, ble_task(connector), "ble") {
+                warn!("BLE task spawn failed; BLE upload boundary disabled");
+            }
+        }
+        Err(error) => {
+            warn!("BLE controller initialization failed error={:?}", error);
+        }
+    }
+
     match esp_radio::wifi::new(peripherals.WIFI, Default::default()) {
         Ok((wifi_controller, wifi_interfaces)) => {
             let net_config = config::network::default_config();
@@ -270,6 +284,9 @@ async fn main(spawner: Spawner) -> ! {
         }
     }
 
+    #[cfg(feature = "ble-upload")]
+    info!("measurement aggregation, Wi-Fi manager, uploader, and BLE boundary initialized");
+    #[cfg(not(feature = "ble-upload"))]
     info!("measurement aggregation, Wi-Fi manager, and uploader initialized");
 
     loop {

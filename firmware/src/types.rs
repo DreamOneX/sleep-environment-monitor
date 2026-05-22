@@ -1,6 +1,7 @@
 use core::ops::{BitOr, BitOrAssign};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub struct ErrorFlags(u32);
 
 impl ErrorFlags {

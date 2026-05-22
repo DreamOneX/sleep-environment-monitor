@@ -1430,3 +1430,64 @@ Observed results:
 - No hardware validation was run for this docs-only milestone.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 26: BLE Compile Integration Boundary
+
+Phase 24A implementation:
+
+- Added firmware feature gates:
+  - `ble-upload` enables project BLE code and `esp-radio/ble`.
+  - `radio-coex` enables `esp-radio/coex`; `ble-upload` selects it so BLE
+    feature builds compile Wi-Fi and BLE with coexistence support.
+- Added `tasks::ble` with project-specific BLE protocol constants and
+  structured status, record metadata, record fragment, control, and ACK-policy
+  helper types.
+- Added hardware-independent BLE helper tests for status encoding, metadata
+  encoding, fragment bounds/encoding, control frame decoding, and Wi-Fi/BLE ACK
+  policy.
+- Added an ESP32-C3 BLE task boundary that owns
+  `esp_radio::ble::controller::BleConnector` when built with
+  `--features ble-upload`.
+- Preserved the existing Wi-Fi initialization, network stack, and REST uploader
+  in BLE-enabled builds so compile-time coexistence is checked.
+- Kept BLE runtime disabled in default builds.
+- Did not add a GATT host/server, advertising, pairing, BLE central connection,
+  record transfer, or BLE storage acknowledgement behavior.
+- Did not change flash format, measurement JSON payload shape, or
+  `storage_task` ACK semantics.
+- Updated [00-development-plan.md](00-development-plan.md) and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to mark Phase 24A as
+  compile integration only.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload
+```
+
+Observed results:
+
+- `cargo test --lib` passed 130 hardware-independent tests.
+- Normal ESP32-C3 target build passed without `ble-upload`.
+- Normal host/all-target Clippy passed without warnings after removing a
+  constant-only assertion from the new config test.
+- Normal ESP32-C3 target Clippy passed without `ble-upload`.
+- BLE ESP32-C3 target build passed with `--features ble-upload`.
+- BLE ESP32-C3 target Clippy passed with `--features ble-upload`.
+- The BLE feature build compiled the existing Wi-Fi/uploader path and the new
+  BLE controller boundary together.
+
+Notes:
+
+- BLE functionality was not tested in this milestone: no advertising check, no
+  central connection, no pairing/security validation, no GATT read/write/notify
+  validation, no BLE record transfer, and no BLE ACK or record-drain validation.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

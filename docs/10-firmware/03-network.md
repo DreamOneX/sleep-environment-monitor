@@ -32,7 +32,8 @@ Network work should stay separated into these responsibilities:
 | REST endpoint resolution and discovery | `tasks/upload.rs` |
 | HTTP transport and response classification | `tasks/upload.rs` |
 | Persistent upload ordering and acknowledgement | `tasks/storage.rs` and `tasks/upload.rs` |
-| BLE advertising, pairing, GATT transfer, and BLE ACK handling | future `tasks/ble.rs` |
+| BLE compile boundary and protocol helpers | `tasks/ble.rs` |
+| Future BLE advertising, pairing, GATT transfer, and BLE ACK handling | `tasks/ble.rs` runtime bring-up |
 
 Sensor sampling, microphone sampling, aggregation, and flash spooling must not
 depend on Wi-Fi, BLE, or server availability.
@@ -123,7 +124,9 @@ validated target capability, and the firmware does not enable EAP features.
 
 ## BLE Upload
 
-BLE is a future independent upload path, not part of Phase 22 or Phase 23. See
+BLE is an independent upload path, not part of Phase 22 or Phase 23. Phase 24A
+adds only the compile boundary and protocol helpers; advertising, pairing, GATT
+transfer, and BLE ACK behavior remain future runtime work. See
 [05-ble.md](05-ble.md).
 
 BLE must be implemented as Bluetooth Low Energy:

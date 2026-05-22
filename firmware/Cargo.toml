@@ -12,7 +12,9 @@ path = "./src/bin/main.rs"
 embedded-hal = "1.0.0"
 
 [features]
+ble-upload = ["esp-radio/ble", "radio-coex"]
 flash-smoke = []
+radio-coex = ["esp-radio/coex"]
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 esp-hal = { version = "~1.1.0", features = ["defmt", "esp32c3", "unstable"] }

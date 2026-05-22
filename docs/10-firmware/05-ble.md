@@ -1,7 +1,26 @@
 # BLE Upload Channel
 
 This document defines the planned Phase 24 Bluetooth Low Energy upload channel.
-It is a firmware design boundary only until Phase 24 implementation starts.
+
+## Current Status
+
+Phase 24A is implemented as a compile-integration milestone only:
+
+- `ble-upload` enables the project BLE code path and `esp-radio/ble`.
+- `radio-coex` enables `esp-radio/coex`; `ble-upload` selects it so BLE feature
+  builds compile with the existing Wi-Fi path still present.
+- `tasks::ble` defines the project-specific protocol constants and structured
+  status, metadata, fragment, control, and ACK-policy helper types.
+- The firmware can construct `esp_radio::ble::controller::BleConnector` from
+  the ESP32-C3 `BT` peripheral and spawn a BLE task boundary.
+- No GATT server, advertising, pairing, central connection, record transfer, or
+  BLE storage acknowledgement behavior is validated in Phase 24A.
+- BLE runtime behavior remains disabled unless the firmware is built with
+  `--features ble-upload`.
+
+Phase 24A does not change the flash format, measurement JSON payload shape, or
+`storage_task` ACK semantics. Full BLE runtime bring-up remains future Phase 24
+work.
 
 ## Goals
 

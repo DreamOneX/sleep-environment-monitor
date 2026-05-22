@@ -1,4 +1,5 @@
 pub mod aggregator;
+pub mod ble;
 pub mod led;
 pub mod mic;
 pub mod net;

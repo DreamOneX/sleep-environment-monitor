@@ -129,6 +129,7 @@ firmware/
     │   ├── net.rs
     │   ├── wifi.rs
     │   ├── upload.rs
+    │   ├── ble.rs
     │   └── led.rs
     └── util
         ├── mod.rs
@@ -467,11 +468,19 @@ Payload encoding must be unit tested.
 
 ---
 
-## Future `tasks/ble.rs`
+## `tasks/ble.rs`
 
-Planned Embassy task for Bluetooth Low Energy upload.
+Compile-integrated Embassy task boundary for Bluetooth Low Energy upload.
 
-Responsibilities:
+Current Phase 24A responsibilities:
+
+- Define project-specific protocol constants and structured status, metadata,
+  fragment, control, and ACK-policy helper types.
+- Own `esp_radio::ble::controller::BleConnector` when the firmware is built
+  with `--features ble-upload`.
+- Keep GATT host/server behavior inactive until later runtime bring-up.
+
+Future runtime responsibilities:
 
 - Own BLE advertising, pairing or authorization, connection state, and GATT
   transfer.
@@ -486,8 +495,9 @@ Responsibilities:
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
 
-BLE protocol framing and ACK policy should be unit tested as pure logic before
-hardware bring-up.
+BLE protocol framing and ACK policy have hardware-independent Phase 24A helper
+tests. Advertising, pairing, GATT transfer, and storage ACK behavior still need
+future hardware/runtime validation.
 
 ---
 
@@ -511,7 +521,7 @@ LED status mapping should be tested in `util/status.rs`.
 sensor_task ── EnvSample ┐
                          ├── aggregator_task ── storage_task ── MeasurementSpool ── uploader_task ── Wi-Fi REST
 mic_task ───── MicSample ┘
-                                                    └────────── future ble_task ── BLE GATT
+                                                    └────────── ble_task boundary ── future BLE GATT
 
 wifi_task ── NetworkState
 led_task  ── BoardStatus / ErrorFlags
@@ -536,7 +546,7 @@ aggregator_task does not write flash directly
 storage_task is the only task that writes the measurement flash region
 uploader_task does not read sensors
 uploader_task does not erase flash except through storage/spool acknowledgement
-future ble_task does not erase flash except through storage/spool acknowledgement
+ble_task does not erase flash except through storage/spool acknowledgement
 wifi_task does not process sensor data
 ```
 

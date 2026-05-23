@@ -2,6 +2,7 @@
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Foundation;
 using Windows.Storage.Streams;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -49,6 +50,71 @@ if (args.Length > 0 && string.Equals(args[0], "scan-transfer-record", StringComp
         scanSeconds,
         scanTargetName,
         ackMode,
+        fragmentLength,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
+        fragmentUuidWindows,
+        controlUuidWindows);
+}
+
+if (args.Length > 0 && string.Equals(args[0], "scan-ack-then-peek-next", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var fragmentLength = args.Length > 3 && ushort.TryParse(args[3], out var parsedFragmentLength)
+        ? parsedFragmentLength
+        : (ushort)128;
+    return await ScanThenAckThenPeekNextAsync(
+        scanSeconds,
+        scanTargetName,
+        fragmentLength,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
+        fragmentUuidWindows,
+        controlUuidWindows);
+}
+
+if (args.Length > 0 && string.Equals(args[0], "scan-transfer-record-notify", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var ackMode = args.Length > 3 ? args[3] : "no-ack";
+    var fragmentLength = args.Length > 4 && ushort.TryParse(args[4], out var parsedFragmentLength)
+        ? parsedFragmentLength
+        : (ushort)128;
+    return await ScanThenTransferRecordWithNotificationsAsync(
+        scanSeconds,
+        scanTargetName,
+        ackMode,
+        fragmentLength,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
+        fragmentUuidWindows,
+        controlUuidWindows);
+}
+
+if (args.Length > 0 && string.Equals(args[0], "scan-disconnect-preserves-record", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var fragmentLength = args.Length > 3 && ushort.TryParse(args[3], out var parsedFragmentLength)
+        ? parsedFragmentLength
+        : (ushort)128;
+    return await ScanThenCheckDisconnectPreservesRecordAsync(
+        scanSeconds,
+        scanTargetName,
         fragmentLength,
         projectUuid,
         projectUuidWindows,
@@ -499,6 +565,178 @@ static async Task<int> ScanThenTransferRecordAsync(
         controlUuid);
 }
 
+static async Task<int> ScanThenAckThenPeekNextAsync(
+    int seconds,
+    string targetName,
+    ushort fragmentLength,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    if (fragmentLength == 0)
+    {
+        Console.Error.WriteLine("fragment length must be non-zero");
+        return 64;
+    }
+
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    var transfer = await TransferRecordDetailedAsync(
+        found.Address,
+        found.AddressType,
+        true,
+        fragmentLength,
+        false,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid,
+        "ACK_THEN_PEEK_TRANSFER");
+    if (transfer is null)
+    {
+        return 3;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(800));
+    var next = await ReadAuthorizedMetadataOnlyAsync(
+        found.Address,
+        found.AddressType,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid,
+        "POST_ACK_NEXT");
+    if (next is null)
+    {
+        Console.WriteLine(
+            $"ACK_THEN_PEEK_NEXT_RESULT success=False acked_sequence={transfer.Value.Metadata.Sequence} reason=no_next_metadata");
+        return 4;
+    }
+
+    var advanced = next.Value.Sequence != transfer.Value.Metadata.Sequence;
+    Console.WriteLine(
+        $"ACK_THEN_PEEK_NEXT_RESULT success={advanced} acked_sequence={transfer.Value.Metadata.Sequence} next_sequence={next.Value.Sequence} next_payload_len={next.Value.PayloadLength}");
+    return advanced ? 0 : 5;
+}
+
+static async Task<int> ScanThenTransferRecordWithNotificationsAsync(
+    int seconds,
+    string targetName,
+    string ackMode,
+    ushort fragmentLength,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    var shouldAck = string.Equals(ackMode, "ack", StringComparison.OrdinalIgnoreCase);
+    if (!shouldAck && !string.Equals(ackMode, "no-ack", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "usage: scan-transfer-record-notify [scan-seconds] [name] [no-ack|ack] [fragment-len]");
+        return 64;
+    }
+    if (fragmentLength == 0)
+    {
+        Console.Error.WriteLine("fragment length must be non-zero");
+        return 64;
+    }
+
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    var transfer = await TransferRecordDetailedAsync(
+        found.Address,
+        found.AddressType,
+        shouldAck,
+        fragmentLength,
+        true,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid,
+        "NOTIFY_TRANSFER");
+    return transfer is null ? 3 : 0;
+}
+
+static async Task<int> ScanThenCheckDisconnectPreservesRecordAsync(
+    int seconds,
+    string targetName,
+    ushort fragmentLength,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    if (fragmentLength == 0)
+    {
+        Console.Error.WriteLine("fragment length must be non-zero");
+        return 64;
+    }
+
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    var first = await ReadPartialRecordThenDisconnectAsync(
+        found.Address,
+        found.AddressType,
+        fragmentLength,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid);
+    if (first is null)
+    {
+        return 3;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(1_200));
+    var second = await ReadAuthorizedMetadataOnlyAsync(
+        found.Address,
+        found.AddressType,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid,
+        "DISCONNECT_RECONNECT");
+    if (second is null)
+    {
+        Console.WriteLine(
+            $"DISCONNECT_PRESERVE_RESULT success=False first_sequence={first.Value.Sequence} reason=no_reconnect_metadata");
+        return 4;
+    }
+
+    var preserved = first.Value.Sequence == second.Value.Sequence;
+    Console.WriteLine(
+        $"DISCONNECT_PRESERVE_RESULT success={preserved} first_sequence={first.Value.Sequence} second_sequence={second.Value.Sequence} first_payload_len={first.Value.PayloadLength} second_payload_len={second.Value.PayloadLength}");
+    return preserved ? 0 : 5;
+}
+
 static async Task<int> TransferRecordAsync(
     ulong address,
     BluetoothAddressType addressType,
@@ -658,6 +896,412 @@ static async Task<int> TransferRecordAsync(
     return 0;
 }
 
+static async Task<TransferRecordResult?> TransferRecordDetailedAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    bool shouldAck,
+    ushort fragmentLength,
+    bool useNotifications,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid,
+    string label)
+{
+    Console.WriteLine(
+        $"{label}_CONNECT address={FormatAddress(address)} address_type={addressType} ack={shouldAck} fragment_len={fragmentLength} notifications={useNotifications}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return null;
+    }
+
+    Console.WriteLine($"{label}_DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
+    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
+    Console.WriteLine(
+        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return null;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    var fragment = await GetCharacteristicAsync(service, fragmentUuid, "fragment");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || fragment is null || control is null)
+    {
+        return null;
+    }
+
+    var notifications = new List<RecordFragment>();
+    var notificationLock = new object();
+    TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs>? notificationHandler = null;
+    if (useNotifications)
+    {
+        notificationHandler = (_, eventArgs) =>
+        {
+            var bytes = BufferToBytes(eventArgs.CharacteristicValue);
+            if (!TryDecodeFragment(bytes, out var notified))
+            {
+                Console.WriteLine($"{label}_NOTIFICATION_DECODE_FAILED len={bytes.Length}");
+                return;
+            }
+
+            lock (notificationLock)
+            {
+                notifications.Add(notified);
+            }
+            Console.WriteLine(
+                $"{label}_NOTIFICATION sequence={notified.Sequence} offset={notified.Offset} payload_len={notified.Payload.Length} first_payload_hex={Convert.ToHexString(notified.Payload.Take(16).ToArray())}");
+        };
+        fragment.ValueChanged += notificationHandler;
+        var subscribe = await fragment.WriteClientCharacteristicConfigurationDescriptorAsync(
+            GattClientCharacteristicConfigurationDescriptorValue.Notify);
+        Console.WriteLine($"{label}_NOTIFY_SUBSCRIBE status={subscribe}");
+        if (subscribe != GattCommunicationStatus.Success)
+        {
+            fragment.ValueChanged -= notificationHandler;
+            return null;
+        }
+    }
+
+    try
+    {
+        if (!await WaitForPairingOpenAsync(status, TimeSpan.FromSeconds(90)))
+        {
+            return null;
+        }
+
+        var recordMetadata = await RequestAndReadMetadataAsync(metadata, control, $"{label}_METADATA");
+        if (recordMetadata is null)
+        {
+            return null;
+        }
+
+        var payload = new byte[recordMetadata.Value.PayloadLength];
+        var offset = 0;
+        var notificationMatches = 0;
+        while (offset < payload.Length)
+        {
+            var requested = (ushort)Math.Min(fragmentLength, payload.Length - offset);
+            Task<RecordFragment?> notification = useNotifications
+                ? WaitForNotificationAsync(
+                    notifications,
+                    notificationLock,
+                    recordMetadata.Value.Sequence,
+                    (ushort)offset,
+                    TimeSpan.FromSeconds(3),
+                    label)
+                : Task.FromResult<RecordFragment?>(null);
+
+            var requestFragment = EncodeControlFrame(
+                2,
+                recordMetadata.Value.Sequence,
+                (ushort)offset,
+                requested);
+            if (!await WriteControlAsync(control, $"{label}_REQUEST_FRAGMENT", requestFragment))
+            {
+                return null;
+            }
+
+            var notified = await notification;
+            if (useNotifications)
+            {
+                if (notified is null)
+                {
+                    Console.WriteLine(
+                        $"{label}_NOTIFICATION_RESULT success=False sequence={recordMetadata.Value.Sequence} offset={offset}");
+                    return null;
+                }
+                notificationMatches++;
+            }
+
+            var fragmentRead = await fragment.ReadValueAsync(BluetoothCacheMode.Uncached);
+            Console.WriteLine(
+                $"{label}_FRAGMENT_READ status={fragmentRead.Status} protocol_error=0x{fragmentRead.ProtocolError:x} requested_offset={offset} requested_len={requested}");
+            if (fragmentRead.Status != GattCommunicationStatus.Success)
+            {
+                return null;
+            }
+
+            var fragmentBytes = BufferToBytes(fragmentRead.Value);
+            if (!TryDecodeFragment(fragmentBytes, out var recordFragment))
+            {
+                return null;
+            }
+
+            Console.WriteLine(
+                $"{label}_FRAGMENT_DECODED version={recordFragment.Version} sequence={recordFragment.Sequence} offset={recordFragment.Offset} payload_len={recordFragment.Payload.Length} first_payload_hex={Convert.ToHexString(recordFragment.Payload.Take(16).ToArray())}");
+
+            if (!ValidateFragment(recordMetadata.Value, recordFragment, offset, requested, payload.Length))
+            {
+                Console.WriteLine($"{label}_FRAGMENT_VALIDATION_FAILED");
+                return null;
+            }
+            if (notified is not null && !FragmentsMatch(recordFragment, notified.Value))
+            {
+                Console.WriteLine($"{label}_NOTIFICATION_MISMATCH offset={offset}");
+                return null;
+            }
+
+            Array.Copy(recordFragment.Payload, 0, payload, offset, recordFragment.Payload.Length);
+            offset += recordFragment.Payload.Length;
+        }
+
+        var computedCrc = Crc32(payload);
+        var crcMatches = computedCrc == recordMetadata.Value.Crc32;
+        Console.WriteLine(
+            $"{label}_PAYLOAD_RESULT len={payload.Length} crc32=0x{computedCrc:x8} crc_matches={crcMatches} utf8_preview={Utf8Preview(payload)}");
+        if (!crcMatches)
+        {
+            return null;
+        }
+
+        var completeFrame = EncodeControlFrame(3, recordMetadata.Value.Sequence, 0, 0);
+        if (!await WriteControlAsync(control, $"{label}_COMPLETE_RECORD", completeFrame))
+        {
+            return null;
+        }
+
+        if (shouldAck)
+        {
+            var ackFrame = EncodeControlFrame(4, recordMetadata.Value.Sequence, 0, 0);
+            if (!await WriteControlAsync(control, $"{label}_ACK_RECORD", ackFrame))
+            {
+                return null;
+            }
+        }
+
+        if (useNotifications)
+        {
+            Console.WriteLine(
+                $"{label}_NOTIFICATION_RESULT success=True sequence={recordMetadata.Value.Sequence} notifications={notificationMatches}");
+        }
+        Console.WriteLine(
+            $"{label}_RESULT success=True sequence={recordMetadata.Value.Sequence} payload_len={payload.Length} crc32=0x{computedCrc:x8} ack_requested={shouldAck}");
+        return new TransferRecordResult(
+            recordMetadata.Value,
+            payload,
+            computedCrc,
+            shouldAck,
+            notificationMatches);
+    }
+    finally
+    {
+        if (notificationHandler is not null)
+        {
+            fragment.ValueChanged -= notificationHandler;
+            var unsubscribe = await fragment.WriteClientCharacteristicConfigurationDescriptorAsync(
+                GattClientCharacteristicConfigurationDescriptorValue.None);
+            Console.WriteLine($"{label}_NOTIFY_UNSUBSCRIBE status={unsubscribe}");
+        }
+    }
+}
+
+static async Task<RecordMetadata?> ReadAuthorizedMetadataOnlyAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid,
+    string label)
+{
+    Console.WriteLine($"{label}_CONNECT address={FormatAddress(address)} address_type={addressType}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return null;
+    }
+
+    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
+    Console.WriteLine(
+        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return null;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    _ = await GetCharacteristicAsync(service, fragmentUuid, "fragment");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || control is null)
+    {
+        return null;
+    }
+    if (!await WaitForPairingOpenAsync(status, TimeSpan.FromSeconds(20)))
+    {
+        return null;
+    }
+
+    var recordMetadata = await RequestAndReadMetadataAsync(metadata, control, label);
+    if (recordMetadata is not null)
+    {
+        Console.WriteLine(
+            $"{label}_RESULT success=True sequence={recordMetadata.Value.Sequence} payload_len={recordMetadata.Value.PayloadLength} crc32=0x{recordMetadata.Value.Crc32:x8}");
+    }
+    return recordMetadata;
+}
+
+static async Task<RecordMetadata?> ReadPartialRecordThenDisconnectAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    ushort fragmentLength,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    const string label = "DISCONNECT_PARTIAL";
+    Console.WriteLine($"{label}_CONNECT address={FormatAddress(address)} address_type={addressType}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return null;
+    }
+
+    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
+    Console.WriteLine(
+        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return null;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    var fragment = await GetCharacteristicAsync(service, fragmentUuid, "fragment");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || fragment is null || control is null)
+    {
+        return null;
+    }
+    if (!await WaitForPairingOpenAsync(status, TimeSpan.FromSeconds(90)))
+    {
+        return null;
+    }
+
+    var recordMetadata = await RequestAndReadMetadataAsync(metadata, control, label);
+    if (recordMetadata is null)
+    {
+        return null;
+    }
+
+    if (recordMetadata.Value.PayloadLength > 0)
+    {
+        var requested = (ushort)Math.Min(fragmentLength, recordMetadata.Value.PayloadLength);
+        var requestFragment = EncodeControlFrame(2, recordMetadata.Value.Sequence, 0, requested);
+        if (!await WriteControlAsync(control, $"{label}_REQUEST_FRAGMENT", requestFragment))
+        {
+            return null;
+        }
+
+        var fragmentRead = await fragment.ReadValueAsync(BluetoothCacheMode.Uncached);
+        Console.WriteLine(
+            $"{label}_FRAGMENT_READ status={fragmentRead.Status} protocol_error=0x{fragmentRead.ProtocolError:x} requested_offset=0 requested_len={requested}");
+        if (fragmentRead.Status != GattCommunicationStatus.Success)
+        {
+            return null;
+        }
+    }
+
+    Console.WriteLine(
+        $"{label}_RESULT success=True sequence={recordMetadata.Value.Sequence} payload_len={recordMetadata.Value.PayloadLength} disconnecting_before_complete=True");
+    return recordMetadata;
+}
+
+static async Task<RecordMetadata?> RequestAndReadMetadataAsync(
+    GattCharacteristic metadata,
+    GattCharacteristic control,
+    string label)
+{
+    var requestMetadata = EncodeControlFrame(1, 0, 0, 0);
+    if (!await WaitForAuthorizedMetadataRequestAsync(control, requestMetadata, TimeSpan.FromSeconds(15)))
+    {
+        return null;
+    }
+
+    var metadataRead = await metadata.ReadValueAsync(BluetoothCacheMode.Uncached);
+    Console.WriteLine(
+        $"{label}_METADATA_READ status={metadataRead.Status} protocol_error=0x{metadataRead.ProtocolError:x}");
+    if (metadataRead.Status != GattCommunicationStatus.Success)
+    {
+        return null;
+    }
+
+    var metadataBytes = BufferToBytes(metadataRead.Value);
+    Console.WriteLine($"{label}_METADATA_BYTES len={metadataBytes.Length} hex={Convert.ToHexString(metadataBytes)}");
+    if (!TryDecodeMetadata(metadataBytes, out var recordMetadata))
+    {
+        return null;
+    }
+
+    Console.WriteLine(
+        $"{label}_METADATA_DECODED version={recordMetadata.Version} sequence={recordMetadata.Sequence} payload_len={recordMetadata.PayloadLength} flags=0x{recordMetadata.Flags:x2} crc32=0x{recordMetadata.Crc32:x8} current_boot={recordMetadata.CurrentBoot}");
+    return recordMetadata;
+}
+
+static async Task<RecordFragment?> WaitForNotificationAsync(
+    List<RecordFragment> notifications,
+    object notificationLock,
+    ulong sequence,
+    ushort offset,
+    TimeSpan timeout,
+    string label)
+{
+    var deadline = DateTimeOffset.UtcNow + timeout;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+        lock (notificationLock)
+        {
+            var index = notifications.FindIndex(
+                fragment => fragment.Sequence == sequence && fragment.Offset == offset);
+            if (index >= 0)
+            {
+                var fragment = notifications[index];
+                notifications.RemoveAt(index);
+                return fragment;
+            }
+        }
+        await Task.Delay(TimeSpan.FromMilliseconds(25));
+    }
+
+    Console.WriteLine($"{label}_NOTIFICATION_TIMEOUT sequence={sequence} offset={offset}");
+    return null;
+}
+
+static bool ValidateFragment(
+    RecordMetadata metadata,
+    RecordFragment fragment,
+    int offset,
+    ushort requested,
+    int payloadLength)
+{
+    return fragment.Sequence == metadata.Sequence &&
+        fragment.Offset == offset &&
+        fragment.Payload.Length > 0 &&
+        fragment.Payload.Length <= requested &&
+        offset + fragment.Payload.Length <= payloadLength;
+}
+
+static bool FragmentsMatch(RecordFragment left, RecordFragment right)
+{
+    return left.Sequence == right.Sequence &&
+        left.Offset == right.Offset &&
+        left.Payload.SequenceEqual(right.Payload);
+}
+
 static async Task<bool> WaitForPairingOpenAsync(
     GattCharacteristic status,
     TimeSpan timeout)
@@ -676,10 +1320,24 @@ static async Task<bool> WaitForPairingOpenAsync(
             var bytes = BufferToBytes(read.Value);
             Console.WriteLine($"PAIRING_WAIT_STATUS_BYTES len={bytes.Length} hex={Convert.ToHexString(bytes)}");
             PrintStatusDecoded(bytes);
-            if (bytes.Length >= 16 && bytes[10] == 1)
+            if (!TryDecodeStatus(bytes, out var snapshot))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+                continue;
+            }
+            if (snapshot.Pairing == 1)
             {
                 Console.WriteLine($"PAIRING_OPEN attempt={attempt}");
                 return true;
+            }
+            if (snapshot.Pairing == 0 &&
+                snapshot.BootButton == 1 &&
+                snapshot.PairingRemainingMs == 0 &&
+                snapshot.BootPressedMs is >= 10_000)
+            {
+                Console.WriteLine(
+                    $"PAIRING_HELD_AFTER_EXPIRED pressed_ms={snapshot.BootPressedMs} action=release_boot_io9_before_retry");
+                return false;
             }
         }
 
@@ -916,33 +1574,51 @@ static string DecodeUpload(byte value) => value switch
 
 static void PrintStatusDecoded(byte[] bytes)
 {
-    if (bytes.Length < 10)
+    if (!TryDecodeStatus(bytes, out var status))
     {
         return;
     }
 
-    var pending = BitConverter.ToUInt16(bytes, 4);
-    var errors = BitConverter.ToUInt32(bytes, 6);
     Console.WriteLine(
-        $"STATUS_DECODED version={bytes[0]} runtime={DecodeRuntime(bytes[1])} network={DecodeNetwork(bytes[2])} upload={DecodeUpload(bytes[3])} pending={pending} error_flags=0x{errors:x8}");
+        $"STATUS_DECODED version={status.Version} runtime={DecodeRuntime(status.Runtime)} network={DecodeNetwork(status.Network)} upload={DecodeUpload(status.Upload)} pending={status.Pending} error_flags=0x{status.ErrorFlags:x8}");
 
-    if (bytes.Length < 16)
+    if (status.Pairing is null || status.BootButton is null || status.PairingRemainingMs is null)
     {
         return;
     }
 
-    var pairingRemainingMs = BitConverter.ToUInt32(bytes, 12);
-    if (bytes.Length >= 20)
+    if (status.BootPressedMs is { } bootPressedMs)
     {
-        var bootPressedMs = BitConverter.ToUInt32(bytes, 16);
         Console.WriteLine(
-            $"STATUS_PAIRING pairing={DecodePairing(bytes[10])} boot_button={DecodeBootButton(bytes[11])} remaining_ms={pairingRemainingMs} pressed_ms={bootPressedMs}");
+            $"STATUS_PAIRING pairing={DecodePairing(status.Pairing.Value)} boot_button={DecodeBootButton(status.BootButton.Value)} remaining_ms={status.PairingRemainingMs.Value} pressed_ms={bootPressedMs}");
     }
     else
     {
         Console.WriteLine(
-            $"STATUS_PAIRING pairing={DecodePairing(bytes[10])} boot_button={DecodeBootButton(bytes[11])} remaining_ms={pairingRemainingMs}");
+            $"STATUS_PAIRING pairing={DecodePairing(status.Pairing.Value)} boot_button={DecodeBootButton(status.BootButton.Value)} remaining_ms={status.PairingRemainingMs.Value}");
     }
+}
+
+static bool TryDecodeStatus(byte[] bytes, out StatusSnapshot status)
+{
+    status = default;
+    if (bytes.Length < 10)
+    {
+        return false;
+    }
+
+    status = new StatusSnapshot(
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        BitConverter.ToUInt16(bytes, 4),
+        BitConverter.ToUInt32(bytes, 6),
+        bytes.Length >= 16 ? bytes[10] : null,
+        bytes.Length >= 16 ? bytes[11] : null,
+        bytes.Length >= 16 ? BitConverter.ToUInt32(bytes, 12) : null,
+        bytes.Length >= 20 ? BitConverter.ToUInt32(bytes, 16) : null);
+    return true;
 }
 
 static string DecodePairing(byte value) => value switch
@@ -981,3 +1657,22 @@ internal readonly record struct RecordFragment(
     ulong Sequence,
     ushort Offset,
     byte[] Payload);
+
+internal readonly record struct TransferRecordResult(
+    RecordMetadata Metadata,
+    byte[] Payload,
+    uint ComputedCrc,
+    bool AckRequested,
+    int NotificationCount);
+
+internal readonly record struct StatusSnapshot(
+    byte Version,
+    byte Runtime,
+    byte Network,
+    byte Upload,
+    ushort Pending,
+    uint ErrorFlags,
+    byte? Pairing,
+    byte? BootButton,
+    uint? PairingRemainingMs,
+    uint? BootPressedMs);

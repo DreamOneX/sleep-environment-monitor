@@ -2006,7 +2006,7 @@ Phase 24J validation:
   firmware image was built for flashing and no firmware flashing command was
   run in this milestone.
 - Built the temporary Windows/.NET BLE central validation tool from
-  `/tmp/phase24-ble-watch`.
+  `/tmp/ble-watch`.
 - Confirmed a Windows BLE central can discover the ESP32-C3 by the project
   service UUID in the connectable advertisement and by the
   `sleep-env-esp32c3` scan-response local name.
@@ -2023,9 +2023,9 @@ Phase 24J validation:
 Validation commands run from the repository root:
 
 ```bash
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
 ```
 
 Observed central status read:
@@ -2075,7 +2075,7 @@ Phase 24K validation:
   - accumulated BOOT press milliseconds
 - Built and flashed a BLE+Wi-Fi coexistence diagnostic image.
 - Built the temporary Windows/.NET BLE central validation tool from
-  `/tmp/phase24-ble-watch`.
+  `/tmp/ble-watch`.
 - Confirmed a Windows BLE central can read the 20-byte status frame.
 - Confirmed BOOT / IO9 is read as an active-low runtime input and that a long
   press opens the pairing window.
@@ -2093,12 +2093,12 @@ Validation commands run from the repository root:
 cargo fmt
 cargo test --lib
 cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
 cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-status-pressed-image.bin
 cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
 cargo build --target riscv32imc-unknown-none-elf
 cargo clippy --all-targets
 cargo clippy --target riscv32imc-unknown-none-elf
@@ -2173,7 +2173,7 @@ Phase 24L validation:
 - Reused the BLE+Wi-Fi coexistence diagnostic firmware flashed in Milestone
   36; no new firmware was flashed for this validation slice.
 - Moved the Windows/.NET BLE central validation tool into the repository at
-  [../../tools/phase24-ble-watch/](../../tools/phase24-ble-watch/).
+  [../../tools/ble-watch/](../../tools/ble-watch/).
 - Confirmed an authorized `scan-transfer-record ... no-ack 128` run can read
   metadata, read all ordered fragments, validate the payload CRC, and send
   `CompleteRecord` without requesting BLE storage ACK.
@@ -2184,21 +2184,21 @@ Phase 24L validation:
 - Updated [00-development-plan.md](00-development-plan.md),
   [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md),
   [../10-firmware/05-ble.md](../10-firmware/05-ble.md), and
-  [../../tools/phase24-ble-watch/README.md](../../tools/phase24-ble-watch/README.md)
+  [../../tools/ble-watch/README.md](../../tools/ble-watch/README.md)
   to record Phase 24L as record-transfer and ACK-path validation, not full BLE
   upload completion.
 
 Validation commands run from the repository root:
 
 ```bash
-'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/phase24-ble-watch/phase24-ble-watch.csproj)"
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
 # Declared measurement spool range 0x003c0000..0x00400000 before this command.
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
 probe-rs reset --chip esp32c3
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 60
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
 ```
 
 Observed BLE transfer results:
@@ -2239,10 +2239,86 @@ Observed post-ACK recheck:
 
 Notes:
 
+- Current BLE authorization is not persisted. It uses a RAM-only BOOT / IO9
+  authorization window and does not save bonded peers, pairing keys, allowlists,
+  or other pairing records in firmware flash. Future Phase 24 work must define
+  and validate real BLE bonding or an equivalent persistent authorization
+  record, including storage location, update rules, and user-controlled
+  clearing.
 - BLE notification behavior remains unvalidated; this milestone used explicit
   characteristic reads for metadata and fragments.
 - Wi-Fi/BLE ACK race behavior remains unvalidated.
 - Disconnect preservation during live transfer remains unvalidated.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Phase 24 still has remaining hardware validation work and should not be
+  treated as fully complete.
+
+## Milestone 41: Phase 24M BLE Fragment Notification Validation
+
+Phase 24M validation:
+
+- Renamed the Windows/.NET BLE central validation tool to
+  [../../tools/ble-watch/](../../tools/ble-watch/).
+- Added `scan-transfer-record-notify`, `scan-disconnect-preserves-record`, and
+  `scan-ack-then-peek-next` commands to the tool.
+- Added an early diagnostic for the expired-held BOOT / IO9 state:
+  `PAIRING_HELD_AFTER_EXPIRED`.
+- Confirmed `scan-transfer-record-notify ... no-ack 128` can subscribe to
+  record-fragment notifications, request metadata and ordered fragments,
+  observe one notification per requested fragment, confirm each notification
+  matches the corresponding fragment read, validate payload CRC, and send
+  `CompleteRecord` without requesting BLE storage ACK.
+- No firmware image was flashed for this milestone.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-transfer-record-notify 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-disconnect-preserves-record 30 sleep-env-esp32c3 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\ble-watch.csproj'
+```
+
+Observed BLE notification result:
+
+- The status check discovered `sleep-env-esp32c3`, connected to the project
+  GATT service, read a 20-byte status frame, and decoded runtime `Connected`,
+  network `Disconnected`, upload `Failed`, pending `32`, error flags
+  `0x00000000`, pairing `Closed`, BOOT / IO9 `Pressed`, remaining `0 ms`, and
+  `pressed_ms=1800`.
+- The notification transfer subscribed successfully with
+  `NOTIFY_TRANSFER_NOTIFY_SUBSCRIBE status=Success`.
+- The authorized transfer read sequence `104145`, payload length `206`, and
+  CRC `0x904c92fc`.
+- The central observed two fragment notifications: offset `0`, length `128`;
+  and offset `128`, length `78`.
+- Both notifications matched the corresponding explicit fragment reads.
+- The computed payload CRC was `0x904c92fc`, matching metadata.
+- The transfer completed successfully with `CompleteRecord`,
+  `ack_requested=False`, and no BLE storage ACK.
+
+Observed disconnect-preservation attempt:
+
+- `scan-disconnect-preserves-record 30 sleep-env-esp32c3 128` did not reach
+  metadata or fragment access.
+- During the pairing wait, the board continuously reported pairing `Closed`,
+  BOOT / IO9 `Pressed`, remaining `0 ms`, and an increasing `pressed_ms`,
+  ending at `157650 ms`.
+- The command timed out with `PAIRING_TIMEOUT attempts=151`.
+- A follow-up status read still reported pairing `Closed`, BOOT / IO9
+  `Pressed`, remaining `0 ms`, and `pressed_ms=200500`.
+- Therefore, disconnect preservation remains unvalidated. This attempt only
+  confirms the already documented no-retrigger behavior after an expired
+  continuous BOOT / IO9 press.
+
+Notes:
+
+- No ACK-mode validation was run in this milestone, so no deliberate
+  measurement-spool ACK or firmware flash-write range was exercised.
+- Wi-Fi/BLE ACK race behavior remains unvalidated.
+- Disconnect preservation during live transfer remains unvalidated.
+- Post-ACK oldest-record advancement remains unvalidated.
 - BOOT / IO9 download-mode preservation remains unvalidated.
 - Phase 24 still has remaining hardware validation work and should not be
   treated as fully complete.

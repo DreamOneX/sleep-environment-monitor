@@ -535,9 +535,13 @@ Future runtime responsibilities:
 
 - Replace the pairing-window authorization skeleton with validated real BLE
   pairing/security or a documented equivalent authorization flow.
-- Validate notification behavior, Wi-Fi/BLE ACK race behavior, disconnect
-  preservation during live transfer, post-ACK oldest-record advancement, and
-  BOOT download-mode preservation.
+- Persist bonded peers, pairing keys, allowlists, or equivalent authorization
+  records only after the security model defines storage location, update rules,
+  and user-controlled clearing. Current Phase 24 authorization is RAM-only and
+  does not save pairing records in flash.
+- Validate Wi-Fi/BLE ACK race behavior, disconnect preservation during live
+  transfer, post-ACK oldest-record advancement, and BOOT download-mode
+  preservation.
 - Never write flash directly.
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
@@ -557,10 +561,11 @@ measurement access rejection. Phase 24K central validation confirms BOOT / IO9
 active-low runtime input, long-press pairing-window entry, and the expected
 no-retrigger behavior until release. Phase 24L central validation confirms
 full BLE record transfer, CRC validation, `CompleteRecord`, and ACK-mode BLE
-storage drain while Wi-Fi upload is unavailable. Notification behavior,
-Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
-post-ACK oldest-record advancement, and BOOT download-mode preservation still
-need future hardware/runtime validation.
+storage drain while Wi-Fi upload is unavailable. Phase 24M central validation
+confirms fragment notifications matching requested fragment reads. Wi-Fi/BLE
+ACK race behavior, disconnect preservation during live transfer, post-ACK
+oldest-record advancement, and BOOT download-mode preservation still need
+future hardware/runtime validation.
 
 ---
 

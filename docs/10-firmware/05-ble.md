@@ -146,7 +146,7 @@ Phase 24K validates BOOT / IO9 pairing-window entry diagnostics:
 Phase 24L validates the first full BLE record transfer and ACK-mode drain:
 
 - The Windows BLE central validation tool now lives in
-  `tools/phase24-ble-watch`.
+  `tools/ble-watch`.
 - Authorized `scan-transfer-record ... no-ack 128` read metadata, read ordered
   fragments, validated the payload CRC, and accepted `CompleteRecord` without
   requesting storage ACK.
@@ -159,16 +159,34 @@ Phase 24L validates the first full BLE record transfer and ACK-mode drain:
   because the manual BOOT / IO9 pairing window was not reopened during the
   transfer wait.
 
-Phase 24A through 24L do not change the flash format or measurement JSON
+Phase 24M validates BLE fragment notifications:
+
+- The Windows BLE central validation tool has been renamed to
+  `tools/ble-watch`.
+- `scan-transfer-record-notify ... no-ack 128` subscribed to fragment
+  notifications, requested metadata and ordered fragments, observed one
+  notification per requested fragment, confirmed each notification matched the
+  corresponding fragment read, validated payload CRC, and accepted
+  `CompleteRecord` without requesting storage ACK.
+- A `scan-disconnect-preserves-record` attempt did not reach metadata access
+  because the board still reported BOOT / IO9 as continuously pressed after an
+  expired authorization window. No disconnect-preservation conclusion was drawn
+  from that attempt.
+
+Phase 24A through 24M do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
 runtime ACK wiring, independent radio feature matrix, structured status
 snapshot, board-side advertising startup, central-side discovery, central
 connection, structured status read, closed-window measurement access rejection,
 BOOT / IO9 authorized-window entry, full record reads, `CompleteRecord`, and
-ACK-mode BLE storage drain now compile or run. BLE notification behavior,
-Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
-post-ACK oldest-record advancement, and BOOT download-mode preservation have
-not been validated yet. Full BLE upload bring-up remains future Phase 24 work.
+ACK-mode BLE storage drain now compile or run. BLE notification behavior has
+also been hardware-validated with the Windows central. Wi-Fi/BLE ACK race
+behavior, disconnect preservation during live transfer, post-ACK oldest-record
+advancement, and BOOT download-mode preservation have not been validated yet.
+Full BLE upload bring-up remains future Phase 24 work.
+The current authorization state is RAM-only: firmware opens a temporary
+BOOT / IO9 authorization window and does not save bonded peers, pairing keys,
+allowlists, or other authorization records in flash.
 
 ## Goals
 
@@ -278,6 +296,10 @@ Phase 24 documentation and implementation should ensure:
 - Advertising does not contain measurement data or credentials.
 - Unpaired centrals cannot read measurement records.
 - Pairing state and any authorization material are handled explicitly.
+- Current Phase 24 authorization is only the volatile BOOT / IO9 window. Future
+  work must implement real BLE bonding or a documented equivalent persistent
+  authorization record, including where it is stored, how it is updated, and
+  how a user can clear it.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 

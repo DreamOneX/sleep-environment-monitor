@@ -42,7 +42,7 @@ This directory contains the tracked project documentation.
 
 ## Tools
 
-- [../tools/phase24-ble-watch/](../tools/phase24-ble-watch/): Windows BLE central validation tool for Phase 24 hardware checks.
+- [../tools/ble-watch/](../tools/ble-watch/): Windows BLE central validation tool for Phase 24 hardware checks.
 
 ## Maintenance
 

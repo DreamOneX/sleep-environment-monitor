@@ -1702,9 +1702,9 @@ Phase 24J scope:
 Phase 24J verification:
 
 ```bash
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
 git diff --check
 ```
 
@@ -1748,10 +1748,10 @@ Phase 24K verification:
 cargo fmt
 cargo test --lib
 cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
 cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-status-pressed-image.bin
 cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
 cargo build --target riscv32imc-unknown-none-elf
 cargo clippy --all-targets
 cargo clippy --target riscv32imc-unknown-none-elf
@@ -1782,7 +1782,7 @@ Phase 24L scope:
 - Use the BLE+Wi-Fi coexistence diagnostic firmware from Phase 24K; do not
   require a new firmware flash for this validation slice.
 - Keep the Windows BLE central validation tool in
-  `tools/phase24-ble-watch`.
+  `tools/ble-watch`.
 - Confirm an authorized `scan-transfer-record ... no-ack` run reads metadata,
   reads all fragments, validates payload CRC, and accepts `CompleteRecord`
   without sending a BLE storage ACK.
@@ -1799,10 +1799,10 @@ Phase 24L scope:
 Phase 24L verification:
 
 ```bash
-'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/phase24-ble-watch/phase24-ble-watch.csproj)"
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
 # Declare measurement spool range 0x003c0000..0x00400000 before this command.
-'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
 git diff --check
 ```
 
@@ -1810,6 +1810,46 @@ Phase 24L commit message:
 
 ```text
 test: validate BLE record transfer ACK path
+```
+
+## Phase 24M: BLE Fragment Notification Hardware Validation
+
+Phase 24M validates the fragment notification path with the Windows central
+tool. It accepts subscription to the record-fragment characteristic and
+central-observed notifications matching explicit fragment reads, but it still
+does not accept full BLE upload completion because disconnect preservation,
+post-ACK oldest-record advancement, Wi-Fi/BLE ACK race behavior, and BOOT
+download-mode preservation still need validation.
+
+Phase 24M scope:
+
+- Rename the Windows BLE central validation tool to `tools/ble-watch`.
+- Keep the BLE+Wi-Fi coexistence diagnostic firmware already on the board; do
+  not require a new firmware flash for this validation slice.
+- Add `scan-transfer-record-notify`, `scan-disconnect-preserves-record`, and
+  `scan-ack-then-peek-next` commands to `ble-watch`.
+- Confirm an authorized `scan-transfer-record-notify ... no-ack` run
+  subscribes to fragment notifications, reads metadata, requests fragments,
+  observes one notification per requested fragment, confirms each notification
+  matches the corresponding fragment read, validates payload CRC, and completes
+  the record without sending a BLE storage ACK.
+- Do not treat this slice as proof of disconnect preservation during live
+  transfer, post-ACK oldest advancement, Wi-Fi/BLE ACK race behavior, or BOOT
+  download-mode preservation.
+
+Phase 24M verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record-notify 30 sleep-env-esp32c3 no-ack 128
+git diff --check
+```
+
+Phase 24M commit message:
+
+```text
+test: validate BLE fragment notifications
 ```
 
 ## Work Items
@@ -1829,6 +1869,10 @@ test: validate BLE record transfer ACK path
   state, GATT transfer, and BLE-side acknowledgement handling.
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
   acknowledge operations.
+- Document the current Phase 24 pairing/authorization state as RAM-only and
+  add future work for real BLE bonding or an equivalent persistent
+  authorization record. That future work must define storage location, update
+  rules, and user-controlled clearing.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
@@ -1879,7 +1923,9 @@ Add hardware-independent tests for:
 - BLE upload reads the oldest persisted records without bypassing
   `storage_task`.
 - Storage ACK behavior is deterministic when Wi-Fi and BLE are both enabled.
-- Pairing or authorization prevents unpaired BLE measurement access.
+- Pairing or authorization prevents unpaired BLE measurement access, and the
+  final security design defines persistent bonding or an equivalent saved
+  authorization record.
 - BOOT / IO9 pairing entry is validated without breaking download mode.
 - Hardware-independent tests cover BLE protocol framing and ACK policy.
 

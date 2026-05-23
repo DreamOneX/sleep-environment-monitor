@@ -1852,6 +1852,39 @@ Phase 24M commit message:
 test: validate BLE fragment notifications
 ```
 
+## Phase 24N: Wi-Fi/BLE ACK Race Logic Guard
+
+Phase 24N strengthens the hardware-independent ACK race coverage. It accepts
+the storage-layer sequence guard that prevents a stale BLE ACK from deleting
+the next oldest record after Wi-Fi has already acknowledged the raced record,
+but it still does not accept full BLE upload completion because the live
+Wi-Fi/BLE ACK race, disconnect preservation, post-ACK oldest-record
+advancement, and BOOT download-mode preservation still need hardware
+validation.
+
+Phase 24N scope:
+
+- Add a storage unit test that models Wi-Fi acknowledging the current oldest
+  record, followed by BLE attempting to acknowledge the same stale sequence.
+- Confirm the second ACK returns no acknowledgement and leaves the new oldest
+  record pending.
+- Keep this as pure storage/ACK semantics only. Do not treat it as hardware
+  validation of simultaneous Wi-Fi and BLE runtime behavior.
+
+Phase 24N verification:
+
+```bash
+cargo fmt
+cargo test --lib
+git diff --check
+```
+
+Phase 24N commit message:
+
+```text
+test: guard Wi-Fi BLE ACK race
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

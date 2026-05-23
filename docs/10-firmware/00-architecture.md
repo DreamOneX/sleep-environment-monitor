@@ -562,10 +562,11 @@ active-low runtime input, long-press pairing-window entry, and the expected
 no-retrigger behavior until release. Phase 24L central validation confirms
 full BLE record transfer, CRC validation, `CompleteRecord`, and ACK-mode BLE
 storage drain while Wi-Fi upload is unavailable. Phase 24M central validation
-confirms fragment notifications matching requested fragment reads. Wi-Fi/BLE
-ACK race behavior, disconnect preservation during live transfer, post-ACK
-oldest-record advancement, and BOOT download-mode preservation still need
-future hardware/runtime validation.
+confirms fragment notifications matching requested fragment reads. Phase 24N
+adds storage-level unit coverage that a stale BLE ACK after Wi-Fi ACK does not
+remove the next oldest record. Live Wi-Fi/BLE ACK race behavior, disconnect
+preservation during live transfer, post-ACK oldest-record advancement, and
+BOOT download-mode preservation still need future hardware/runtime validation.
 
 ---
 

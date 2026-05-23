@@ -2322,3 +2322,40 @@ Notes:
 - BOOT / IO9 download-mode preservation remains unvalidated.
 - Phase 24 still has remaining hardware validation work and should not be
   treated as fully complete.
+
+## Milestone 42: Phase 24N Wi-Fi/BLE ACK Race Logic Guard
+
+Phase 24N implementation:
+
+- Added a storage unit test for the Wi-Fi/BLE ACK race guard.
+- The test models Wi-Fi acknowledging the current oldest record, then BLE
+  attempting to acknowledge the same stale sequence.
+- The expected result is that the stale BLE ACK returns no acknowledgement and
+  leaves the next oldest record pending.
+- This is hardware-independent coverage only. It does not validate live
+  Wi-Fi/BLE runtime race behavior on the ESP32-C3.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+```
+
+Observed test result:
+
+- `cargo test --lib` passed with `151 passed; 0 failed`.
+- New test:
+  `tasks::storage::tests::ble_ack_after_wifi_ack_does_not_remove_next_oldest_record`.
+
+Notes:
+
+- No firmware image was flashed for this milestone.
+- No ACK-mode BLE hardware validation was run in this milestone, so no
+  deliberate measurement-spool ACK or firmware flash-write range was exercised.
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+- Disconnect preservation during live transfer remains unvalidated.
+- Post-ACK oldest-record advancement remains unvalidated.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Phase 24 still has remaining hardware validation work and should not be
+  treated as fully complete.

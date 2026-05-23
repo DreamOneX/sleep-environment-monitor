@@ -173,17 +173,26 @@ Phase 24M validates BLE fragment notifications:
   expired authorization window. No disconnect-preservation conclusion was drawn
   from that attempt.
 
-Phase 24A through 24M do not change the flash format or measurement JSON
+Phase 24N strengthens hardware-independent Wi-Fi/BLE ACK race coverage:
+
+- A storage unit test now models Wi-Fi acknowledging the current oldest record
+  before BLE attempts to acknowledge the same stale sequence.
+- The stale BLE ACK returns no acknowledgement and leaves the next oldest
+  record pending.
+- This is not hardware validation of a live Wi-Fi/BLE runtime race.
+
+Phase 24A through 24N do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
 runtime ACK wiring, independent radio feature matrix, structured status
 snapshot, board-side advertising startup, central-side discovery, central
 connection, structured status read, closed-window measurement access rejection,
 BOOT / IO9 authorized-window entry, full record reads, `CompleteRecord`, and
 ACK-mode BLE storage drain now compile or run. BLE notification behavior has
-also been hardware-validated with the Windows central. Wi-Fi/BLE ACK race
-behavior, disconnect preservation during live transfer, post-ACK oldest-record
-advancement, and BOOT download-mode preservation have not been validated yet.
-Full BLE upload bring-up remains future Phase 24 work.
+also been hardware-validated with the Windows central. Storage-level stale ACK
+protection for a Wi-Fi/BLE race is covered by unit tests. Live Wi-Fi/BLE ACK
+race behavior, disconnect preservation during live transfer, post-ACK
+oldest-record advancement, and BOOT download-mode preservation have not been
+validated yet. Full BLE upload bring-up remains future Phase 24 work.
 The current authorization state is RAM-only: firmware opens a temporary
 BOOT / IO9 authorization window and does not save bonded peers, pairing keys,
 allowlists, or other authorization records in flash.

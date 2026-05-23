@@ -654,6 +654,33 @@ mod tests {
     }
 
     #[test]
+    fn ble_ack_after_wifi_ack_does_not_remove_next_oldest_record() {
+        let mut flash = InMemoryFlash::<512, 128>::new();
+        let mut backlog = StorageBacklog::<4, 192>::new();
+
+        backlog
+            .append_measurement(&mut flash, measurement(10))
+            .unwrap();
+        backlog
+            .append_measurement(&mut flash, measurement(20))
+            .unwrap();
+
+        let raced_sequence = backlog.peek_payload().unwrap().sequence;
+        let wifi_ack = backlog
+            .acknowledge_sequence(&mut flash, raced_sequence)
+            .unwrap()
+            .unwrap();
+        let ble_ack = backlog
+            .acknowledge_sequence(&mut flash, raced_sequence)
+            .unwrap();
+
+        assert_payload_uptime(&wifi_ack, 10);
+        assert_eq!(ble_ack, None);
+        assert_eq!(backlog.len(), 1);
+        assert_payload_uptime(&backlog.peek_payload().unwrap(), 20);
+    }
+
+    #[test]
     fn upload_failure_preserves_record() {
         let mut flash = InMemoryFlash::<512, 128>::new();
         let mut backlog = StorageBacklog::<4, 192>::new();

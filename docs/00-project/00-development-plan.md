@@ -1670,6 +1670,50 @@ Phase 24I commit message:
 fix: fit BLE advertising payloads
 ```
 
+## Phase 24J: BLE Central Status And Closed-Window Authorization
+
+Phase 24J validates the first central-side BLE interactions against the
+advertising firmware from Phase 24I. It accepts central discovery, connection,
+structured status reads, and closed-window authorization rejection for
+measurement access, but it still does not accept full BLE upload completion
+because authorized record transfer, BLE storage ACK, Wi-Fi/BLE race behavior,
+and BOOT / IO9 hardware entry still need end-to-end validation.
+
+Phase 24J scope:
+
+- Preserve the default firmware behavior with Wi-Fi REST upload enabled and
+  BLE disabled.
+- Use the BLE+Wi-Fi coexistence firmware flashed in Phase 24I; do not require a
+  new firmware flash for this validation slice.
+- Confirm a Windows BLE central can discover the project advertising service
+  UUID and scan-response local name.
+- Confirm a Windows BLE central can connect, discover the project GATT service,
+  and read the structured status characteristic.
+- Confirm the status characteristic reports the BLE runtime state, network
+  state, upload result, pending-record count, and error flags using the Phase
+  24H binary status frame.
+- Confirm that with the BOOT / IO9 pairing window closed, measurement metadata
+  reads, fragment reads, and control writes are rejected with ATT
+  authorization errors.
+- Do not validate authorized record transfer, notifications, BLE storage ACK,
+  Wi-Fi/BLE ACK race behavior, BOOT / IO9 pairing entry, or download-mode
+  behavior in this slice.
+
+Phase 24J verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
+git diff --check
+```
+
+Phase 24J commit message:
+
+```text
+test: validate BLE central status access
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

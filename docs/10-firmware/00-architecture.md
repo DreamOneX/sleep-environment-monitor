@@ -476,7 +476,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I responsibilities:
+Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
@@ -516,6 +516,10 @@ Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I responsibilities:
 - Keep legacy advertising data and scan response data within the 31-byte BLE
   payload limit. The BLE advertising payload carries flags plus the project
   128-bit service UUID, and the scan response carries the complete local name.
+- Support central-side discovery, connection, project GATT service discovery,
+  and structured status reads.
+- Reject closed-window record metadata reads, record fragment reads, and
+  control writes with ATT authorization errors.
 
 Future runtime responsibilities:
 
@@ -531,11 +535,14 @@ disconnect reset, and BOOT / IO9 pairing-window gesture logic have
 hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton,
 Phase 24E authorized read-only record path, Phase 24F runtime BLE ACK wiring,
 Phase 24G independent radio feature matrix, Phase 24H BLE status runtime
-snapshot, and Phase 24I advertising payload sizing compile for the ESP32-C3
-target. Phase 24I hardware validation confirms that the BLE+Wi-Fi firmware
-reaches the board-side advertising loop. Central-side discovery, central
-connection, real pairing or authorization, GATT record transfer, and runtime
-BLE storage ACK behavior still need future hardware/runtime validation.
+snapshot, Phase 24I advertising payload sizing, and Phase 24J central-side
+status and closed-window authorization behavior compile or run against the
+ESP32-C3 target. Phase 24I hardware validation confirms that the BLE+Wi-Fi
+firmware reaches the board-side advertising loop. Phase 24J central validation
+confirms discovery, connection, structured status reads, and closed-window
+measurement access rejection. Real pairing or authorized-window entry, live
+GATT record transfer, and runtime BLE storage ACK behavior still need future
+hardware/runtime validation.
 
 ---
 

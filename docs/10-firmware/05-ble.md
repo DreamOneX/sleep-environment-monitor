@@ -119,13 +119,26 @@ Phase 24I fixes the first hardware-observed advertising startup issue:
 - A BLE+Wi-Fi coexistence build was flashed to the ESP32-C3 and RTT logs
   confirmed that the firmware reaches `ble advertising name=sleep-env-esp32c3`.
 
-Phase 24A through 24I do not change the flash format or measurement JSON
+Phase 24J validates first central-side access:
+
+- A Windows BLE central can discover the ESP32-C3 by the project service UUID
+  and the `sleep-env-esp32c3` scan-response local name.
+- The central can connect, discover the project GATT service, and read the
+  status characteristic as the Phase 24H binary status frame.
+- With the BOOT / IO9 pairing window closed, metadata reads, fragment reads,
+  and control writes are rejected with ATT authorization errors.
+- No new firmware was flashed for this validation slice; it used the Phase 24I
+  BLE+Wi-Fi image already on the board.
+
+Phase 24A through 24J do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
 runtime ACK wiring, independent radio feature matrix, structured status
-snapshot, and board-side advertising startup now compile or run, but
-central-side discovery, central connection, real pairing/security, live BLE
-record transfer, notifications, and BLE storage-drain behavior have not been
-validated yet. Full BLE upload bring-up remains future Phase 24 work.
+snapshot, board-side advertising startup, central-side discovery, central
+connection, structured status read, and closed-window measurement access
+rejection now compile or run, but real pairing/security or authorized-window
+entry, live BLE record transfer, notifications, and BLE storage-drain behavior
+have not been validated yet. Full BLE upload bring-up remains future Phase 24
+work.
 
 ## Goals
 

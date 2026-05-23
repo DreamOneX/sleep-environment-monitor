@@ -1997,3 +1997,67 @@ Notes:
   notification flow, BLE storage ACK, or BLE storage drain was validated.
 - BOOT / IO9 runtime input and download-mode behavior were not
   hardware-validated in this milestone.
+
+## Milestone 35: BLE Central Status And Closed-Window Authorization
+
+Phase 24J validation:
+
+- Reused the BLE+Wi-Fi coexistence firmware flashed in Milestone 34; no new
+  firmware image was built for flashing and no firmware flashing command was
+  run in this milestone.
+- Built the temporary Windows/.NET BLE central validation tool from
+  `/tmp/phase24-ble-watch`.
+- Confirmed a Windows BLE central can discover the ESP32-C3 by the project
+  service UUID in the connectable advertisement and by the
+  `sleep-env-esp32c3` scan-response local name.
+- Confirmed the central can connect, discover the project GATT service, find
+  the status characteristic, and read the Phase 24H structured status frame.
+- Confirmed the closed BOOT / IO9 pairing window rejects measurement metadata
+  reads, fragment reads, and control writes with ATT authorization errors.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24J as
+  central-side status and closed-window authorization validation, not full BLE
+  upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
+```
+
+Observed central status read:
+
+- The scan found address `0xf3531024e2c3` with random address type.
+- The connectable advertisement contained project service UUID
+  `0100017d-0e51-b29b-1e4b-0a24534d4553` as observed by Windows.
+- The scan response contained local name `sleep-env-esp32c3`.
+- GATT service discovery returned `Success`.
+- Status characteristic discovery returned `Success` with properties
+  `Read, Notify`.
+- Status read returned `Success`.
+- Status bytes were `01040002200000000000`.
+- Decoded status: protocol version `1`, BLE runtime `Connected`, network
+  `Disconnected`, upload `Failed`, pending records `32`, error flags
+  `0x00000000`.
+
+Observed closed-window authorization result:
+
+- Metadata characteristic lookup returned `Success`.
+- Fragment characteristic lookup returned `Success`.
+- Control characteristic lookup returned `Success`.
+- Metadata read failed with `ProtocolError`, ATT protocol error `0x08`.
+- Fragment read failed with `ProtocolError`, ATT protocol error `0x08`.
+- Control write failed with exception `0x80650008`.
+- The validation tool reported
+  `metadata_rejected=True fragment_rejected=True control_rejected=True`.
+
+Notes:
+
+- This milestone did not validate authorized record transfer, notification
+  behavior, BLE storage ACK, Wi-Fi/BLE ACK race behavior, BLE storage drain, or
+  BOOT / IO9 runtime button entry.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

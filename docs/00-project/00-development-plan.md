@@ -1765,6 +1765,53 @@ Phase 24K commit message:
 test: validate BLE pairing entry diagnostics
 ```
 
+## Phase 24L: BLE Record Transfer And ACK Hardware Validation
+
+Phase 24L validates the first full BLE record transfer and BLE storage ACK
+path with the Windows central tool. It accepts central-side metadata reads,
+ordered fragment reads, CRC validation, `CompleteRecord`, and an ACK-mode
+storage drain while Wi-Fi upload is unavailable, but it still does not accept
+full BLE upload completion because post-ACK oldest-record advancement,
+Wi-Fi/BLE ACK race behavior, notification behavior, disconnect preservation,
+and BOOT download-mode preservation still need validation.
+
+Phase 24L scope:
+
+- Preserve the default firmware behavior with Wi-Fi REST upload enabled and
+  BLE disabled.
+- Use the BLE+Wi-Fi coexistence diagnostic firmware from Phase 24K; do not
+  require a new firmware flash for this validation slice.
+- Keep the Windows BLE central validation tool in
+  `tools/phase24-ble-watch`.
+- Confirm an authorized `scan-transfer-record ... no-ack` run reads metadata,
+  reads all fragments, validates payload CRC, and accepts `CompleteRecord`
+  without sending a BLE storage ACK.
+- Confirm an authorized `scan-transfer-record ... ack` run reads metadata,
+  reads all fragments, validates payload CRC, accepts `CompleteRecord`, and
+  sends `AckRecord` when the BLE ACK policy permits drain.
+- Before any ACK-mode hardware validation, declare that the firmware may
+  exercise the measurement spool flash range `0x003c0000..0x00400000` through
+  `storage_task`.
+- Do not treat this slice as proof of Wi-Fi/BLE race behavior, notification
+  delivery, disconnect preservation during live transfer, post-ACK oldest
+  advancement, or BOOT download-mode preservation.
+
+Phase 24L verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/phase24-ble-watch/phase24-ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+# Declare measurement spool range 0x003c0000..0x00400000 before this command.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
+git diff --check
+```
+
+Phase 24L commit message:
+
+```text
+test: validate BLE record transfer ACK path
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

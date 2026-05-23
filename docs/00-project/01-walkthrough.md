@@ -2165,3 +2165,84 @@ Notes:
 - BLE notification behavior, BLE storage ACK, Wi-Fi/BLE ACK race behavior,
   disconnect preservation during live transfer, and BOOT download-mode
   preservation remain unvalidated.
+
+## Milestone 37: BLE Record Transfer And ACK Path Validation
+
+Phase 24L validation:
+
+- Reused the BLE+Wi-Fi coexistence diagnostic firmware flashed in Milestone
+  36; no new firmware was flashed for this validation slice.
+- Moved the Windows/.NET BLE central validation tool into the repository at
+  [../../tools/phase24-ble-watch/](../../tools/phase24-ble-watch/).
+- Confirmed an authorized `scan-transfer-record ... no-ack 128` run can read
+  metadata, read all ordered fragments, validate the payload CRC, and send
+  `CompleteRecord` without requesting BLE storage ACK.
+- Confirmed an authorized `scan-transfer-record ... ack 128` run can read
+  metadata, read all ordered fragments, validate the payload CRC, send
+  `CompleteRecord`, and then send `AckRecord` while Wi-Fi upload is
+  unavailable.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md),
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md), and
+  [../../tools/phase24-ble-watch/README.md](../../tools/phase24-ble-watch/README.md)
+  to record Phase 24L as record-transfer and ACK-path validation, not full BLE
+  upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/phase24-ble-watch/phase24-ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+# Declared measurement spool range 0x003c0000..0x00400000 before this command.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/phase24-ble-watch/bin/Debug/net10.0-windows10.0.19041.0/phase24-ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+```
+
+Observed BLE transfer results:
+
+- The no-ACK transfer read sequence `100291`, payload length `202`, and CRC
+  `0x09fe19ba`; the computed payload CRC matched the metadata CRC.
+- The no-ACK transfer completed successfully with `CompleteRecord`,
+  `ack_requested=False`, and no BLE storage ACK.
+- The ACK-mode transfer read sequence `101350`, payload length `203`, and CRC
+  `0x1f882667`; the computed payload CRC matched the metadata CRC.
+- The ACK-mode transfer completed successfully with `CompleteRecord`,
+  `AckRecord`, and `ack_requested=True`.
+
+Flash range declared before ACK-mode validation:
+
+- Measurement spool: `0x003c0000..0x00400000`.
+- No firmware image was flashed in this milestone, so the bootloader,
+  partition table, and factory app ranges were not deliberately written by the
+  validation commands.
+- The ACK-mode run may have exercised normal firmware measurement spool
+  writes/erases through `storage_task` in the declared spool range.
+
+Observed post-ACK recheck:
+
+- A post-ACK no-ACK transfer recheck was attempted to confirm the oldest
+  sequence advanced after ACK.
+- A non-flashing `probe-rs reset --chip esp32c3` restored BLE status to
+  pairing `Closed`, BOOT / IO9 `Released`, and `pressed_ms=0`.
+- A `scan-watch-status` run confirmed BOOT / IO9 could still be observed as
+  `Pressed`, opened the pairing window, and reached about `59,400 ms`
+  remaining.
+- Two later `scan-transfer-record ... no-ack 128` attempts timed out waiting
+  for `pairing=Open`; during the transfer waits the central repeatedly read
+  pairing `Closed`, BOOT / IO9 `Released`, and `pressed_ms=0`.
+- No metadata read, fragment read, `CompleteRecord`, or BLE ACK occurred during
+  those post-ACK recheck attempts.
+- Therefore, post-ACK oldest-record advancement remains unvalidated.
+
+Notes:
+
+- BLE notification behavior remains unvalidated; this milestone used explicit
+  characteristic reads for metadata and fragments.
+- Wi-Fi/BLE ACK race behavior remains unvalidated.
+- Disconnect preservation during live transfer remains unvalidated.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Phase 24 still has remaining hardware validation work and should not be
+  treated as fully complete.

@@ -143,15 +143,32 @@ Phase 24K validates BOOT / IO9 pairing-window entry diagnostics:
   pairing window expires, the same continuous press does not reopen the window
   until BOOT / IO9 is released and pressed again.
 
-Phase 24A through 24K do not change the flash format or measurement JSON
+Phase 24L validates the first full BLE record transfer and ACK-mode drain:
+
+- The Windows BLE central validation tool now lives in
+  `tools/phase24-ble-watch`.
+- Authorized `scan-transfer-record ... no-ack 128` read metadata, read ordered
+  fragments, validated the payload CRC, and accepted `CompleteRecord` without
+  requesting storage ACK.
+- Authorized `scan-transfer-record ... ack 128` read metadata, read ordered
+  fragments, validated the payload CRC, accepted `CompleteRecord`, and sent
+  `AckRecord` while Wi-Fi upload was unavailable.
+- The ACK-mode validation exercised the measurement spool flash range
+  `0x003c0000..0x00400000` through `storage_task`; it did not flash firmware.
+- A later post-ACK no-ACK transfer recheck was attempted but did not complete
+  because the manual BOOT / IO9 pairing window was not reopened during the
+  transfer wait.
+
+Phase 24A through 24L do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
 runtime ACK wiring, independent radio feature matrix, structured status
 snapshot, board-side advertising startup, central-side discovery, central
-connection, structured status read, and closed-window measurement access
-rejection now compile or run. BOOT / IO9 authorized-window entry has been
-validated through status reads, but live BLE record transfer, notifications,
-BLE storage ACK, and BLE storage-drain behavior have not been validated yet.
-Full BLE upload bring-up remains future Phase 24 work.
+connection, structured status read, closed-window measurement access rejection,
+BOOT / IO9 authorized-window entry, full record reads, `CompleteRecord`, and
+ACK-mode BLE storage drain now compile or run. BLE notification behavior,
+Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
+post-ACK oldest-record advancement, and BOOT download-mode preservation have
+not been validated yet. Full BLE upload bring-up remains future Phase 24 work.
 
 ## Goals
 

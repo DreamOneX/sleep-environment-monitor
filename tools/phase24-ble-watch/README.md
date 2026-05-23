@@ -1,8 +1,8 @@
 # Phase 24 BLE Watch
 
-Temporary Windows BLE central validation tool for Phase 24 ESP32-C3 BLE
-bring-up. It is intentionally small and focused on manual integration checks
-against the firmware's project GATT service.
+Windows BLE central validation tool for Phase 24 ESP32-C3 BLE bring-up. It is
+intentionally small and focused on manual integration checks against the
+firmware's project GATT service.
 
 Build from WSL with Windows .NET:
 
@@ -36,6 +36,19 @@ Common commands:
 The tool prints Windows-observed UUIDs and raw binary status/metadata/fragment
 frames. `scan-transfer-record` first polls the status characteristic until the
 BOOT / IO9 pairing window is open, then requests metadata and fragments.
+
+Manual transfer flow:
+
+1. Start `scan-transfer-record`.
+2. Wait for the tool to print `PAIRING_WAIT`.
+3. Hold BOOT / IO9 for at least 3 seconds.
+4. Release BOOT / IO9 after the tool prints `PAIRING_OPEN` or after the
+   transfer completes.
+
+If the pairing window expires while BOOT / IO9 is still held, the firmware
+keeps the window closed until the button is released and pressed again. A
+non-flashing `probe-rs reset --chip esp32c3` can also restore the diagnostic
+state to `Released/pressed_ms=0` before another manual run.
 
 For `ack` mode, declare the flash range before running hardware validation:
 the firmware may write or erase the measurement spool region

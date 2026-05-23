@@ -476,7 +476,8 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J/24K responsibilities:
+Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J/24K/24L
+responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
@@ -523,12 +524,20 @@ Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J/24K responsibilities:
 - Keep the original 10-byte BLE status prefix stable and append
   central-readable BOOT / IO9 pairing diagnostics: pairing state, button state,
   pairing-window remaining milliseconds, and accumulated press milliseconds.
+- Support authorized central-side full-record transfer through metadata,
+  ordered fragment reads, CRC-validated payload reconstruction, and
+  `CompleteRecord`.
+- Support ACK-mode BLE storage drain through the existing
+  sequence-checked `StorageCommand::Ack { client: StorageClient::Ble, sequence }`
+  path when the BLE ACK policy permits it.
 
 Future runtime responsibilities:
 
 - Replace the pairing-window authorization skeleton with validated real BLE
   pairing/security or a documented equivalent authorization flow.
-- Validate live GATT record transfer and BLE storage drain with a BLE central.
+- Validate notification behavior, Wi-Fi/BLE ACK race behavior, disconnect
+  preservation during live transfer, post-ACK oldest-record advancement, and
+  BOOT download-mode preservation.
 - Never write flash directly.
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
@@ -546,8 +555,12 @@ firmware reaches the board-side advertising loop. Phase 24J central validation
 confirms discovery, connection, structured status reads, and closed-window
 measurement access rejection. Phase 24K central validation confirms BOOT / IO9
 active-low runtime input, long-press pairing-window entry, and the expected
-no-retrigger behavior until release. Live GATT record transfer and runtime BLE
-storage ACK behavior still need future hardware/runtime validation.
+no-retrigger behavior until release. Phase 24L central validation confirms
+full BLE record transfer, CRC validation, `CompleteRecord`, and ACK-mode BLE
+storage drain while Wi-Fi upload is unavailable. Notification behavior,
+Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
+post-ACK oldest-record advancement, and BOOT download-mode preservation still
+need future hardware/runtime validation.
 
 ---
 

@@ -20,8 +20,8 @@ pub fn merge_measurement(env: EnvSample, mic: MicSample) -> Measurement {
 
 #[cfg(target_arch = "riscv32")]
 use super::{
-    SampleSignal, StorageRequestChannel, TaskSignal, storage::StorageCommand,
-    upload::measurement_to_json_fields,
+    FirmwareStatusSnapshotMutex, SampleSignal, StorageRequestChannel, TaskSignal,
+    storage::StorageCommand, upload::measurement_to_json_fields,
 };
 #[cfg(target_arch = "riscv32")]
 use crate::{types::ErrorFlags, util::logging::should_log_sample};
@@ -35,6 +35,7 @@ pub async fn aggregator_task(
     mic_samples: &'static SampleSignal<MicSample>,
     storage_requests: &'static StorageRequestChannel,
     error_flags: &'static TaskSignal<ErrorFlags>,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 ) {
     let mut latest_env = env_samples.wait().await;
     let mut latest_mic = mic_samples.wait().await;
@@ -58,11 +59,23 @@ pub async fn aggregator_task(
         if !stored {
             flags.insert(ErrorFlags::STORAGE);
         }
-        error_flags.signal(flags);
+        publish_error_flags(error_flags, firmware_status, flags).await;
 
         measurement_count = measurement_count.wrapping_add(1);
         latest_mic = mic_samples.wait().await;
     }
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_error_flags(
+    error_flags: &'static TaskSignal<ErrorFlags>,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
+    flags: ErrorFlags,
+) {
+    error_flags.signal(flags);
+    let mut status = firmware_status.lock().await;
+    let current = *status;
+    *status = current.with_error_flags(flags);
 }
 
 #[cfg(target_arch = "riscv32")]

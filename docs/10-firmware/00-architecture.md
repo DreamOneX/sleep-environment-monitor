@@ -476,7 +476,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E/24F/24G responsibilities:
+Current Phase 24A/24B/24C/24D/24E/24F/24G/24H responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
@@ -501,6 +501,9 @@ Current Phase 24A/24B/24C/24D/24E/24F/24G responsibilities:
 - Maintain a shared latest network/upload status snapshot for BLE ACK policy
   decisions without consuming the existing single-consumer status `Signal`s
   used by the LED/status task.
+- Maintain a shared latest firmware status snapshot for BLE status reads,
+  including pending storage record count and latest firmware error flags,
+  without consuming the LED/status task signals.
 - On authorized `AckRecord`, suppress BLE storage ACK while Wi-Fi upload is
   connected/IP-ready and the last upload result is success.
 - When the ACK policy permits BLE drain, send
@@ -524,10 +527,10 @@ BLE protocol framing, fragment ordering, sequence-checked ACK policy,
 disconnect reset, and BOOT / IO9 pairing-window gesture logic have
 hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton,
 Phase 24E authorized read-only record path, Phase 24F runtime BLE ACK wiring,
-and Phase 24G independent radio feature matrix compile for the ESP32-C3 target.
-Live advertising, central connection, real pairing or authorization, GATT
-record transfer, and runtime BLE storage ACK behavior still need future
-hardware/runtime validation.
+Phase 24G independent radio feature matrix, and Phase 24H BLE status runtime
+snapshot compile for the ESP32-C3 target. Live advertising, central
+connection, real pairing or authorization, GATT record transfer, and runtime
+BLE storage ACK behavior still need future hardware/runtime validation.
 
 ---
 

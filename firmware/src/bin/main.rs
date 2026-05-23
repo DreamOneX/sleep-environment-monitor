@@ -47,14 +47,18 @@ use sleep_environment_monitor::tasks::{net::net_task, upload::uploader_task, wif
 use sleep_environment_monitor::{
     config,
     tasks::{
-        NetworkUploadStatusMutex, StorageRequestChannel, StorageResponseSignal,
+        FirmwareStatusSnapshotMutex, NetworkUploadStatusMutex, StorageRequestChannel,
+        StorageResponseSignal,
         aggregator::aggregator_task,
         led::{heartbeat_task, status_task},
         mic::mic_task,
         sensor::sensor_task,
         storage::{StorageCommand, StorageResponse, storage_task},
     },
-    types::{EnvSample, ErrorFlags, MicSample, NetworkState, NetworkUploadStatus, UploadResult},
+    types::{
+        EnvSample, ErrorFlags, FirmwareStatusSnapshot, MicSample, NetworkState,
+        NetworkUploadStatus, UploadResult,
+    },
 };
 
 #[cfg(target_arch = "riscv32")]
@@ -71,6 +75,9 @@ static ERROR_FLAGS_SIGNAL: Signal<CriticalSectionRawMutex, ErrorFlags> = Signal:
 static NETWORK_UPLOAD_STATUS: NetworkUploadStatusMutex = NetworkUploadStatusMutex::new(
     NetworkUploadStatus::new(NetworkState::Disconnected, UploadResult::Idle),
 );
+#[cfg(target_arch = "riscv32")]
+static FIRMWARE_STATUS: FirmwareStatusSnapshotMutex =
+    FirmwareStatusSnapshotMutex::new(FirmwareStatusSnapshot::new(0, ErrorFlags::NONE));
 #[cfg(target_arch = "riscv32")]
 static STORAGE_REQUESTS: StorageRequestChannel = Channel::<
     CriticalSectionRawMutex,
@@ -227,6 +234,7 @@ async fn main(spawner: Spawner) -> ! {
             &WIFI_STORAGE_RESPONSES,
             &BLE_STORAGE_RESPONSES,
             &ERROR_FLAGS_SIGNAL,
+            &FIRMWARE_STATUS,
         ),
         "storage",
     );
@@ -238,6 +246,7 @@ async fn main(spawner: Spawner) -> ! {
             &MIC_SAMPLE_SIGNAL,
             &STORAGE_REQUESTS,
             &ERROR_FLAGS_SIGNAL,
+            &FIRMWARE_STATUS,
         ),
         "aggregator",
     );
@@ -258,6 +267,7 @@ async fn main(spawner: Spawner) -> ! {
                     &STORAGE_REQUESTS,
                     &BLE_STORAGE_RESPONSES,
                     &NETWORK_UPLOAD_STATUS,
+                    &FIRMWARE_STATUS,
                 ),
                 "ble",
             ) {

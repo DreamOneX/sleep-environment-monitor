@@ -313,7 +313,9 @@ pub enum StorageResponse {
 use crate::{
     drivers::flash::RomSpoolFlash,
     storage::flash_model::FlashError,
-    tasks::{StorageRequestChannel, StorageResponseSignal, TaskSignal},
+    tasks::{
+        FirmwareStatusSnapshotMutex, StorageRequestChannel, StorageResponseSignal, TaskSignal,
+    },
 };
 #[cfg(target_arch = "riscv32")]
 use defmt::{info, warn};
@@ -328,15 +330,18 @@ pub async fn storage_task(
     wifi_responses: &'static StorageResponseSignal,
     ble_responses: &'static StorageResponseSignal,
     error_flags: &'static TaskSignal<ErrorFlags>,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 ) {
     let mut flash = match RomSpoolFlash::new() {
         Ok(flash) => flash,
         Err(error) => {
             warn!("storage flash init failed error={:?}", error);
-            error_flags.signal(ErrorFlags::STORAGE);
+            publish_storage_error(error_flags, firmware_status).await;
             loop {
                 match requests.receive().await {
-                    StorageCommand::Append(_) => {}
+                    StorageCommand::Append(_) => {
+                        publish_storage_error(error_flags, firmware_status).await;
+                    }
                     StorageCommand::Peek(client) | StorageCommand::Ack { client, .. } => {
                         signal_storage_response(
                             wifi_responses,
@@ -364,11 +369,12 @@ pub async fn storage_task(
             Ok(backlog) => {
                 info!("storage recovered pending_len={=usize}", backlog.len());
                 log_storage_metrics(backlog.metrics(), true, storage_event_count);
+                publish_pending_record_count(firmware_status, backlog.metrics()).await;
                 (Some(backlog), None)
             }
             Err(error) => {
                 warn!("storage recovery failed error={:?}", error);
-                error_flags.signal(ErrorFlags::STORAGE);
+                publish_storage_error(error_flags, firmware_status).await;
                 (None, Some(error))
             }
         };
@@ -377,7 +383,7 @@ pub async fn storage_task(
         match requests.receive().await {
             StorageCommand::Append(measurement) => {
                 let Some(backlog) = backlog.as_mut() else {
-                    error_flags.signal(ErrorFlags::STORAGE);
+                    publish_storage_error(error_flags, firmware_status).await;
                     continue;
                 };
 
@@ -391,12 +397,15 @@ pub async fn storage_task(
                             dropped_oldest_before == 0 && metrics.dropped_oldest_count > 0,
                             storage_event_count,
                         );
+                        publish_pending_record_count(firmware_status, metrics).await;
                     }
                     Err(error) => {
                         warn!("storage append failed error={:?}", error);
                         storage_event_count = storage_event_count.wrapping_add(1);
-                        log_storage_metrics(backlog.metrics(), true, storage_event_count);
-                        error_flags.signal(ErrorFlags::STORAGE);
+                        let metrics = backlog.metrics();
+                        log_storage_metrics(metrics, true, storage_event_count);
+                        publish_pending_record_count(firmware_status, metrics).await;
+                        publish_storage_error(error_flags, firmware_status).await;
                     }
                 }
             }
@@ -419,14 +428,16 @@ pub async fn storage_task(
                             StorageError::Spool(SpoolError::Flash(FlashError::OutOfBounds)),
                         )),
                     );
-                    error_flags.signal(ErrorFlags::STORAGE);
+                    publish_storage_error(error_flags, firmware_status).await;
                     continue;
                 };
 
                 match backlog.acknowledge_sequence(&mut flash, sequence) {
                     Ok(acknowledged) => {
                         storage_event_count = storage_event_count.wrapping_add(1);
-                        log_storage_metrics(backlog.metrics(), false, storage_event_count);
+                        let metrics = backlog.metrics();
+                        log_storage_metrics(metrics, false, storage_event_count);
+                        publish_pending_record_count(firmware_status, metrics).await;
                         signal_storage_response(
                             wifi_responses,
                             ble_responses,
@@ -444,12 +455,34 @@ pub async fn storage_task(
                             client,
                             StorageResponse::Error(error),
                         );
-                        error_flags.signal(ErrorFlags::STORAGE);
+                        publish_storage_error(error_flags, firmware_status).await;
                     }
                 }
             }
         }
     }
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_pending_record_count(
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
+    metrics: StorageMetrics,
+) {
+    let pending_record_count = u16::try_from(metrics.pending_record_count).unwrap_or(u16::MAX);
+    let mut status = firmware_status.lock().await;
+    let current = *status;
+    *status = current.with_pending_record_count(pending_record_count);
+}
+
+#[cfg(target_arch = "riscv32")]
+async fn publish_storage_error(
+    error_flags: &'static TaskSignal<ErrorFlags>,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
+) {
+    error_flags.signal(ErrorFlags::STORAGE);
+    let mut status = firmware_status.lock().await;
+    let current = *status;
+    *status = current.with_error_flags(current.error_flags | ErrorFlags::STORAGE);
 }
 
 #[cfg(target_arch = "riscv32")]

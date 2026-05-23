@@ -1855,3 +1855,67 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 33: BLE Status Runtime Snapshot
+
+Phase 24H implementation:
+
+- Added a shared latest firmware status snapshot for BLE status reads.
+- Kept the existing LED/status task `Signal`s unchanged and single-consumer.
+- Updated aggregation paths to publish the latest firmware error flags to the
+  shared snapshot.
+- Updated `storage_task` to publish pending record count after recovery,
+  append, and ACK paths.
+- Updated storage failure paths to preserve the storage error flag in the
+  shared snapshot.
+- Updated BLE status encoding to combine BLE runtime state, latest
+  network/upload state, pending record count, and error flags.
+- Refreshed the BLE status characteristic before status reads and on BLE
+  runtime state transitions.
+- Preserved the Wi-Fi upload path, flash format, measurement JSON payload
+  shape, and storage ACK semantics.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24H as
+  runtime status snapshot wiring, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo build --target riscv32imc-unknown-none-elf --no-default-features --features ble-upload
+cargo build --target riscv32imc-unknown-none-elf --no-default-features
+cargo clippy --target riscv32imc-unknown-none-elf --no-default-features --features ble-upload
+cargo clippy --target riscv32imc-unknown-none-elf --no-default-features
+git diff --check
+```
+
+Observed results:
+
+- `cargo test --lib` passed 148 hardware-independent tests.
+- Host/all-target Clippy passed.
+- Default ESP32-C3 target build and Clippy passed with default `wifi-upload`.
+- No-radio ESP32-C3 target build and Clippy passed with
+  `--no-default-features`.
+- BLE-only ESP32-C3 target build and Clippy passed with
+  `--no-default-features --features ble-upload`.
+- BLE+Wi-Fi coexistence ESP32-C3 target build and Clippy passed with
+  `--features ble-upload,radio-coex`.
+- `git diff --check` passed.
+
+Notes:
+
+- BLE hardware behavior was not tested in this milestone: no live advertising
+  scan, no central connection, no real pairing/security validation, no live GATT
+  read/write/notify validation, no BLE record transfer, and no BLE storage-drain
+  validation.
+- BOOT / IO9 was not hardware-validated in this milestone.
+- No ESP32-C3 hardware validation was run.
+- No firmware flashing was performed.
+- No firmware flash-write range was exercised.

@@ -193,6 +193,36 @@ impl NetworkUploadStatus {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
+pub struct FirmwareStatusSnapshot {
+    pub pending_record_count: u16,
+    pub error_flags: ErrorFlags,
+}
+
+impl FirmwareStatusSnapshot {
+    pub const fn new(pending_record_count: u16, error_flags: ErrorFlags) -> Self {
+        Self {
+            pending_record_count,
+            error_flags,
+        }
+    }
+
+    pub const fn with_pending_record_count(self, pending_record_count: u16) -> Self {
+        Self {
+            pending_record_count,
+            ..self
+        }
+    }
+
+    pub const fn with_error_flags(self, error_flags: ErrorFlags) -> Self {
+        Self {
+            error_flags,
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(target_arch = "riscv32", derive(defmt::Format))]
 pub enum TimeStatus {
     #[default]
     Unknown,

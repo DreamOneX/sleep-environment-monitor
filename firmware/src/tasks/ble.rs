@@ -1,7 +1,7 @@
 use crate::{
     storage::spool::crc32,
     tasks::storage::StoredPayload,
-    types::{ErrorFlags, NetworkState, UploadResult},
+    types::{ErrorFlags, FirmwareStatusSnapshot, NetworkState, NetworkUploadStatus, UploadResult},
 };
 
 pub const SERVICE_UUID: [u8; 16] = [
@@ -78,6 +78,20 @@ impl BleStatus {
 
         Ok(Self::ENCODED_LEN)
     }
+}
+
+pub const fn status_from_snapshots(
+    runtime_state: BleRuntimeState,
+    network_upload_status: NetworkUploadStatus,
+    firmware_status: FirmwareStatusSnapshot,
+) -> BleStatus {
+    BleStatus::new(
+        runtime_state,
+        network_upload_status.network_state,
+        network_upload_status.upload_result,
+        firmware_status.pending_record_count,
+        firmware_status.error_flags,
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -654,7 +668,8 @@ const fn upload_result_code(result: UploadResult) -> u8 {
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use crate::tasks::{
-    NetworkUploadStatusMutex, StorageRequestChannel, StorageResponseSignal,
+    FirmwareStatusSnapshotMutex, NetworkUploadStatusMutex, StorageRequestChannel,
+    StorageResponseSignal,
     storage::{StorageClient, StorageCommand, StorageResponse},
 };
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -731,6 +746,7 @@ struct GattRuntime<'server> {
     storage_requests: &'static StorageRequestChannel,
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -797,6 +813,7 @@ pub async fn ble_task(
     storage_requests: &'static StorageRequestChannel,
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 ) {
     info!(
         "ble controller initialized name={=str} protocol_version={=u8}",
@@ -814,7 +831,13 @@ pub async fn ble_task(
         ..
     } = stack.build();
 
-    let gatt = build_gatt_server(encode_status(BleRuntimeState::HostPending));
+    let initial_network_upload_status = { *network_upload_status.lock().await };
+    let initial_firmware_status = { *firmware_status.lock().await };
+    let gatt = build_gatt_server(encode_status(
+        BleRuntimeState::HostPending,
+        initial_network_upload_status,
+        initial_firmware_status,
+    ));
 
     match select(
         runner.run(),
@@ -825,6 +848,7 @@ pub async fn ble_task(
             storage_requests,
             storage_responses,
             network_upload_status,
+            firmware_status,
         ),
     )
     .await
@@ -874,14 +898,12 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-fn encode_status(runtime_state: BleRuntimeState) -> [u8; BleStatus::ENCODED_LEN] {
-    let status = BleStatus::new(
-        runtime_state,
-        NetworkState::Disconnected,
-        UploadResult::Idle,
-        0,
-        ErrorFlags::NONE,
-    );
+fn encode_status(
+    runtime_state: BleRuntimeState,
+    network_upload_status: NetworkUploadStatus,
+    firmware_status: FirmwareStatusSnapshot,
+) -> [u8; BleStatus::ENCODED_LEN] {
+    let status = status_from_snapshots(runtime_state, network_upload_status, firmware_status);
     let mut out = [0_u8; BleStatus::ENCODED_LEN];
     let _ = status.encode(&mut out);
     out
@@ -957,12 +979,16 @@ fn build_gatt_server(initial_status: [u8; BleStatus::ENCODED_LEN]) -> BleGatt {
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-fn set_gatt_status(
+async fn set_gatt_status(
     server: &GattServer<'static>,
     handles: GattHandles,
+    network_upload_status: &'static NetworkUploadStatusMutex,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
     runtime_state: BleRuntimeState,
 ) {
-    let status = encode_status(runtime_state);
+    let network_upload_status = { *network_upload_status.lock().await };
+    let firmware_status = { *firmware_status.lock().await };
+    let status = encode_status(runtime_state, network_upload_status, firmware_status);
     if let Err(error) = handles.status.set(server, &status) {
         warn!("ble status characteristic update failed error={:?}", error);
     }
@@ -976,6 +1002,7 @@ async fn gatt_advertise_loop(
     storage_requests: &'static StorageRequestChannel,
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 ) {
     let mut adv_data = [0_u8; 31];
     let adv_len = match AdStructure::encode_slice(
@@ -1007,7 +1034,14 @@ async fn gatt_advertise_loop(
     };
 
     loop {
-        set_gatt_status(server, handles, BleRuntimeState::Advertising);
+        set_gatt_status(
+            server,
+            handles,
+            network_upload_status,
+            firmware_status,
+            BleRuntimeState::Advertising,
+        )
+        .await;
         info!(
             "ble advertising name={=str} protocol_version={=u8}",
             crate::config::ble::ADVERTISING_NAME,
@@ -1026,7 +1060,14 @@ async fn gatt_advertise_loop(
         {
             Ok(acceptor) => acceptor,
             Err(error) => {
-                set_gatt_status(server, handles, BleRuntimeState::Error);
+                set_gatt_status(
+                    server,
+                    handles,
+                    network_upload_status,
+                    firmware_status,
+                    BleRuntimeState::Error,
+                )
+                .await;
                 warn!("ble advertise failed error={:?}", error);
                 Timer::after(Duration::from_secs(crate::config::ble::IDLE_POLL_SECS)).await;
                 continue;
@@ -1043,13 +1084,27 @@ async fn gatt_advertise_loop(
         let connection = match connection.with_attribute_server(server) {
             Ok(connection) => connection,
             Err(error) => {
-                set_gatt_status(server, handles, BleRuntimeState::Error);
+                set_gatt_status(
+                    server,
+                    handles,
+                    network_upload_status,
+                    firmware_status,
+                    BleRuntimeState::Error,
+                )
+                .await;
                 warn!("ble GATT attach failed error={:?}", error);
                 continue;
             }
         };
 
-        set_gatt_status(server, handles, BleRuntimeState::Connected);
+        set_gatt_status(
+            server,
+            handles,
+            network_upload_status,
+            firmware_status,
+            BleRuntimeState::Connected,
+        )
+        .await;
         info!("ble central connected");
         run_gatt_connection(
             connection,
@@ -1058,6 +1113,7 @@ async fn gatt_advertise_loop(
             storage_requests,
             storage_responses,
             network_upload_status,
+            firmware_status,
         )
         .await;
     }
@@ -1071,6 +1127,7 @@ async fn run_gatt_connection(
     storage_requests: &'static StorageRequestChannel,
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
+    firmware_status: &'static FirmwareStatusSnapshotMutex,
 ) {
     let mut transfer = BleRecordTransferRuntime::new();
     let runtime = GattRuntime {
@@ -1079,6 +1136,7 @@ async fn run_gatt_connection(
         storage_requests,
         storage_responses,
         network_upload_status,
+        firmware_status,
     };
 
     loop {
@@ -1113,6 +1171,8 @@ async fn handle_gatt_event(
                 prepare_metadata_read(runtime, transfer).await
             } else if handle == runtime.handles.fragment.handle {
                 prepare_fragment_read(runtime.server, runtime.handles, transfer).await
+            } else if handle == runtime.handles.status.handle {
+                prepare_status_read(runtime, BleRuntimeState::Connected).await
             } else {
                 Ok(())
             };
@@ -1148,6 +1208,22 @@ async fn handle_gatt_event(
             send_gatt_reply(event.accept(), handle, "other").await;
         }
     }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn prepare_status_read(
+    runtime: GattRuntime<'_>,
+    runtime_state: BleRuntimeState,
+) -> Result<(), AttErrorCode> {
+    set_gatt_status(
+        runtime.server,
+        runtime.handles,
+        runtime.network_upload_status,
+        runtime.firmware_status,
+        runtime_state,
+    )
+    .await;
+    Ok(())
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -1487,6 +1563,26 @@ mod tests {
 
         assert_eq!(status.encode(&mut out), Ok(BleStatus::ENCODED_LEN));
         assert_eq!(out, [PROTOCOL_VERSION, 1, 3, 1, 7, 0, 0x18, 0, 0, 0]);
+    }
+
+    #[test]
+    fn status_snapshot_combines_runtime_network_storage_and_errors() {
+        let status = status_from_snapshots(
+            BleRuntimeState::Connected,
+            NetworkUploadStatus::new(NetworkState::Connected, UploadResult::HttpFailed),
+            FirmwareStatusSnapshot::new(12, ErrorFlags::STORAGE | ErrorFlags::HTTP),
+        );
+
+        assert_eq!(
+            status,
+            BleStatus::new(
+                BleRuntimeState::Connected,
+                NetworkState::Connected,
+                UploadResult::HttpFailed,
+                12,
+                ErrorFlags::STORAGE | ErrorFlags::HTTP,
+            )
+        );
     }
 
     #[test]

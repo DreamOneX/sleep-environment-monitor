@@ -97,12 +97,25 @@ Phase 24G adds independent radio feature selection:
 - With `wifi-upload` disabled, sampling, aggregation, storage, status LED, and
   optional BLE task startup still compile.
 
-Phase 24A through 24G do not change the flash format or measurement JSON
+Phase 24H adds a BLE status runtime snapshot:
+
+- BLE status reads now combine the BLE runtime state, latest network/upload
+  snapshot, pending storage record count, and latest firmware error flags.
+- The LED/status task keeps using its existing single-consumer `Signal`s.
+- `storage_task` publishes pending-count updates after recovery, append, and
+  ACK paths.
+- Aggregation and storage error paths publish the error flags used by BLE
+  status.
+- The BLE status characteristic is refreshed before status reads and on BLE
+  runtime state transitions.
+
+Phase 24A through 24H do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
-runtime ACK wiring, and independent radio feature matrix now compile, but live
-advertising, central connection, real pairing/security, live BLE record
-transfer, notifications, and BLE storage-drain behavior have not been
-hardware-validated yet. Full BLE upload bring-up remains future Phase 24 work.
+runtime ACK wiring, independent radio feature matrix, and structured status
+snapshot now compile, but live advertising, central connection, real
+pairing/security, live BLE record transfer, notifications, and BLE
+storage-drain behavior have not been hardware-validated yet. Full BLE upload
+bring-up remains future Phase 24 work.
 
 ## Goals
 

@@ -1621,6 +1621,55 @@ Phase 24H commit message:
 feat: add BLE status runtime snapshot
 ```
 
+## Phase 24I: BLE Advertising Runtime Bring-Up
+
+Phase 24I fixes the first hardware-observed BLE advertising startup issue. It
+accepts board-side evidence that the BLE host enters advertising, but it still
+does not accept full BLE upload completion because central-side discovery,
+connection, GATT status reads, record transfer, ACK behavior, and BOOT / IO9
+hardware validation still need end-to-end validation.
+
+Phase 24I scope:
+
+- Preserve the default firmware behavior with Wi-Fi REST upload enabled and
+  BLE disabled.
+- Keep the BLE+Wi-Fi coexistence build using the project GATT service and
+  structured characteristics.
+- Keep legacy advertising data and scan response data within the 31-byte BLE
+  payload limit.
+- Advertise flags and the project 128-bit service UUID in the advertising
+  payload.
+- Advertise the complete local name in the scan response payload.
+- Add a hardware-independent regression test for the legacy advertising and
+  scan response payload sizes.
+- Flash a BLE+Wi-Fi build and confirm by RTT that the firmware reaches the BLE
+  advertising loop.
+- Do not treat a board-side advertising log as proof of central-side discovery,
+  pairing/authorization, GATT transfer, BLE storage drain, or BOOT / IO9
+  behavior.
+
+Phase 24I verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-fixed-image.bin
+cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
+probe-rs reset --chip esp32c3
+timeout 45s probe-rs attach --chip esp32c3 --rtt-scan-memory target/riscv32imc-unknown-none-elf/debug/sleep-environment-monitor
+git diff --check
+```
+
+Phase 24I commit message:
+
+```text
+fix: fit BLE advertising payloads
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

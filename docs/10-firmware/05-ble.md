@@ -109,13 +109,23 @@ Phase 24H adds a BLE status runtime snapshot:
 - The BLE status characteristic is refreshed before status reads and on BLE
   runtime state transitions.
 
-Phase 24A through 24H do not change the flash format or measurement JSON
+Phase 24I fixes the first hardware-observed advertising startup issue:
+
+- The legacy advertising payload now carries flags plus the project 128-bit
+  service UUID.
+- The scan response now carries the complete local name.
+- A hardware-independent regression test keeps both payloads within the
+  31-byte legacy BLE advertising limit.
+- A BLE+Wi-Fi coexistence build was flashed to the ESP32-C3 and RTT logs
+  confirmed that the firmware reaches `ble advertising name=sleep-env-esp32c3`.
+
+Phase 24A through 24I do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
-runtime ACK wiring, independent radio feature matrix, and structured status
-snapshot now compile, but live advertising, central connection, real
-pairing/security, live BLE record transfer, notifications, and BLE
-storage-drain behavior have not been hardware-validated yet. Full BLE upload
-bring-up remains future Phase 24 work.
+runtime ACK wiring, independent radio feature matrix, structured status
+snapshot, and board-side advertising startup now compile or run, but
+central-side discovery, central connection, real pairing/security, live BLE
+record transfer, notifications, and BLE storage-drain behavior have not been
+validated yet. Full BLE upload bring-up remains future Phase 24 work.
 
 ## Goals
 

@@ -1006,9 +1006,10 @@ async fn gatt_advertise_loop(
 ) {
     let mut adv_data = [0_u8; 31];
     let adv_len = match AdStructure::encode_slice(
-        &[AdStructure::Flags(
-            LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED,
-        )],
+        &[
+            AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
+            AdStructure::ServiceUuids128(&[SERVICE_UUID]),
+        ],
         &mut adv_data,
     ) {
         Ok(len) => len,
@@ -1020,10 +1021,9 @@ async fn gatt_advertise_loop(
 
     let mut scan_data = [0_u8; 31];
     let scan_len = match AdStructure::encode_slice(
-        &[
-            AdStructure::ServiceUuids128(&[SERVICE_UUID]),
-            AdStructure::CompleteLocalName(crate::config::ble::ADVERTISING_NAME.as_bytes()),
-        ],
+        &[AdStructure::CompleteLocalName(
+            crate::config::ble::ADVERTISING_NAME.as_bytes(),
+        )],
         &mut scan_data,
     ) {
         Ok(len) => len,
@@ -1877,6 +1877,27 @@ mod tests {
             ack_policy(NetworkState::IpReady, UploadResult::TransportFailed),
             BleAckPolicy::CanAckOldestRecord
         );
+    }
+
+    #[test]
+    fn legacy_advertising_payloads_fit_31_byte_limit() {
+        const LEGACY_ADV_PAYLOAD_LIMIT: usize = 31;
+        const AD_STRUCTURE_HEADER_LEN: usize = 2;
+        const FLAGS_PAYLOAD_LEN: usize = 1;
+        const UUID128_PAYLOAD_LEN: usize = SERVICE_UUID.len();
+
+        let advertising_len = AD_STRUCTURE_HEADER_LEN
+            + FLAGS_PAYLOAD_LEN
+            + AD_STRUCTURE_HEADER_LEN
+            + UUID128_PAYLOAD_LEN;
+        let scan_response_len =
+            AD_STRUCTURE_HEADER_LEN + crate::config::ble::ADVERTISING_NAME.len();
+        let previous_combined_scan_response_len =
+            AD_STRUCTURE_HEADER_LEN + UUID128_PAYLOAD_LEN + scan_response_len;
+
+        assert!(advertising_len <= LEGACY_ADV_PAYLOAD_LIMIT);
+        assert!(scan_response_len <= LEGACY_ADV_PAYLOAD_LIMIT);
+        assert!(previous_combined_scan_response_len > LEGACY_ADV_PAYLOAD_LIMIT);
     }
 
     #[test]

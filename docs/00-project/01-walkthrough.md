@@ -1919,3 +1919,81 @@ Notes:
 - No ESP32-C3 hardware validation was run.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 34: BLE Advertising Runtime Bring-Up
+
+Phase 24I implementation:
+
+- Fixed the hardware-observed BLE advertising startup failure where the scan
+  response tried to carry both the 128-bit project service UUID and complete
+  local name, exceeding the 31-byte legacy BLE payload limit.
+- Moved the project 128-bit service UUID into the advertising payload with the
+  BLE flags and kept the complete local name in the scan response payload.
+- Added a hardware-independent regression test that keeps the advertising and
+  scan response payloads under the 31-byte limit and documents that the
+  previous combined scan response shape was too large.
+- Preserved the project GATT service shape, Wi-Fi upload path, flash format,
+  measurement JSON payload shape, and storage ACK semantics.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24I as
+  board-side advertising runtime bring-up, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-fixed-image.bin
+cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
+probe-rs reset --chip esp32c3
+timeout 45s probe-rs attach --chip esp32c3 --rtt-scan-memory target/riscv32imc-unknown-none-elf/debug/sleep-environment-monitor
+```
+
+Observed results:
+
+- `cargo test --lib` passed 149 hardware-independent tests.
+- Default ESP32-C3 target build passed with default `wifi-upload`.
+- BLE+Wi-Fi coexistence ESP32-C3 target build and Clippy passed with
+  `--features ble-upload,radio-coex`.
+- Host/all-target Clippy passed.
+- Before the fix, RTT showed the BLE task reached controller initialization
+  and then stopped the GATT loop with
+  `ble scan response encode failed error=InsufficientSpace`.
+- The fixed BLE+Wi-Fi image reported `App/part. size:
+  910,048/4,128,768 bytes, 22.04%`.
+- The fixed image was flashed successfully to an ESP32-C3 rev v0.4 with 4MB
+  flash and MAC address `8c:bf:ea:44:f7:3c`; `espflash` reported
+  `Features: WiFi, BLE` and `Flashing has completed!`.
+- After flashing and reset, RTT showed:
+  - `ble controller initialized name=sleep-env-esp32c3 protocol_version=1`
+  - `ble advertising name=sleep-env-esp32c3 protocol_version=1`
+  - sensor, microphone, aggregation, and storage tasks continued running while
+    BLE advertising was active.
+
+Flash range declared before flashing:
+
+- Bootloader: `0x00000000..0x00008000`.
+- Partition table: `0x00008000..0x00009000`.
+- Factory app: `0x00010000..0x000ee2e0`; sector erase may cover through
+  `0x000ef000`.
+- No active flash erase/write validation targeted the measurement spool range
+  `0x003c0000..0x00400000`. Normal firmware runtime storage continued to use
+  that spool region during validation.
+
+Notes:
+
+- Board-side advertising startup is validated by RTT logs, but central-side
+  discovery was not accepted as complete in this milestone. A Windows BLE
+  watcher scan returned `NOT_FOUND target=sleep-env-esp32c3 seconds=30`, and an
+  all-device watcher scan returned `SEEN count=0 seconds=15`, so the central
+  scan path itself still needs investigation.
+- No BLE central connection was validated.
+- No structured status read, pairing/security validation, live record transfer,
+  notification flow, BLE storage ACK, or BLE storage drain was validated.
+- BOOT / IO9 runtime input and download-mode behavior were not
+  hardware-validated in this milestone.

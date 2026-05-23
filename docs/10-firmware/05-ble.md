@@ -130,15 +130,28 @@ Phase 24J validates first central-side access:
 - No new firmware was flashed for this validation slice; it used the Phase 24I
   BLE+Wi-Fi image already on the board.
 
-Phase 24A through 24J do not change the flash format or measurement JSON
+Phase 24K validates BOOT / IO9 pairing-window entry diagnostics:
+
+- BLE status reads now keep the original 10-byte Phase 24H status prefix and
+  append pairing diagnostics: pairing state, BOOT / IO9 button state, pairing
+  window remaining milliseconds, and accumulated BOOT press milliseconds.
+- A Windows BLE central read the 20-byte status frame from the ESP32-C3.
+- A BOOT / IO9 long press was observed as `Pressed`, accumulated past the
+  2-second threshold, and opened the pairing window with about 60 seconds
+  remaining.
+- The validation also observed the expected retrigger behavior: after the
+  pairing window expires, the same continuous press does not reopen the window
+  until BOOT / IO9 is released and pressed again.
+
+Phase 24A through 24K do not change the flash format or measurement JSON
 payload shape. The GATT host/server, authorized read-only transfer path,
 runtime ACK wiring, independent radio feature matrix, structured status
 snapshot, board-side advertising startup, central-side discovery, central
 connection, structured status read, and closed-window measurement access
-rejection now compile or run, but real pairing/security or authorized-window
-entry, live BLE record transfer, notifications, and BLE storage-drain behavior
-have not been validated yet. Full BLE upload bring-up remains future Phase 24
-work.
+rejection now compile or run. BOOT / IO9 authorized-window entry has been
+validated through status reads, but live BLE record transfer, notifications,
+BLE storage ACK, and BLE storage-drain behavior have not been validated yet.
+Full BLE upload bring-up remains future Phase 24 work.
 
 ## Goals
 

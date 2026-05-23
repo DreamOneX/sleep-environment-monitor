@@ -2061,3 +2061,107 @@ Notes:
   BOOT / IO9 runtime button entry.
 - No firmware flashing was performed.
 - No firmware flash-write range was exercised.
+
+## Milestone 36: BLE Pairing Entry Diagnostics
+
+Phase 24K validation:
+
+- Extended the BLE status frame from 10 bytes to 20 bytes while preserving the
+  original 10-byte prefix used by Phase 24H and Phase 24J.
+- Added central-readable diagnostics for BOOT / IO9 pairing entry:
+  - pairing state
+  - BOOT / IO9 button state
+  - pairing-window remaining milliseconds
+  - accumulated BOOT press milliseconds
+- Built and flashed a BLE+Wi-Fi coexistence diagnostic image.
+- Built the temporary Windows/.NET BLE central validation tool from
+  `/tmp/phase24-ble-watch`.
+- Confirmed a Windows BLE central can read the 20-byte status frame.
+- Confirmed BOOT / IO9 is read as an active-low runtime input and that a long
+  press opens the pairing window.
+- Confirmed the existing no-retrigger rule: after the pairing window expires,
+  the same continuous press does not reopen the window until BOOT / IO9 is
+  released and pressed again.
+- Updated [00-development-plan.md](00-development-plan.md),
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md), and
+  [../10-firmware/05-ble.md](../10-firmware/05-ble.md) to record Phase 24K as
+  pairing-entry diagnostics, not full BLE upload completion.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-status-pressed-image.bin
+cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+```
+
+Observed build results:
+
+- `cargo test --lib` passed 150 hardware-independent tests.
+- BLE+Wi-Fi coexistence ESP32-C3 target build passed with
+  `--features ble-upload,radio-coex`.
+- Default ESP32-C3 target build passed with default `wifi-upload`.
+- Host/all-target Clippy passed.
+- Default ESP32-C3 target Clippy passed.
+- BLE+Wi-Fi coexistence ESP32-C3 target Clippy passed with
+  `--features ble-upload,radio-coex`.
+- The temporary Windows/.NET BLE central validation tool built successfully.
+
+Flash range declared before flashing:
+
+- Bootloader: `0x00000000..0x00008000`.
+- Partition table: `0x00008000..0x00009000`.
+- Factory app: `0x00010000..0x000ee510`; sector erase may cover through
+  `0x000ef000`.
+- No deliberate erase/write targeted the measurement spool range
+  `0x003c0000..0x00400000`. The normal firmware runtime storage path may still
+  use that spool region.
+
+Observed flash result:
+
+- The diagnostic image reported `App/part. size:
+  910,608/4,128,768 bytes, 22.06%`.
+- `espflash` identified an ESP32-C3 rev v0.4 with 4MB flash and MAC address
+  `8c:bf:ea:44:f7:3c`.
+- `espflash` reported `Features: WiFi, BLE` and `Flashing has completed!`.
+
+Observed 20-byte status reads:
+
+- Initial status after diagnostic flash decoded as runtime `Connected`,
+  network `Disconnected`, upload `Failed`, pending records `32`, error flags
+  `0x00000000`, pairing `Closed`, BOOT / IO9 `Released`, remaining `0 ms`,
+  pressed `0 ms`.
+- During a BOOT / IO9 long press, status read index 32 reported pairing
+  `Closed`, BOOT / IO9 `Pressed`, remaining `0 ms`, pressed `800 ms`.
+- Status read index 33 reported pairing `Open`, BOOT / IO9 `Pressed`,
+  remaining `59950 ms`, pressed `2050 ms`.
+- Subsequent reads showed pairing `Open`, decreasing remaining time, and
+  increasing pressed time, confirming the hardware input and state machine
+  crossed the configured 2-second threshold.
+- Later reads after the pairing window had expired showed BOOT / IO9 still
+  `Pressed` with a large accumulated pressed time and pairing `Closed`,
+  confirming the expected no-retrigger-until-release behavior.
+
+Notes:
+
+- Authorized BLE record transfer was attempted with `scan-transfer-record ... no-ack 128`
+  but did not complete. The tool repeatedly observed authorization errors or
+  timed out waiting for `pairing=Open` because the board continued reporting
+  BOOT / IO9 as `Pressed` after the previous pairing window had expired. No
+  successful metadata read, fragment transfer, CRC-validated payload, or
+  `CompleteRecord` acceptance was recorded in this milestone.
+- The attempted `no-ack` transfer did not request BLE storage ACK and did not
+  validate BLE storage drain.
+- BLE notification behavior, BLE storage ACK, Wi-Fi/BLE ACK race behavior,
+  disconnect preservation during live transfer, and BOOT download-mode
+  preservation remain unvalidated.

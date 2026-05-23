@@ -1714,6 +1714,57 @@ Phase 24J commit message:
 test: validate BLE central status access
 ```
 
+## Phase 24K: BLE Pairing Window Entry Diagnostics
+
+Phase 24K validates BOOT / IO9 runtime entry for the authorization window with
+central-readable status diagnostics. It accepts the BOOT / IO9 input path and
+pairing-window state machine on hardware, but it still does not accept full BLE
+upload completion because authorized record transfer, BLE storage ACK,
+Wi-Fi/BLE race behavior, and download-mode preservation still need end-to-end
+validation.
+
+Phase 24K scope:
+
+- Preserve the default firmware behavior with Wi-Fi REST upload enabled and
+  BLE disabled.
+- Keep the existing 10-byte BLE status prefix stable for protocol version, BLE
+  runtime state, network state, upload result, pending-record count, and error
+  flags.
+- Append pairing diagnostics to the BLE status frame: pairing state, BOOT /
+  IO9 button state, pairing-window remaining milliseconds, and accumulated
+  BOOT press milliseconds.
+- Build and flash a BLE+Wi-Fi coexistence diagnostic image.
+- Confirm a Windows BLE central can read the 20-byte status frame.
+- Confirm BOOT / IO9 is read as an active-low runtime input and that a long
+  press opens the pairing window.
+- Confirm that after the pairing window expires, the same continuous press does
+  not reopen the window until BOOT / IO9 is released and pressed again.
+- Do not validate authorized record transfer, notifications, BLE storage ACK,
+  Wi-Fi/BLE ACK race behavior, or download-mode behavior in this slice.
+
+Phase 24K verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\phase24-ble-watch.csproj'
+cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-status-pressed-image.bin
+cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\phase24-ble-watch\bin\Debug\net10.0-windows10.0.19041.0\phase24-ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24K commit message:
+
+```text
+test: validate BLE pairing entry diagnostics
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

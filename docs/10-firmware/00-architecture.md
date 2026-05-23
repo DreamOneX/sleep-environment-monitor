@@ -476,7 +476,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J responsibilities:
+Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J/24K responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
   fragment, control, and ACK-policy helper types.
@@ -520,6 +520,9 @@ Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J responsibilities:
   and structured status reads.
 - Reject closed-window record metadata reads, record fragment reads, and
   control writes with ATT authorization errors.
+- Keep the original 10-byte BLE status prefix stable and append
+  central-readable BOOT / IO9 pairing diagnostics: pairing state, button state,
+  pairing-window remaining milliseconds, and accumulated press milliseconds.
 
 Future runtime responsibilities:
 
@@ -537,12 +540,14 @@ Phase 24E authorized read-only record path, Phase 24F runtime BLE ACK wiring,
 Phase 24G independent radio feature matrix, Phase 24H BLE status runtime
 snapshot, Phase 24I advertising payload sizing, and Phase 24J central-side
 status and closed-window authorization behavior compile or run against the
-ESP32-C3 target. Phase 24I hardware validation confirms that the BLE+Wi-Fi
+ESP32-C3 target. Phase 24K adds central-readable pairing diagnostics to the
+status frame. Phase 24I hardware validation confirms that the BLE+Wi-Fi
 firmware reaches the board-side advertising loop. Phase 24J central validation
 confirms discovery, connection, structured status reads, and closed-window
-measurement access rejection. Real pairing or authorized-window entry, live
-GATT record transfer, and runtime BLE storage ACK behavior still need future
-hardware/runtime validation.
+measurement access rejection. Phase 24K central validation confirms BOOT / IO9
+active-low runtime input, long-press pairing-window entry, and the expected
+no-retrigger behavior until release. Live GATT record transfer and runtime BLE
+storage ACK behavior still need future hardware/runtime validation.
 
 ---
 

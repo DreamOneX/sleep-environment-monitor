@@ -43,10 +43,14 @@ pub struct BleStatus {
     pub upload_result: UploadResult,
     pub pending_record_count: u16,
     pub error_flags: ErrorFlags,
+    pub boot_button_state: BootButtonState,
+    pub pairing_state: BlePairingState,
+    pub boot_pressed_millis: u32,
 }
 
 impl BleStatus {
-    pub const ENCODED_LEN: usize = 10;
+    pub const LEGACY_ENCODED_LEN: usize = 10;
+    pub const ENCODED_LEN: usize = 20;
 
     pub const fn new(
         runtime_state: BleRuntimeState,
@@ -61,6 +65,23 @@ impl BleStatus {
             upload_result,
             pending_record_count,
             error_flags,
+            boot_button_state: BootButtonState::Released,
+            pairing_state: BlePairingState::Closed,
+            boot_pressed_millis: 0,
+        }
+    }
+
+    pub const fn with_pairing(
+        self,
+        boot_button_state: BootButtonState,
+        pairing_state: BlePairingState,
+        boot_pressed_millis: u32,
+    ) -> Self {
+        Self {
+            boot_button_state,
+            pairing_state,
+            boot_pressed_millis,
+            ..self
         }
     }
 
@@ -75,6 +96,10 @@ impl BleStatus {
         out[3] = upload_result_code(self.upload_result);
         out[4..6].copy_from_slice(&self.pending_record_count.to_le_bytes());
         out[6..10].copy_from_slice(&self.error_flags.bits().to_le_bytes());
+        out[10] = pairing_state_code(self.pairing_state);
+        out[11] = boot_button_state_code(self.boot_button_state);
+        out[12..16].copy_from_slice(&pairing_remaining_millis(self.pairing_state).to_le_bytes());
+        out[16..20].copy_from_slice(&self.boot_pressed_millis.to_le_bytes());
 
         Ok(Self::ENCODED_LEN)
     }
@@ -91,6 +116,21 @@ pub const fn status_from_snapshots(
         network_upload_status.upload_result,
         firmware_status.pending_record_count,
         firmware_status.error_flags,
+    )
+}
+
+pub const fn status_from_snapshots_and_pairing(
+    runtime_state: BleRuntimeState,
+    network_upload_status: NetworkUploadStatus,
+    firmware_status: FirmwareStatusSnapshot,
+    boot_button_state: BootButtonState,
+    pairing_state: BlePairingState,
+    boot_pressed_millis: u32,
+) -> BleStatus {
+    status_from_snapshots(runtime_state, network_upload_status, firmware_status).with_pairing(
+        boot_button_state,
+        pairing_state,
+        boot_pressed_millis,
     )
 }
 
@@ -590,6 +630,10 @@ impl BlePairingGesture {
         self.state
     }
 
+    pub const fn pressed_millis(&self) -> u64 {
+        self.pressed_millis
+    }
+
     pub fn update(
         &mut self,
         button_state: BootButtonState,
@@ -663,6 +707,42 @@ const fn upload_result_code(result: UploadResult) -> u8 {
         UploadResult::TimeFailed => 4,
         UploadResult::TransportFailed => 5,
         UploadResult::HttpFailed => 6,
+    }
+}
+
+const fn pairing_state_code(state: BlePairingState) -> u8 {
+    match state {
+        BlePairingState::Closed => 0,
+        BlePairingState::Open { .. } => 1,
+    }
+}
+
+const fn boot_button_state_code(state: BootButtonState) -> u8 {
+    match state {
+        BootButtonState::Released => 0,
+        BootButtonState::Pressed => 1,
+    }
+}
+
+const fn pairing_remaining_millis(state: BlePairingState) -> u32 {
+    match state {
+        BlePairingState::Closed => 0,
+        BlePairingState::Open { remaining_millis } => {
+            if remaining_millis > u32::MAX as u64 {
+                u32::MAX
+            } else {
+                remaining_millis as u32
+            }
+        }
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const fn saturating_u64_to_u32(value: u64) -> u32 {
+    if value > u32::MAX as u64 {
+        u32::MAX
+    } else {
+        value as u32
     }
 }
 
@@ -782,6 +862,11 @@ static BLE_HOST_RESOURCES: StaticCell<BleHostResources> = StaticCell::new();
 static BLE_PAIRING_STATE: Mutex<CriticalSectionRawMutex, BlePairingState> =
     Mutex::new(BlePairingState::Closed);
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_BOOT_BUTTON_STATE: Mutex<CriticalSectionRawMutex, BootButtonState> =
+    Mutex::new(BootButtonState::Released);
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+static BLE_BOOT_PRESSED_MILLIS: Mutex<CriticalSectionRawMutex, u32> = Mutex::new(0);
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 static BLE_DEVICE_NAME: StaticCell<[u8; crate::config::ble::ADVERTISING_NAME.len()]> =
     StaticCell::new();
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -837,6 +922,9 @@ pub async fn ble_task(
         BleRuntimeState::HostPending,
         initial_network_upload_status,
         initial_firmware_status,
+        BootButtonState::Released,
+        BlePairingState::Closed,
+        0,
     ));
 
     match select(
@@ -872,10 +960,19 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
     );
 
     loop {
+        let boot_button_state = BootButtonState::from_active_low(boot_button.is_low());
         let pairing_event = pairing_gesture.update(
-            BootButtonState::from_active_low(boot_button.is_low()),
+            boot_button_state,
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         );
+        {
+            let mut state = BLE_BOOT_BUTTON_STATE.lock().await;
+            *state = boot_button_state;
+        }
+        {
+            let mut pressed_millis = BLE_BOOT_PRESSED_MILLIS.lock().await;
+            *pressed_millis = saturating_u64_to_u32(pairing_gesture.pressed_millis());
+        }
         {
             let mut state = BLE_PAIRING_STATE.lock().await;
             *state = pairing_gesture.state();
@@ -902,8 +999,18 @@ fn encode_status(
     runtime_state: BleRuntimeState,
     network_upload_status: NetworkUploadStatus,
     firmware_status: FirmwareStatusSnapshot,
+    boot_button_state: BootButtonState,
+    pairing_state: BlePairingState,
+    boot_pressed_millis: u32,
 ) -> [u8; BleStatus::ENCODED_LEN] {
-    let status = status_from_snapshots(runtime_state, network_upload_status, firmware_status);
+    let status = status_from_snapshots_and_pairing(
+        runtime_state,
+        network_upload_status,
+        firmware_status,
+        boot_button_state,
+        pairing_state,
+        boot_pressed_millis,
+    );
     let mut out = [0_u8; BleStatus::ENCODED_LEN];
     let _ = status.encode(&mut out);
     out
@@ -988,7 +1095,17 @@ async fn set_gatt_status(
 ) {
     let network_upload_status = { *network_upload_status.lock().await };
     let firmware_status = { *firmware_status.lock().await };
-    let status = encode_status(runtime_state, network_upload_status, firmware_status);
+    let boot_button_state = { *BLE_BOOT_BUTTON_STATE.lock().await };
+    let pairing_state = { *BLE_PAIRING_STATE.lock().await };
+    let boot_pressed_millis = { *BLE_BOOT_PRESSED_MILLIS.lock().await };
+    let status = encode_status(
+        runtime_state,
+        network_upload_status,
+        firmware_status,
+        boot_button_state,
+        pairing_state,
+        boot_pressed_millis,
+    );
     if let Err(error) = handles.status.set(server, &status) {
         warn!("ble status characteristic update failed error={:?}", error);
     }
@@ -1562,7 +1679,43 @@ mod tests {
         let mut out = [0_u8; BleStatus::ENCODED_LEN];
 
         assert_eq!(status.encode(&mut out), Ok(BleStatus::ENCODED_LEN));
-        assert_eq!(out, [PROTOCOL_VERSION, 1, 3, 1, 7, 0, 0x18, 0, 0, 0]);
+        assert_eq!(
+            &out[..BleStatus::LEGACY_ENCODED_LEN],
+            [PROTOCOL_VERSION, 1, 3, 1, 7, 0, 0x18, 0, 0, 0]
+        );
+        assert_eq!(
+            &out[BleStatus::LEGACY_ENCODED_LEN..],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn status_encoding_includes_pairing_window_diagnostics() {
+        let status = BleStatus::new(
+            BleRuntimeState::Connected,
+            NetworkState::Disconnected,
+            UploadResult::Failed,
+            32,
+            ErrorFlags::NONE,
+        )
+        .with_pairing(
+            BootButtonState::Pressed,
+            BlePairingState::Open {
+                remaining_millis: 59_950,
+            },
+            2_050,
+        );
+        let mut out = [0_u8; BleStatus::ENCODED_LEN];
+
+        assert_eq!(status.encode(&mut out), Ok(BleStatus::ENCODED_LEN));
+        assert_eq!(
+            &out[..BleStatus::LEGACY_ENCODED_LEN],
+            [PROTOCOL_VERSION, 4, 0, 2, 32, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(out[10], 1);
+        assert_eq!(out[11], 1);
+        assert_eq!(&out[12..16], &59_950_u32.to_le_bytes());
+        assert_eq!(&out[16..20], &2_050_u32.to_le_bytes());
     }
 
     #[test]

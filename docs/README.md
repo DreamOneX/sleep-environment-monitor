@@ -6,6 +6,7 @@ This directory contains the tracked project documentation.
 
 - [../firmware/](../firmware/): ESP32-C3 firmware package.
 - [../server/](../server/): measurement ingestion server workspace.
+- [../tools/](../tools/): local validation and integration tools.
 - [../Cargo.toml](../Cargo.toml): root Cargo workspace with `firmware` as the default member.
 
 ## Start Here
@@ -38,6 +39,10 @@ This directory contains the tracked project documentation.
 ## Integration
 
 - [30-integration/00-network-roadmap.md](30-integration/00-network-roadmap.md): network roadmap across firmware, server, discovery, time, Wi-Fi, and BLE upload.
+
+## Tools
+
+- [../tools/phase24-ble-watch/](../tools/phase24-ble-watch/): Windows BLE central validation tool for Phase 24 hardware checks.
 
 ## Maintenance
 

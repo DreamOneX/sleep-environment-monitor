@@ -7,8 +7,8 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24R is implemented and partially hardware-validated in the current
-working tree. Phase 24 is not complete yet.
+Phase 24S is implemented in the current working tree. Phase 24 is not complete
+yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
 current LED status boundary:
@@ -47,6 +47,20 @@ path on hardware and added a runtime saved-auth clear gesture:
   encrypted metadata access with `scan-read-metadata-now ... expect-success
   no-pair`.
 
+Phase 24S separated plain Wi-Fi/IP-not-ready indication from explicit network
+faults in the blue LED3 policy:
+
+- `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` defaults to `0`, disabling
+  the plain Wi-Fi-unready slow-blink hint.
+- Explicit `ErrorFlags::WIFI`, `ErrorFlags::IP`, and
+  `ErrorFlags::DISCOVERY` still slow-blink LED3 through
+  `ErrorFlags::NETWORK_MASK`.
+- `ErrorFlags::NETWORK_MASK` remains scoped to the Wi-Fi/IP/discovery REST
+  upload path and does not include BLE advertising, BLE connection, or BLE
+  authorization state.
+- BLE LED wording is aligned to the implemented runtime states:
+  pairing/authorization fast blink and advertising-or-connected slow blink.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -77,6 +91,10 @@ exercised.
 - `firmware/src/util/status.rs` exposes pure LED status mapping for the blue
   LED3 BLE overlay, including pairing fast blink, BLE runtime slow blink, and
   boot/trigger indication windows.
+- `firmware/src/tasks/led.rs` uses
+  `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` to decide whether plain
+  Wi-Fi/IP-not-ready state should temporarily slow-blink LED3. The default `0`
+  keeps that hint disabled, while explicit network error flags still slow-blink.
 - `firmware/src/bin/main.rs` routes GPIO0 to the LED2 heartbeat task and GPIO1
   to the LED3 status task, and wires BLE runtime/pairing signals into LED3.
 - `firmware/src/tasks/ble.rs` publishes BLE runtime and pairing status for the
@@ -86,8 +104,8 @@ exercised.
 - `firmware/src/bin/main.rs` obtains a BLE security seed from TRNG before
   reusing ADC1 for the microphone path.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
-  saved-bond restore evidence, current LED mapping, and the remaining Phase 24
-  validation gaps.
+  saved-bond restore evidence, Phase 24S LED status/config boundary, current
+  LED mapping, and the remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window and the Windows saved-bond restore path. Windows Settings may show the
@@ -142,17 +160,16 @@ git diff --check
 
 Observed result:
 
-- `cargo test --lib`: `182 passed; 0 failed`.
+- `cargo test --lib`: `185 passed; 0 failed`.
 - Normal ESP32-C3 target build: passed.
 - BLE+Wi-Fi coexistence ESP32-C3 target build: passed.
 - Host clippy, normal target clippy, and BLE+coex target clippy: passed.
-- `tools/ble-watch` Windows .NET build: passed.
 - `git diff --check`: passed.
 
 Milestone commit message:
 
 ```text
-test: validate BLE saved bond restore
+fix: make Wi-Fi-unready LED status configurable
 ```
 
 ## Remaining Phase 24 Work
@@ -165,7 +182,7 @@ test: validate BLE saved bond restore
   behavior, automatic pairing-window opening after auth-record reset, record
   replacement, and user clearing.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
-  blink, advertising/connecting/connected slow blink, 180 second boot BLE
+  blink, advertising-or-connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.
 
 ## Phase 25 Notes

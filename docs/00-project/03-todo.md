@@ -8,8 +8,9 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24R is implemented and partially hardware-validated. The current hardware
-evidence confirms the Windows saved-bond path:
+Phase 24S is implemented. Phase 24R remains the latest hardware validation
+milestone, and the current hardware evidence confirms the Windows saved-bond
+path:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -17,6 +18,18 @@ evidence confirms the Windows saved-bond path:
 - Reboot restored one saved authorization record.
 - Encrypted metadata access succeeded with
   `scan-read-metadata-now ... expect-success no-pair`.
+
+Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
+network faults:
+
+- `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` defaults to `0`, disabling
+  the blue LED3 slow-blink hint for plain Wi-Fi-not-ready state.
+- Explicit `ErrorFlags::WIFI`, `ErrorFlags::IP`, and
+  `ErrorFlags::DISCOVERY` still slow-blink LED3 through
+  `ErrorFlags::NETWORK_MASK`.
+- `ErrorFlags::NETWORK_MASK` is scoped to the Wi-Fi/IP/discovery REST upload
+  path and does not include BLE advertising, BLE connection, or BLE
+  authorization state.
 
 Phase 24 is still open because several runtime, visual, interoperability, and
 reset/erase paths have not been accepted on hardware.
@@ -37,7 +50,7 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
   `scan-read-metadata-now ... expect-reject no-pair` after the temporary
   window closes.
 - [ ] Manually accept LED3 visual behavior on hardware: pairing or
-  authorization fast blink, advertising/connecting/connected slow blink, the
+  authorization fast blink, advertising-or-connected slow blink, the
   180 second boot BLE status window, and the 10 second BOOT / IO9-triggered BLE
   status window.
 - [ ] Validate BOOT download-mode preservation during reset or power-on.

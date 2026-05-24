@@ -18,7 +18,7 @@ Phase 21 was behavior-preserving. Phase 22 extended this module with the JSON RE
 | Sampling policy | environment sample period, microphone window size, microphone sample interval |
 | Hardware tuning | I2C bus frequency, ADC attenuation, ADC retry count/delay |
 | Storage tuning | measurement payload size, persistent spool record capacity, request channel capacity |
-| Logging and status | sample log intervals, storage metrics interval, LED heartbeat, boot flash, status blink, and BLE indication timing |
+| Logging and status | sample log intervals, storage metrics interval, LED heartbeat, boot flash, status blink cadence, Wi-Fi-unready status hint window, and BLE indication timing |
 
 These values are currently compile-time constants. The important boundary is
 that firmware tasks depend on named configuration rather than local hardcoding,
@@ -99,10 +99,19 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   with no internal pull resistor. Phase 24R also keeps the runtime BLE
   auth-record clear hold duration in config: about 8 seconds of BOOT / IO9 hold
   after firmware boot clears saved BLE authorization records.
-- Keep LED policy timing in config: red LED2 boot/reset fast flash, red LED2
-  heartbeat, blue LED3 normal status blink cadence, blue LED3 180 second
-  post-boot BLE status window, and blue LED3 10 second BOOT / IO9-triggered
-  BLE status window.
+- Keep LED timing and display-window knobs in config: red LED2 boot/reset fast
+  flash, red LED2 heartbeat, blue LED3 normal status blink cadence, the
+  optional blue LED3 Wi-Fi-unready hint window, the blue LED3 180 second
+  post-boot BLE status window, and the blue LED3 10 second BOOT /
+  IO9-triggered BLE status window. Config owns durations and cadences here;
+  the LED state priority policy remains in
+  [00-architecture.md](00-architecture.md#4-firmware-led-semantics) and
+  `util::status`.
+- `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` controls only the plain
+  Wi-Fi/IP-not-ready hint. The default `0` disables this slow-blink hint so a
+  board with local storage does not report a permanent visible problem just
+  because Wi-Fi is absent. Explicit Wi-Fi/IP/discovery error flags still use
+  the normal LED3 slow-blink network fault path.
 - Keep the BLE authorization record-set version, record-set compatibility
   checksum, auth record capacity, security seed length, and
   auto-pair-on-auth-record-reset switch in config. A version mismatch,

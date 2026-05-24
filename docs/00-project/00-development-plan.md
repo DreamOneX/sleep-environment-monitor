@@ -2152,6 +2152,54 @@ Phase 24R commit message:
 test: validate BLE saved bond restore
 ```
 
+## Phase 24S: Wi-Fi-Unready LED Status Config Boundary
+
+Phase 24S separates plain Wi-Fi/IP-not-ready indication from explicit network
+error flags so a board with local storage does not permanently slow-blink blue
+LED3 just because Wi-Fi is absent.
+
+Phase 24S scope:
+
+- Keep `ErrorFlags::NETWORK_MASK` limited to explicit Wi-Fi, IP, and discovery
+  fault flags for the REST upload path.
+- Do not use `ErrorFlags::NETWORK_MASK` for BLE advertising, BLE connection,
+  or BLE authorization state.
+- Add `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` for the optional plain
+  Wi-Fi/IP-not-ready LED3 hint. The default `0` disables this hint.
+- Preserve explicit network fault behavior: `ErrorFlags::WIFI`,
+  `ErrorFlags::IP`, and `ErrorFlags::DISCOVERY` still slow-blink LED3.
+- Keep LED semantic authority in [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md)
+  and keep hardware facts in [../10-firmware/01-hardware.md](../10-firmware/01-hardware.md).
+- Align BLE overlay wording to the implemented BLE runtime states:
+  pairing/authorization fast blink and advertising-or-connected slow blink.
+
+Phase 24S verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24S flash notes:
+
+- No firmware flashing is required.
+- No flash-write validation is required.
+- This slice does not deliberately exercise the BLE auth metadata sector
+  `0x003bf000..0x003c0000` or the measurement spool
+  `0x003c0000..0x00400000`.
+
+Phase 24S commit message:
+
+```text
+fix: make Wi-Fi-unready LED status configurable
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2169,7 +2217,7 @@ test: validate BLE saved bond restore
   state, GATT transfer, and BLE-side acknowledgement handling.
 - Add LED3 as the observable BLE status indicator for BLE-related operations.
   At minimum, an open pairing or authorization window must fast-blink LED3, and
-  BLE advertising, connecting, or connection establishment must slow-blink LED3.
+  BLE advertising or connected state must slow-blink LED3.
   The final pattern table must remain documented and testable as pure status
   mapping logic.
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
@@ -2248,8 +2296,8 @@ Add hardware-independent tests for:
 - Confirm there is a documented user operation to clear saved BLE
   authorization records.
 - Confirm LED3 gives observable feedback for BLE operations: pairing or
-  authorization window open fast-blinks, and BLE advertising, connecting, or
-  connection establishment slow-blinks.
+  authorization window open fast-blinks, and BLE advertising or connected state
+  slow-blinks.
 - Confirm LED3 represents BLE status for the first 180 seconds after boot when
   BLE is enabled.
 - Confirm pressing BOOT / IO9 or triggering a pairing/authorization entry makes
@@ -2268,9 +2316,8 @@ Add hardware-independent tests for:
   authorization record.
 - BOOT / IO9 pairing entry is validated without breaking download mode.
 - LED3 provides documented, observable BLE feedback for pairing/authorization,
-  advertising, connecting, and connection establishment, including the 180
-  second post-boot BLE status window and the 10 second BOOT / IO9-triggered BLE
-  status window.
+  advertising, and connected state, including the 180 second post-boot BLE
+  status window and the 10 second BOOT / IO9-triggered BLE status window.
 - Hardware-independent tests cover BLE protocol framing and ACK policy.
 
 ## Git Commit Message

@@ -2701,7 +2701,7 @@ Observed non-passing hardware checks:
   requested or clear completed logs.
 - LED3 hardware visual behavior was not accepted in this milestone. The
   firmware logic and docs still require future visual confirmation of pairing
-  fast blink, advertising/connecting/connected slow blink, the 180 second
+  fast blink, advertising-or-connected slow blink, the 180 second
   post-boot BLE status window, and the 10 second BOOT / IO9-triggered BLE
   status window.
 - BOOT / IO9 download-mode preservation was not validated.
@@ -2724,3 +2724,68 @@ Remaining Phase 24 validation:
 - Validate rejected unauthorized/unencrypted access after saved-auth clearing.
 - Validate phone/gateway interoperability beyond the Windows central.
 - Manually accept LED3 hardware visual behavior.
+
+## Milestone 47: Phase 24S Wi-Fi-Unready LED Status Config Boundary
+
+Phase 24S implementation:
+
+- Separated plain Wi-Fi/IP-not-ready indication from explicit network error
+  flags in the blue LED3 status policy.
+- Added `config::led::WIFI_UNREADY_STATUS_WINDOW_SECS`, with default `0`, so a
+  board with local storage does not permanently slow-blink LED3 just because
+  Wi-Fi is absent.
+- Preserved explicit network fault behavior: `ErrorFlags::WIFI`,
+  `ErrorFlags::IP`, and `ErrorFlags::DISCOVERY` still slow-blink LED3 through
+  `ErrorFlags::NETWORK_MASK`.
+- Documented that `ErrorFlags::NETWORK_MASK` is only for the Wi-Fi/IP/discovery
+  REST upload path and does not include BLE advertising, BLE connection, or BLE
+  authorization state.
+- Moved LED state semantics into
+  [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md) and
+  kept [../10-firmware/01-hardware.md](../10-firmware/01-hardware.md) limited
+  to physical LED wiring and polarity.
+- Aligned BLE LED wording to the implemented runtime states:
+  pairing/authorization fast blink and advertising-or-connected slow blink.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Observed validation results:
+
+- `cargo test --lib` passed with `185 passed; 0 failed`.
+- The normal ESP32-C3 target build passed.
+- The BLE+Wi-Fi coexistence ESP32-C3 target build passed.
+- Host clippy, normal target clippy, and BLE+coex target clippy passed.
+- `git diff --check` passed.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- No hardware BLE central, pairing/security, GATT transfer, LED visual
+  acceptance, or BOOT / IO9 validation was run for this milestone.
+- No deliberate BLE auth sector write or erase was exercised. The BLE auth
+  metadata sector remains `0x003bf000..0x003c0000`.
+- No deliberate measurement-spool write or erase was exercised. The measurement
+  spool range remains `0x003c0000..0x00400000`.
+
+Remaining Phase 24 validation:
+
+- Runtime 8 second BOOT / IO9 saved-auth clearing remains unvalidated on
+  hardware.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Unauthorized or unencrypted protected-characteristic rejection after saved
+  authorization clearing remains unvalidated.
+- BLE auth metadata version/checksum reset, record replacement/update, and
+  phone/gateway interoperability remain unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.

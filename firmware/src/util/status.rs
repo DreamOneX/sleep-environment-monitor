@@ -79,7 +79,7 @@ pub const fn update_ble_indication_until_millis(
     }
 }
 
-pub fn status_to_leds(flags: ErrorFlags, network_ready: bool) -> LedState {
+pub fn status_to_leds(flags: ErrorFlags, wifi_unready_visible: bool) -> LedState {
     let blue_led3 = if flags.intersects(ErrorFlags::SENSOR_MASK) {
         LedPattern::FastBlink
     } else if flags.contains(ErrorFlags::STORAGE)
@@ -87,7 +87,7 @@ pub fn status_to_leds(flags: ErrorFlags, network_ready: bool) -> LedState {
         || flags.contains(ErrorFlags::TIME)
     {
         LedPattern::On
-    } else if flags.intersects(ErrorFlags::NETWORK_MASK) || !network_ready {
+    } else if flags.intersects(ErrorFlags::NETWORK_MASK) || wifi_unready_visible {
         LedPattern::SlowBlink
     } else {
         LedPattern::Off
@@ -122,9 +122,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_error_and_network_ready() {
+    fn no_error_and_wifi_unready_indicator_hidden() {
         assert_eq!(
-            status_to_leds(ErrorFlags::NONE, true),
+            status_to_leds(ErrorFlags::NONE, false),
             LedState {
                 red_led2: LedPattern::Heartbeat,
                 blue_led3: LedPattern::Off,
@@ -133,9 +133,17 @@ mod tests {
     }
 
     #[test]
-    fn no_error_and_network_not_ready() {
+    fn no_error_and_wifi_unready_indicator_visible() {
         assert_eq!(
-            status_to_leds(ErrorFlags::NONE, false).blue_led3,
+            status_to_leds(ErrorFlags::NONE, true).blue_led3,
+            LedPattern::SlowBlink
+        );
+    }
+
+    #[test]
+    fn explicit_network_error_slow_blinks_even_without_wifi_unready_indicator() {
+        assert_eq!(
+            status_to_leds(ErrorFlags::WIFI, false).blue_led3,
             LedPattern::SlowBlink
         );
     }

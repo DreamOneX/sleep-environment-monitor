@@ -387,22 +387,19 @@ temporary authorization window lasts about 60 seconds after it opens.
 
 ## Observable BLE Status
 
-Phase 24 completion requires BLE-related operations to be visible on LED3.
-Current board facts and firmware naming are:
+General board LED semantics are defined in
+[00-architecture.md](00-architecture.md#4-firmware-led-semantics). This section
+only records the BLE overlay requirement for Phase 24.
 
-- LED1 is the green power indicator tied directly to the 3.3 V rail; firmware
-  cannot control it.
-- LED2 is the red active-low MCU-controlled LED on IO0; firmware keeps it as
-  the heartbeat indicator and may fast-flash it briefly after boot/reset.
-- LED3 is the blue active-low MCU-controlled LED on IO1; firmware uses it as
-  the normal status LED and overlays time-bounded BLE status indications.
+Phase 24 completion requires BLE-related operations to be visible on blue LED3
+without taking over red LED2 heartbeat semantics.
 
-Minimum LED3 behavior:
+Minimum BLE overlay behavior:
 
 - Fast-blink LED3 while the BLE pairing or authorization window is open.
-- Slow-blink LED3 while BLE is advertising, connecting, or connected.
-- Keep LED3 off, or hand it to a separately documented non-BLE policy, when no
-  BLE indication window is active.
+- Slow-blink LED3 while BLE is advertising or connected.
+- Return LED3 to the normal firmware status policy when no BLE indication
+  window is active.
 
 BLE indication timing:
 

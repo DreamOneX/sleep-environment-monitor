@@ -4,6 +4,17 @@ pub const fn network_is_ready(state: NetworkState) -> bool {
     matches!(state, NetworkState::IpReady)
 }
 
+pub const fn wifi_unready_status_visible(
+    wifi_enabled: bool,
+    state: NetworkState,
+    elapsed_millis: u64,
+    status_window_secs: u64,
+) -> bool {
+    wifi_enabled
+        && !network_is_ready(state)
+        && elapsed_millis < status_window_secs.saturating_mul(1_000)
+}
+
 #[cfg(target_arch = "riscv32")]
 use embassy_time::{Duration, Timer};
 
@@ -88,7 +99,13 @@ pub async fn status_task(
         }
 
         let display_flags = status_error_flags(latest_flags, latest_upload);
-        let leds = status_to_leds(display_flags, network_is_ready(latest_network));
+        let wifi_unready_visible = wifi_unready_status_visible(
+            config::wifi::ENABLED,
+            latest_network,
+            elapsed_millis,
+            config::led::WIFI_UNREADY_STATUS_WINDOW_SECS,
+        );
+        let leds = status_to_leds(display_flags, wifi_unready_visible);
         let ble_indication_active =
             elapsed_millis < ble_indication_until_millis || latest_ble_pairing.window_open;
         let pattern = ble_status_to_led(
@@ -115,6 +132,40 @@ mod tests {
         assert!(!network_is_ready(NetworkState::Connecting));
         assert!(!network_is_ready(NetworkState::Connected));
         assert!(network_is_ready(NetworkState::IpReady));
+    }
+
+    #[test]
+    fn wifi_unready_status_is_config_windowed() {
+        assert!(wifi_unready_status_visible(
+            true,
+            NetworkState::Disconnected,
+            9_999,
+            10
+        ));
+        assert!(!wifi_unready_status_visible(
+            true,
+            NetworkState::Disconnected,
+            10_000,
+            10
+        ));
+        assert!(!wifi_unready_status_visible(
+            true,
+            NetworkState::Disconnected,
+            0,
+            0
+        ));
+        assert!(!wifi_unready_status_visible(
+            false,
+            NetworkState::Disconnected,
+            0,
+            10
+        ));
+        assert!(!wifi_unready_status_visible(
+            true,
+            NetworkState::IpReady,
+            0,
+            10
+        ));
     }
 }
 

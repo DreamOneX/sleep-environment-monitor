@@ -88,8 +88,8 @@ a configuration error.
 | I2C SCL | IO5 | Shared I2C bus |
 | Microphone ADC | IO3 / ADC1_CH3 | Analog input |
 | LED1 | 3.3 V rail | Green power indicator; not MCU-controlled |
-| LED2 | IO0 | Red LED; active-low heartbeat |
-| LED3 | IO1 | Blue LED; active-low firmware/BLE status |
+| LED2 | IO0 | Red LED; active-low |
+| LED3 | IO1 | Blue LED; active-low |
 | UART RX | IO20 | Debug header |
 | UART TX | IO21 | Debug header |
 | BOOT | IO9 | Active-low; future BLE pairing input only after boot |
@@ -105,7 +105,89 @@ a configuration error.
 
 ---
 
-## 4. Current Source Tree
+## 4. Firmware LED Semantics
+
+LED hardware facts live in [01-hardware.md](01-hardware.md). Firmware state
+semantics live here.
+
+Board LEDs:
+
+| LED | Firmware role | Pattern owner |
+|---|---|---|
+| LED1 green | Power indicator only; tied to the 3.3 V rail and not MCU-controlled | Hardware |
+| LED2 red | Heartbeat / reset-life indicator | `tasks::led` heartbeat path |
+| LED3 blue | Firmware status indicator with time-bounded BLE overlay | `util::status` policy plus `tasks::led` GPIO output |
+
+LED2 red semantics:
+
+- On boot or reset, firmware may fast-flash LED2 briefly to show that the
+  application started.
+- After the boot flash, LED2 is the heartbeat indicator: a short pulse once per
+  second while the firmware scheduler is alive.
+- LED2 is not used for upload failure, storage failure, BLE pairing, or BLE
+  connection state in the current firmware policy.
+
+LED3 blue has two policy modes. Normal firmware status is used when no BLE
+indication window is active. BLE overlay status is used only while the BLE
+indication window is active or while the BLE pairing/authorization window is
+open.
+
+Normal firmware status uses `ErrorFlags` and an optional Wi-Fi-unready startup
+hint. In this table, "network" means the Wi-Fi/IP/discovery path used by REST
+upload. It does not include BLE advertising, BLE connection state, or BLE
+authorization state.
+
+| Priority | Source state | LED3 pattern | Meaning |
+|---:|---|---|---|
+| 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone path failure |
+| 2 | `ErrorFlags::STORAGE`, `ErrorFlags::TIME`, or `ErrorFlags::UPLOAD_MASK` is set | `On` | Persistent storage, time sync, or REST upload failure |
+| 3 | `ErrorFlags::NETWORK_MASK` is set, or the optional Wi-Fi-unready hint is visible | `SlowBlink` | Explicit Wi-Fi/IP/discovery fault, or a configured startup hint that Wi-Fi is not ready |
+| 4 | No matching error and the Wi-Fi-unready hint is not visible | `Off` | Normal operation; local sampling and storage may continue even if Wi-Fi is absent |
+
+Plain Wi-Fi/IP unready state is not treated as an error by itself. The
+`config::led::WIFI_UNREADY_STATUS_WINDOW_SECS` knob controls whether LED3
+briefly slow-blinks for Wi-Fi-not-ready after boot; `0` disables that hint.
+Explicit `ErrorFlags::WIFI`, `ErrorFlags::IP`, and `ErrorFlags::DISCOVERY`
+remain `ErrorFlags::NETWORK_MASK` faults and still slow-blink LED3.
+
+BLE overlay status uses BLE runtime and pairing-window state. It does not read
+or set `ErrorFlags::NETWORK_MASK`.
+
+| Priority | Source state | LED3 pattern | Meaning |
+|---:|---|---|---|
+| 1 | BLE pairing or authorization window is open | `FastBlink` | User-visible BLE authorization opportunity |
+| 2 | BLE runtime state is `Error` | `On` | BLE runtime error |
+| 3 | BLE runtime state is `Advertising` or `Connected` | `SlowBlink` | BLE peripheral is discoverable/connectable or connected |
+| 4 | BLE runtime state is `Idle` or `Disabled` | `Off` | No active BLE operation to surface |
+
+BLE indication on LED3 is time-bounded so the blue LED does not permanently
+hide normal firmware status:
+
+- After boot, when BLE is enabled, LED3 represents BLE status for the first
+  180 seconds.
+- After any BOOT / IO9 press or pairing/authorization trigger, LED3 represents
+  BLE status for at least the next 10 seconds.
+- If a trigger opens a longer pairing or authorization window, LED3 keeps the
+  pairing-window `FastBlink` feedback for the full open window.
+- When no BLE indication window is active, LED3 returns to the normal firmware
+  status policy above.
+
+Timing and polarity:
+
+- LED outputs are active-low: `LOW = on`, `HIGH = off`.
+- `FastBlink` toggles every 100 ms.
+- `SlowBlink` toggles every 500 ms.
+- LED2 boot/reset fast-flashes for 15 cycles at 100 ms on / 100 ms off, then
+  becomes the heartbeat: 100 ms on, 900 ms off.
+
+`util::status` owns the pure policy mapping. `tasks::led` owns active-low GPIO
+output and should not contain business policy. Phase 24P compile-validates the
+LED3 BLE overlay path and pure timing/pattern tests. Hardware visual acceptance
+of the LED3 BLE blink patterns remains a manual Phase 24 check.
+
+---
+
+## 5. Current Source Tree
 
 ```text
 docs/
@@ -177,7 +259,7 @@ The root `Cargo.toml` is a workspace manifest. The firmware package remains name
 
 ---
 
-## 5. Module Responsibilities
+## 6. Module Responsibilities
 
 Firmware module paths in this section are relative to `firmware/src/`.
 
@@ -439,43 +521,8 @@ This module must be fully unit tested.
 
 Normal blue LED3 status policy:
 
-| Priority | Condition | LED3 pattern | Meaning |
-|---:|---|---|---|
-| 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone failure |
-| 2 | `ErrorFlags::UPLOAD_MASK` intersects current flags, `ErrorFlags::TIME` is set, or `ErrorFlags::STORAGE` is set | `On` | Measurement upload, time sync, or persistent storage is failing |
-| 3 | Wi-Fi is disconnected or `ErrorFlags::NETWORK_MASK` intersects current flags | `SlowBlink` | Network is not ready |
-| 4 | No current error and IP networking is ready | `Off` | Normal operation |
-
-Timing:
-
-- LED outputs are active-low: `LOW = on`, `HIGH = off`.
-- `FastBlink` toggles every 100 ms.
-- `SlowBlink` toggles every 500 ms.
-- Red LED2 boot/reset fast-flashes for 15 cycles at 100 ms on / 100 ms off,
-  then becomes the heartbeat: 100 ms on, 900 ms off.
-
-Blue LED3 BLE overlay policy:
-
-| Priority | Condition while BLE indication is active | LED3 pattern | Meaning |
-|---:|---|---|---|
-| 1 | Pairing or authorization window is open | `FastBlink` | User-visible BLE pairing/authorization opportunity |
-| 2 | BLE is advertising or connected | `SlowBlink` | BLE central can discover, connect, or is connected |
-| 3 | BLE is enabled but idle, or BLE is disabled | `Off` | No active BLE operation to surface |
-
-LED3 BLE indication must be time-bounded:
-
-- After boot, when BLE is enabled, LED3 represents BLE status for the first
-  180 seconds.
-- After any BOOT / IO9 press or pairing/authorization trigger, LED3 represents
-  BLE status for at least the next 10 seconds.
-- If a trigger opens a longer pairing or authorization window, LED3 keeps the
-  pairing-window `FastBlink` feedback for the full open window.
-- When no BLE indication window is active, LED3 returns to the normal firmware
-  status policy above.
-
-Phase 24P compile-validates the LED3 BLE overlay path and pure timing/pattern
-tests. Hardware visual acceptance of the LED3 BLE blink patterns remains a
-manual Phase 24 check.
+See [Firmware LED Semantics](#4-firmware-led-semantics). Keep policy changes
+there and in `util::status` tests together.
 
 ---
 
@@ -728,7 +775,7 @@ LED status mapping should be tested in `util/status.rs`.
 
 ---
 
-## 6. Data Flow
+## 7. Data Flow
 
 ```text
 sensor_task ── EnvSample ┐
@@ -779,7 +826,7 @@ never write BLE auth records outside the configured BLE auth sector
 
 ---
 
-## 7. Unit Test Policy
+## 8. Unit Test Policy
 
 Unit tests must:
 
@@ -796,7 +843,7 @@ Unit tests should test only deterministic pure logic.
 
 ---
 
-## 8. Unit Test Scope
+## 9. Unit Test Scope
 
 Unit test these:
 
@@ -856,7 +903,7 @@ Those are board integration tests, not unit tests.
 
 ---
 
-## 9. Integration Test Scope
+## 10. Integration Test Scope
 
 Integration tests run on real hardware.
 

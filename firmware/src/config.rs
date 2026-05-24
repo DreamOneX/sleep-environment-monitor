@@ -168,7 +168,7 @@ pub mod storage {
 #[cfg(test)]
 mod tests {
     use super::{
-        ble,
+        ble, led,
         wifi::{self, AuthMode, WifiConfigError},
     };
 
@@ -177,6 +177,11 @@ mod tests {
         assert_eq!(ble::ENABLED, cfg!(feature = "ble-upload"));
         assert_eq!(wifi::ENABLED, cfg!(feature = "wifi-upload"));
         assert_eq!(ble::ADVERTISING_NAME, "sleep-env-esp32c3");
+    }
+
+    #[test]
+    fn wifi_unready_status_hint_is_disabled_by_default() {
+        assert_eq!(led::WIFI_UNREADY_STATUS_WINDOW_SECS, 0);
     }
 
     #[test]
@@ -266,6 +271,9 @@ pub mod led {
     pub const BOOT_FLASH_OFF_MILLIS: u64 = 100;
     pub const BLE_BOOT_STATUS_WINDOW_SECS: u64 = 180;
     pub const BLE_TRIGGER_STATUS_WINDOW_SECS: u64 = 10;
+    /// `0` disables the plain Wi-Fi-unready blue LED3 slow-blink hint.
+    /// Explicit network error flags still use LED3 slow blink.
+    pub const WIFI_UNREADY_STATUS_WINDOW_SECS: u64 = 0;
     pub const HEARTBEAT_ON_MILLIS: u64 = 100;
     pub const HEARTBEAT_OFF_MILLIS: u64 = 900;
     pub const STATUS_TICK_MILLIS: u64 = 100;

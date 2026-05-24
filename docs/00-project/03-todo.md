@@ -40,6 +40,20 @@ network faults:
 Phase 24 is still open because several runtime, visual, interoperability, and
 reset/erase paths have not been accepted on hardware.
 
+Current runtime clear-gesture state:
+
+- After Phase 24T, a new Windows saved-bond auth record was rebuilt with
+  `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair`.
+  That operation may write only `0x003bf000..0x003c0000`.
+- The latest `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` run
+  connected and watched status, but observed no IO9 / BOOT press:
+  `pressed_after_release=False`, `hold_threshold=False`, and
+  `refreshed_window=False`.
+- A follow-up `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success
+  no-pair` succeeded, so the saved auth record is still usable. The latest
+  clear-gesture result means "no operator press observed", not a firmware clear
+  failure.
+
 Windows Settings showing the board as paired but not connected is expected
 when `ble-watch` or another central application is not holding a GATT session.
 If Windows still reports paired while firmware rejects protected access after

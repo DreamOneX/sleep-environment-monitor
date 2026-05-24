@@ -115,6 +115,31 @@ if (args.Length > 0 && string.Equals(args[0], "scan-transfer-record", StringComp
         controlUuidWindows);
 }
 
+if (args.Length > 0 && string.Equals(args[0], "scan-transfer-record-now", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var ackMode = args.Length > 3 ? args[3] : "no-ack";
+    var fragmentLength = args.Length > 4 && ushort.TryParse(args[4], out var parsedFragmentLength)
+        ? parsedFragmentLength
+        : (ushort)128;
+    var pairMode = args.Length > 5 ? args[5] : "auto-pair";
+    return await ScanThenTransferRecordNowAsync(
+        scanSeconds,
+        scanTargetName,
+        ackMode,
+        fragmentLength,
+        pairMode,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
+        fragmentUuidWindows,
+        controlUuidWindows);
+}
+
 if (args.Length > 0 && string.Equals(args[0], "scan-ack-then-peek-next", StringComparison.OrdinalIgnoreCase))
 {
     var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
@@ -1139,6 +1164,39 @@ static async Task<int> ScanThenTransferRecordAsync(
         controlUuid);
 }
 
+static async Task<int> ScanThenTransferRecordNowAsync(
+    int seconds,
+    string targetName,
+    string ackMode,
+    ushort fragmentLength,
+    string pairMode,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    return await TransferRecordNowAsync(
+        found.Address,
+        found.AddressType,
+        ackMode,
+        fragmentLength,
+        pairMode,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        fragmentUuid,
+        controlUuid);
+}
+
 static async Task<int> ScanThenAckThenPeekNextAsync(
     int seconds,
     string targetName,
@@ -1746,6 +1804,94 @@ static async Task<int> TransferRecordAsync(
 
     Console.WriteLine(
         $"TRANSFER_RESULT success=True sequence={recordMetadata.Sequence} payload_len={payload.Length} crc32=0x{computedCrc:x8} ack_requested={shouldAck}");
+    return 0;
+}
+
+static async Task<int> TransferRecordNowAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    string ackMode,
+    ushort fragmentLength,
+    string pairMode,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid fragmentUuid,
+    Guid controlUuid)
+{
+    var shouldAck = string.Equals(ackMode, "ack", StringComparison.OrdinalIgnoreCase);
+    if (!shouldAck && !string.Equals(ackMode, "no-ack", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine(
+            "usage: scan-transfer-record-now [scan-seconds] [name] [no-ack|ack] [fragment-len] [auto-pair|no-pair]");
+        return 64;
+    }
+    var allowPair = string.Equals(pairMode, "auto-pair", StringComparison.OrdinalIgnoreCase);
+    var skipPair = string.Equals(pairMode, "no-pair", StringComparison.OrdinalIgnoreCase);
+    if (!allowPair && !skipPair)
+    {
+        Console.Error.WriteLine(
+            "usage: scan-transfer-record-now [scan-seconds] [name] [no-ack|ack] [fragment-len] [auto-pair|no-pair]");
+        return 64;
+    }
+    if (fragmentLength == 0)
+    {
+        Console.Error.WriteLine("fragment length must be non-zero");
+        return 64;
+    }
+
+    const string label = "TRANSFER_NOW";
+    Console.WriteLine(
+        $"{label}_CONNECT address={FormatAddress(address)} address_type={addressType} ack_mode={(shouldAck ? "ack" : "no-ack")} fragment_len={fragmentLength} allow_pair={allowPair}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return 2;
+    }
+
+    Console.WriteLine($"{label}_DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
+    PrintPairingState(device, label);
+    if (allowPair && !await EnsurePairedAsync(device, label))
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=pair");
+        return 5;
+    }
+
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return 3;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    var fragment = await GetCharacteristicAsync(service, fragmentUuid, "fragment");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || fragment is null || control is null)
+    {
+        return 4;
+    }
+
+    _ = await ReadStatusSnapshotAsync(status, $"{label}_INITIAL");
+    var transfer = await TransferRecordOnOpenConnectionAsync(
+        metadata,
+        fragment,
+        control,
+        shouldAck,
+        fragmentLength,
+        true,
+        label);
+    if (transfer is null)
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=transfer");
+        return 6;
+    }
+
+    _ = await ReadStatusSnapshotAsync(status, $"{label}_AFTER");
+    Console.WriteLine(
+        $"{label}_SUMMARY success=True sequence={transfer.Value.Metadata.Sequence} ack_requested={shouldAck} payload_len={transfer.Value.Metadata.PayloadLength}");
     return 0;
 }
 

@@ -8,14 +8,15 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24Z and the follow-up BLE+Wi-Fi coexistence heap fix are implemented.
-The current hardware evidence confirms the Windows saved-bond path, BLE auth
-metadata reset policy, runtime saved-auth clear effect, and BLE+Wi-Fi startup
-without the previous Wi-Fi controller initialization error `257`. Pure
-auth-record upsert policy coverage is also in place, and firmware logs BOOT /
-IO9 initial and transition samples. The Windows `ble-watch` tool has been
-hardened against stale WinRT/GATT cache failures and emits clear runtime
-clear/release diagnostics:
+Phase 24Z, the follow-up BLE+Wi-Fi coexistence heap fix, and the live
+Wi-Fi/BLE ACK suppression validation are implemented. The current hardware
+evidence confirms the Windows saved-bond path, BLE auth metadata reset policy,
+runtime saved-auth clear effect, BLE+Wi-Fi startup without the previous Wi-Fi
+controller initialization error `257`, and live BLE ACK suppression while
+Wi-Fi/IP is ready and REST upload is succeeding. Pure auth-record upsert policy
+coverage is also in place, and firmware logs BOOT / IO9 initial and transition
+samples. The Windows `ble-watch` tool has been hardened against stale
+WinRT/GATT cache failures and emits clear runtime clear/release diagnostics:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -54,6 +55,12 @@ clear/release diagnostics:
   IPv4 config, BLE advertising, and a `ble-watch scan-read-status` result of
   `runtime=Connected network=IpReady upload=TimeFailed pending=32`, resolving
   the Phase 24Z Wi-Fi init error `257` as a startup blocker.
+- With the formal server running, firmware logs showed discovery, time sync,
+  and REST upload success. `scan-transfer-record-now 30 sleep-env-esp32c3 ack
+  128 auto-pair` transferred sequence `136853`; the central requested ACK, and
+  firmware logged `ble storage ACK suppressed sequence=136853
+  network_state=IpReady upload_result=Success`. This accepts the live
+  Wi-Fi/BLE ACK-policy behavior for the observed hardware case.
 
 Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
 network faults:
@@ -87,8 +94,9 @@ validation tool:
   protected metadata access is rejected when the temporary authorization window
   is closed.
 
-Phase 24 is still open because several runtime, visual, interoperability, and
-reset/erase paths have not been accepted on hardware.
+Phase 24 is still open because several visual, interoperability,
+replacement/update, and reset/power-on paths have not been accepted on
+hardware.
 
 Current runtime clear-gesture state:
 
@@ -130,8 +138,6 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
 - [ ] Validate BOOT download-mode preservation during reset or power-on.
   Holding BOOT / IO9 at reset or power-on must enter ESP32-C3 download mode,
   not BLE pairing or BLE record clearing.
-- [ ] Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime. Unit tests
-  cover stale BLE ACK protection, but a real coexistence run is still needed.
 - [ ] Validate phone or gateway interoperability beyond the current Windows BLE
   central validation tool.
 - [ ] Validate real BLE auth record replacement/update behavior when another

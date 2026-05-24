@@ -7,8 +7,9 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24Z is implemented in the current working tree. Phase 24 is not complete
-yet.
+Phase 24Z, the BLE+Wi-Fi coexistence heap fix, and the live Wi-Fi/BLE ACK
+suppression validation are implemented in the current working tree. Phase 24 is
+not complete yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
 current LED status boundary:
@@ -209,8 +210,20 @@ controller initialization failure as a startup blocker:
   `runtime=Connected network=IpReady upload=TimeFailed pending=32`, proving
   the BLE GATT status path and IP-ready Wi-Fi status were present in the same
   BLE+Wi-Fi runtime.
-- Live Wi-Fi/BLE ACK race behavior is still not accepted; this only resolves
-  the controller startup failure that previously blocked that run.
+The subsequent live Wi-Fi/BLE ACK suppression run accepts the Phase 24
+coexistence ACK-policy item for the observed hardware case:
+
+- The formal server accepted repeated REST uploads from the board with HTTP
+  `204`; firmware logs showed discovery, time sync, and `upload success`.
+- `scan-transfer-record-now 30 sleep-env-esp32c3 ack 128 auto-pair` transferred
+  sequence `136853` without waiting for a BOOT / IO9 authorization window.
+- Initial and final BLE status snapshots decoded
+  `runtime=Connected network=IpReady upload=Success pending=0`.
+- The Windows central requested `AckRecord`, but firmware logged
+  `ble storage ACK suppressed sequence=136853 network_state=IpReady
+  upload_result=Success`.
+- This proves the live BLE ACK path does not delete storage while Wi-Fi/IP is
+  ready and REST upload is succeeding.
 
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
@@ -265,14 +278,16 @@ exercised.
   explicitly enabled in BLE feature builds.
 - `firmware/src/bin/main.rs` obtains a BLE security seed from TRNG before
   reusing ADC1 for the microphone path.
+- `tools/ble-watch` includes `scan-transfer-record-now` for saved-bond or
+  auto-pair transfer without waiting for the BOOT / IO9 authorization window.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
   saved-bond restore evidence, Phase 24S LED status/config boundary, Phase 24T
   auth metadata reset evidence, Phase 24U Windows GATT recovery tooling,
   Phase 24V runtime clear-effect evidence, Phase 24W clear-gesture diagnostic
   tooling, Phase 24X auth-record upsert policy coverage, Phase 24Y BOOT / IO9
   transition diagnostics, Phase 24Z runtime IO9 pull-up retest evidence, the
-  BLE+Wi-Fi coexistence heap startup fix, current LED mapping, and the
-  remaining Phase 24 validation gaps.
+  BLE+Wi-Fi coexistence heap startup fix, live Wi-Fi/BLE ACK suppression
+  evidence, current LED mapping, and the remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window, the Windows saved-bond restore path, the auth metadata reset policy,
@@ -284,9 +299,8 @@ GATT peripheral as paired but not connected when `ble-watch` is not holding a
 GATT session; that passive Settings label is not a Phase 24 acceptance signal.
 If Windows still reports paired while firmware rejects protected access after
 an auth reset or clear, use `scan-unpair` before re-pairing. Phone/gateway
-interoperability, real record replacement, LED3 visual behavior, BOOT
-download-mode preservation, and the BLE+Wi-Fi Wi-Fi init error remain
-unvalidated or unresolved.
+interoperability, real record replacement, LED3 visual behavior, and BOOT
+download-mode preservation remain unvalidated or unresolved.
 
 Manual hardware tests that need operator timing, such as BOOT / IO9 presses,
 must first notify the operator through PowerShell
@@ -490,7 +504,6 @@ test: add BOOT IO9 release diagnostics
 
 ## Remaining Phase 24 Work
 
-- Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
 - Validate phone/gateway interoperability beyond the Windows central.
 - Validate real BLE auth record replacement/update behavior when another bond

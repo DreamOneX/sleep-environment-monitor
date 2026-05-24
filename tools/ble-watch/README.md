@@ -46,6 +46,13 @@ Common commands:
 # This can erase/write the firmware measurement spool region.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 ack 128
 
+# Transfer through the current saved-bond or auto-pair path without waiting for
+# the BOOT / IO9 authorization window, then request BLE storage ACK. This is
+# useful for Wi-Fi/BLE ACK-policy checks while Wi-Fi upload is already running.
+# This can erase/write the firmware measurement spool region if firmware accepts
+# the ACK.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record-now 30 sleep-env-esp32c3 ack 128 auto-pair
+
 # Wait for pairing window, transfer a full record, and require fragment notifications.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record-notify 30 sleep-env-esp32c3 no-ack 128
 
@@ -75,6 +82,12 @@ instead of ending the watch immediately. If Windows keeps returning
 Windows-side pairing/cache state before re-pairing.
 `scan-transfer-record` first polls the status characteristic until the
 BOOT / IO9 pairing window is open, then requests metadata and fragments.
+`scan-transfer-record-now` does not wait for the BOOT / IO9 window. `auto-pair`
+uses Windows Custom Pairing with ConfirmOnly acceptance if Windows or firmware
+needs a current bond; `no-pair` skips pairing and relies on an existing saved
+authorization path. The command reads the initial and final status snapshots
+around the transfer so ACK-policy checks can record the concurrent Wi-Fi/upload
+state.
 `scan-transfer-record-notify` also subscribes to fragment notifications and
 requires each requested fragment notification to match the subsequently read
 fragment.
@@ -149,9 +162,10 @@ operator-side suggestion to exceed the firmware's about-2-second authorization
 threshold. It is not a 3 second firmware window. The temporary authorization
 window lasts about 60 seconds after it opens.
 
-For `ack`, `scan-ack-then-peek-next`, or
-`scan-drain-then-disconnect-preserves-record` mode, declare the flash range
-before running hardware validation: the firmware may write or erase the
-measurement spool region `0x003c0000..0x00400000` through `storage_task`.
+For `ack`, `scan-transfer-record-now ... ack`,
+`scan-ack-then-peek-next`, or `scan-drain-then-disconnect-preserves-record`
+mode, declare the flash range before running hardware validation: the firmware
+may write or erase the measurement spool region `0x003c0000..0x00400000`
+through `storage_task`.
 Pairing, saved-bond restore validation, and the runtime clear gesture may write
 or erase the BLE auth metadata sector `0x003bf000..0x003c0000`.

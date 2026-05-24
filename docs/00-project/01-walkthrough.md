@@ -3302,7 +3302,79 @@ Flash and hardware notes:
 
 Remaining Phase 24 validation:
 
-- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Real BLE auth record replacement/update and phone/gateway interoperability
+  remain unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+
+## Milestone 56: Phase 24 Live Wi-Fi/BLE ACK Suppression Validation
+
+This milestone validates the live BLE ACK policy while Wi-Fi upload is also
+running. The Windows central requested BLE ACK for a transferred record, but
+the firmware observed Wi-Fi/IP ready and the last upload result as successful,
+so it suppressed the BLE storage ACK instead of deleting the persistent spool
+record through the BLE path.
+
+No new firmware image was flashed for this milestone. It reused the
+BLE+Wi-Fi firmware from Milestone 55. The app image range last flashed for that
+firmware was approximately `0x00010000..0x003bf000`. During this runtime
+validation, normal firmware storage and successful REST uploads may write or
+erase the measurement spool region `0x003c0000..0x00400000`. BLE pairing or
+saved-bond refresh may write the BLE auth metadata sector
+`0x003bf000..0x003c0000`.
+
+Validation commands and tools run:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022 --no-rich
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record-now 30 sleep-env-esp32c3 ack 128 auto-pair
+```
+
+Observed validation results:
+
+- The server accepted repeated board uploads from `10.133.15.188` with HTTP
+  `204`.
+- Firmware RTT logs showed discovery, time sync, and REST upload success, for
+  example `discovery endpoint ipv4=10.133.56.218 port=8080`, `time synced`,
+  and `upload success sequence=136824 acked=true`.
+- `scan-transfer-record-now` first decoded
+  `runtime=Connected network=IpReady upload=Success pending=0`.
+- Windows Custom ConfirmOnly pairing completed or refreshed successfully:
+  `TRANSFER_NOW_PAIR_CUSTOM_RESULT status=Paired`.
+- The central transferred record `136853`, validated the payload, wrote
+  `CompleteRecord`, and requested `AckRecord`.
+- Firmware RTT logs matched the transfer and ACK-policy decision:
+  `ble record marked complete without storage ACK sequence=136853` followed by
+  `ble storage ACK suppressed sequence=136853 network_state=IpReady
+  upload_result=Success`.
+- The final status snapshot still decoded
+  `runtime=Connected network=IpReady upload=Success pending=0`.
+
+Representative tool output:
+
+```text
+STATUS_DECODED version=1 runtime=Connected network=IpReady upload=Success pending=0
+TRANSFER_NOW_PAIR_CUSTOM_RESULT status=Paired
+TRANSFER_NOW_METADATA_METADATA_DECODED version=1 sequence=136853 payload_len=201
+TRANSFER_NOW_COMPLETE_RECORD_WRITE status=Success
+TRANSFER_NOW_ACK_RECORD_WRITE status=Success
+TRANSFER_NOW_RESULT success=True sequence=136853 ack_requested=True
+STATUS_DECODED version=1 runtime=Connected network=IpReady upload=Success pending=0
+TRANSFER_NOW_SUMMARY success=True sequence=136853 ack_requested=True payload_len=201
+```
+
+Flash and hardware notes:
+
+- This accepts the live Wi-Fi/BLE ACK race-policy behavior on hardware for the
+  observed case where Wi-Fi/IP is ready and REST upload is succeeding.
+- BLE did not delete the spool record through `StorageCommand::Ack`; the ACK
+  was deliberately suppressed by policy.
+- Normal Wi-Fi upload remains the primary durable ACK path while it is
+  succeeding.
+
+Remaining Phase 24 validation:
+
 - BOOT / IO9 download-mode preservation remains unvalidated.
 - Real BLE auth record replacement/update and phone/gateway interoperability
   remain unvalidated.

@@ -184,6 +184,19 @@ Phase 24N strengthens hardware-independent Wi-Fi/BLE ACK race coverage:
   record pending.
 - This is not hardware validation of a live Wi-Fi/BLE runtime race.
 
+A later Phase 24 live hardware run validated the corresponding coexistence
+ACK-policy case:
+
+- The BLE+Wi-Fi runtime was connected to Wi-Fi with IP ready while the formal
+  server was accepting REST uploads with HTTP `204`.
+- `scan-transfer-record-now ... ack 128 auto-pair` transferred a record through
+  the saved-bond/current-pairing path without waiting for the BOOT / IO9
+  authorization window.
+- The central requested `AckRecord`, but firmware suppressed the BLE storage
+  ACK because the latest network/upload snapshot was `IpReady` and `Success`.
+- Firmware logged `ble storage ACK suppressed ... network_state=IpReady
+  upload_result=Success`.
+
 Phase 24O adds a BLE authorization metadata and auto-pair policy boundary:
 
 - `0x003bf000..0x003c0000` is reserved for BLE authorization metadata,
@@ -342,14 +355,14 @@ runtime clear gesture and final release-after-hold diagnostics with the
 explicit runtime GPIO9 internal pull-up firmware. The next Phase 24 slice adds
 extra BLE+Wi-Fi coexistence heap and validates that the previous Wi-Fi
 controller initialization error `257` no longer occurs in the BLE+Wi-Fi
-runtime.
-Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
-ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
-behavior, real record replacement/update, and phone/gateway interoperability
-are still unvalidated or unresolved. Future work must validate those remaining
-paths. LED3 BLE operation feedback now has a compile/unit-tested firmware
-boundary, but the actual blue LED patterns have not been visually accepted on
-hardware yet.
+runtime. The subsequent live ACK-policy run validates that BLE ACK is
+suppressed while Wi-Fi/IP is ready and REST upload is succeeding.
+Full BLE upload bring-up remains future Phase 24 work because BOOT
+download-mode preservation, LED3 hardware visual behavior, real record
+replacement/update, and phone/gateway interoperability are still unvalidated or
+unresolved. Future work must validate those remaining paths. LED3 BLE
+operation feedback now has a compile/unit-tested firmware boundary, but the
+actual blue LED patterns have not been visually accepted on hardware yet.
 
 ## Goals
 
@@ -545,7 +558,7 @@ Phase 24 has hardware-independent tests for:
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing.
 
-Remaining hardware checks should confirm live Wi-Fi/BLE coexistence races,
-real BLE auth record replacement/update behavior, LED3 BLE status indication
-timing and patterns, phone/gateway interoperability, and that BOOT still enters
-download mode during reset or power-on.
+Remaining hardware checks should confirm real BLE auth record
+replacement/update behavior, LED3 BLE status indication timing and patterns,
+phone/gateway interoperability, and that BOOT still enters download mode during
+reset or power-on.

@@ -2997,3 +2997,52 @@ Remaining Phase 24 validation:
   unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
 - Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+
+## Milestone 51: Phase 24W BLE Watch Clear-Gesture Release Diagnostics
+
+Phase 24W improved `tools/ble-watch` diagnostics for the remaining BOOT / IO9
+release follow-up. This is a tool-only milestone; it does not change firmware
+behavior and does not accept the hardware release-diagnostics item by itself.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+Observed validation results:
+
+- Windows .NET build succeeded with 0 warnings and 0 errors.
+- `scan-watch-clear-gesture` still requires release before press,
+  press-after-release, 8 second hold threshold, refreshed authorization window,
+  and release after hold for `CLEAR_GESTURE_RESULT success=True`.
+- The tool now prints `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` once the hold
+  threshold and refreshed pairing window have both been observed.
+- If the watch ends after clear-effect evidence but before final release is
+  observed, it now prints `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING` with event
+  indexes, hold milliseconds, refreshed-window remaining milliseconds, and the
+  latest status fields.
+- Success and failure summaries now include event indexes and timing fields.
+- Missing final release observation remains a failed clear-gesture watch and
+  must not be treated as proof that the operator kept holding BOOT / IO9.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- No firmware flash sector was deliberately written or erased.
+- No hardware validation was run for this tooling milestone.
+- A local `environment.md` note records that manual hardware tests requiring
+  operator timing must use PowerShell `New-BurntToastNotification` and must not
+  assume human cooperation until the operator replies that the notification was
+  received. That file is intentionally ignored by `.gitignore`.
+
+Remaining Phase 24 validation:
+
+- BOOT / IO9 release diagnostics after the runtime clear hold still need
+  hardware retest with the improved tool output.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- BLE auth record replacement/update and phone/gateway interoperability remain
+  unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.

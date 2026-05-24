@@ -7,7 +7,7 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24V is implemented in the current working tree. Phase 24 is not complete
+Phase 24W is implemented in the current working tree. Phase 24 is not complete
 yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
@@ -115,6 +115,21 @@ Phase 24V hardware-validated the runtime saved-auth clear effect:
   `UNPAIR_RESULT status=Unpaired`, and a final status read decoded
   `pairing=Open boot_button=Released remaining_ms=39050 pressed_ms=0`.
 
+Phase 24W improved `tools/ble-watch` release diagnostics for the next runtime
+clear retest:
+
+- `scan-watch-clear-gesture` still requires release before press,
+  press-after-release, 8 second hold threshold, refreshed authorization window,
+  and release after hold before returning success.
+- The tool now prints `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` after hold
+  threshold plus refreshed-window evidence.
+- If the watch ends after that clear-effect evidence but before final release
+  observation, it prints `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING` with event
+  indexes, hold milliseconds, refreshed-window remaining milliseconds, and
+  latest status fields.
+- The new diagnostic output does not change firmware behavior and does not
+  accept the BOOT / IO9 release item by itself.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -142,7 +157,8 @@ exercised.
 - `tools/ble-watch` retries Windows GATT service and characteristic lookup,
   retries Uncached status reads, recreates status connections for
   `scan-read-status`, and reconnects the runtime clear-gesture watch after a
-  transient status-read failure.
+  transient status-read failure. It also distinguishes clear-effect evidence
+  from missing final release observation in `scan-watch-clear-gesture`.
 - `firmware/src/board.rs` maps MCU-controlled LEDs as `PIN_LED2 = 0` and
   `PIN_LED3 = 1`.
 - `firmware/src/tasks/led.rs` fast-flashes red LED2 at boot/reset and then runs
@@ -165,8 +181,8 @@ exercised.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
   saved-bond restore evidence, Phase 24S LED status/config boundary, Phase 24T
   auth metadata reset evidence, Phase 24U Windows GATT recovery tooling,
-  Phase 24V runtime clear-effect evidence, current LED mapping, and the
-  remaining Phase 24 validation gaps.
+  Phase 24V runtime clear-effect evidence, Phase 24W clear-gesture diagnostic
+  tooling, current LED mapping, and the remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window, the Windows saved-bond restore path, the auth metadata reset policy,
@@ -180,6 +196,13 @@ reports paired while firmware rejects protected access after an auth reset or
 clear, use `scan-unpair` before re-pairing. Phone/gateway interoperability,
 BOOT / IO9 release diagnostics after the clear hold, record replacement, and
 LED3 visual behavior remain unvalidated.
+
+Manual hardware tests that need operator timing, such as BOOT / IO9 presses,
+must first notify the operator through PowerShell
+`New-BurntToastNotification`. Do not assume human cooperation is available
+until the operator replies in chat that the notification was received and they
+are ready. The same rule is recorded in local `environment.md`, which is
+ignored by `.gitignore`.
 
 ## Subagents
 
@@ -293,6 +316,26 @@ Milestone commit message:
 
 ```text
 test: validate BLE runtime auth clear effect
+```
+
+Phase 24W tool verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+Observed result:
+
+- The Windows .NET build passed with 0 warnings and 0 errors.
+- No firmware image was flashed and no firmware flash sector was deliberately
+  written or erased.
+- No hardware validation was run for this tooling milestone.
+
+Milestone commit message:
+
+```text
+test: improve BLE clear gesture diagnostics
 ```
 
 ## Remaining Phase 24 Work

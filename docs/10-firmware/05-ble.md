@@ -277,7 +277,20 @@ Phase 24V validates the runtime saved-auth clear effect on hardware:
 - This validation did not flash firmware and did not deliberately exercise the
   measurement spool `0x003c0000..0x00400000`.
 
-Phase 24A through 24V do not change the measurement spool flash format or
+Phase 24W improves `tools/ble-watch` diagnostics for the remaining BOOT / IO9
+release follow-up:
+
+- `scan-watch-clear-gesture` remains strict and still fails unless it observes
+  release before press, press-after-release, the 8 second hold threshold, the
+  refreshed authorization window, and release after hold.
+- The tool now prints `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` once hold-threshold
+  and refreshed-window evidence are both present.
+- If the watch ends after clear-effect evidence but before final release
+  observation, it prints `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING`.
+- This is tool evidence only; it does not change firmware behavior or close the
+  release-diagnostics hardware item without a new hardware run.
+
+Phase 24A through 24W do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -297,6 +310,8 @@ bond. Phase 24T hardware-validates auth metadata reset auto-pair behavior and
 unpaired protected-metadata rejection after a reset/invalid-auth window closes.
 Phase 24V hardware-validates the runtime saved-auth clear effect and rejected
 protected metadata access after that runtime clear watch.
+Phase 24W adds clearer tool diagnostics for the unresolved release observation
+after the runtime clear hold.
 Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
 ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
 behavior, BOOT / IO9 release diagnostics after the runtime clear hold, and

@@ -2363,6 +2363,46 @@ Phase 24V commit message:
 test: validate BLE runtime auth clear effect
 ```
 
+## Phase 24W: BLE Watch Clear-Gesture Release Diagnostics
+
+Phase 24W improves the Windows validation tool's evidence for the remaining
+BOOT / IO9 release-diagnostics follow-up. It does not change firmware behavior
+and does not accept the release-diagnostics hardware item by itself.
+
+Phase 24W scope:
+
+- Keep `scan-watch-clear-gesture` success strict: it still requires release
+  before press, press-after-release, 8 second hold threshold, refreshed
+  authorization window, and release after hold.
+- Add `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` once the tool has seen both the
+  hold threshold and refreshed pairing window.
+- Add `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING` when the watch ends after
+  clear-effect evidence but before a final release is observed in status.
+- Include event indexes, pressed milliseconds, refreshed-window remaining
+  milliseconds, and latest status fields in success and failure summaries.
+- Do not treat missing final release observation as proof that the operator
+  kept holding BOOT / IO9.
+- Do not run hardware validation in this tooling slice.
+
+Phase 24W verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+Phase 24W hardware and flash notes:
+
+- No firmware image is flashed.
+- No firmware flash sector is deliberately written or erased.
+- The tool output change prepares the next manual IO9/BOOT release retest.
+
+Phase 24W commit message:
+
+```text
+test: improve BLE clear gesture diagnostics
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

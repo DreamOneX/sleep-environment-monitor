@@ -126,6 +126,13 @@ Delay-safe clear validation flow:
    observed release before the press, the 8 second hold threshold, a refreshed
    near-full pairing window after that threshold, and release after the hold.
 
+If the tool observes the hold threshold and refreshed pairing window before it
+observes the final release, it prints `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED`.
+If the watch ends with that clear-effect evidence but without final release
+observation, it prints `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING` and keeps the
+command failed. Treat that as evidence to investigate BOOT / IO9 release
+diagnostics, not as proof that the operator kept holding BOOT / IO9.
+
 After the clear gesture succeeds, wait for the temporary authorization window
 to close and run `scan-read-metadata-now ... expect-reject no-pair` to confirm
 the old saved authorization record no longer grants protected GATT access.

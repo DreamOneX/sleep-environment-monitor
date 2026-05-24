@@ -8,10 +8,11 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24V is implemented. The current hardware evidence confirms the Windows
+Phase 24W is implemented. The current hardware evidence confirms the Windows
 saved-bond path, BLE auth metadata reset policy, and runtime saved-auth clear
 effect. The Windows `ble-watch` tool has also been hardened against stale
-WinRT/GATT cache failures:
+WinRT/GATT cache failures and now emits clearer release diagnostics for the
+next runtime clear retest:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -53,6 +54,11 @@ validation tool:
   status-read failures.
 - `scan-watch-clear-gesture` can reconnect after transient status-read
   failures.
+- `scan-watch-clear-gesture` now prints
+  `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` after the hold threshold plus refreshed
+  pairing-window evidence, and
+  `CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING` if that evidence exists but final
+  release is not observed before timeout.
 - `scan-unpair` was used to recover Windows stale pairing/cache state. The
   latest Phase 24V end state is Windows unpaired, firmware auth metadata
   cleared or missing, and the temporary authorization window opening after
@@ -93,7 +99,8 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
   8 second saved-auth clear hold. Phase 24V validated the clear effect through
   hold-threshold/window-refresh evidence and protected metadata rejection, but
   the status stream continued to report `Pressed` after operator release until
-  reset.
+  reset. Use the Phase 24W `scan-watch-clear-gesture` diagnostics to distinguish
+  clear-effect evidence from missing final release observation.
 - [ ] Manually accept LED3 visual behavior on hardware: pairing or
   authorization fast blink, advertising-or-connected slow blink, the
   180 second boot BLE status window, and the 10 second BOOT / IO9-triggered BLE

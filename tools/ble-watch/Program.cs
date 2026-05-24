@@ -542,6 +542,14 @@ static async Task<int> WatchClearGestureAsync(
     var observedHoldThreshold = false;
     var observedRefreshedWindow = false;
     var observedReleasedAfterHold = false;
+    var reportedClearEffectObserved = false;
+    int? releasedIndex = null;
+    int? pressedAfterReleaseIndex = null;
+    int? holdThresholdIndex = null;
+    int? refreshedWindowIndex = null;
+    int? releasedAfterHoldIndex = null;
+    uint? holdThresholdPressedMs = null;
+    uint? refreshedWindowRemainingMs = null;
     const uint refreshedWindowMinMillis = 55_000;
     StatusSnapshot? latest = null;
     var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(watchSeconds);
@@ -604,10 +612,15 @@ static async Task<int> WatchClearGestureAsync(
                 if (!observedReleased)
                 {
                     Console.WriteLine($"CLEAR_GESTURE_RELEASED index={index}");
+                    releasedIndex = index;
                 }
                 observedReleased = true;
                 if (observedHoldThreshold)
                 {
+                    if (!observedReleasedAfterHold)
+                    {
+                        releasedAfterHoldIndex = index;
+                    }
                     observedReleasedAfterHold = true;
                 }
             }
@@ -616,6 +629,7 @@ static async Task<int> WatchClearGestureAsync(
                 if (!observedPressedAfterRelease)
                 {
                     Console.WriteLine($"CLEAR_GESTURE_PRESSED_AFTER_RELEASE index={index}");
+                    pressedAfterReleaseIndex = index;
                 }
                 observedPressedAfterRelease = true;
             }
@@ -625,6 +639,8 @@ static async Task<int> WatchClearGestureAsync(
                 {
                     Console.WriteLine(
                         $"CLEAR_GESTURE_HOLD_THRESHOLD index={index} pressed_ms={pressedMs}");
+                    holdThresholdIndex = index;
+                    holdThresholdPressedMs = pressedMs;
                 }
                 observedHoldThreshold = true;
             }
@@ -634,14 +650,23 @@ static async Task<int> WatchClearGestureAsync(
                 {
                     Console.WriteLine(
                         $"CLEAR_GESTURE_WINDOW_REFRESHED index={index} remaining_ms={pairingRemainingMs} min_ms={refreshedWindowMinMillis}");
+                    refreshedWindowIndex = index;
+                    refreshedWindowRemainingMs = pairingRemainingMs;
                 }
                 observedRefreshedWindow = true;
+            }
+
+            if (observedHoldThreshold && observedRefreshedWindow && !reportedClearEffectObserved)
+            {
+                Console.WriteLine(
+                    $"CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED hold_index={holdThresholdIndex} hold_pressed_ms={holdThresholdPressedMs} refreshed_index={refreshedWindowIndex} refreshed_remaining_ms={refreshedWindowRemainingMs} waiting_for_release={!observedReleasedAfterHold}");
+                reportedClearEffectObserved = true;
             }
 
             if (observedHoldThreshold && observedRefreshedWindow && observedReleasedAfterHold)
             {
                 Console.WriteLine(
-                    $"CLEAR_GESTURE_RESULT success=True released_before_press={observedReleased} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold}");
+                    $"CLEAR_GESTURE_RESULT success=True released_before_press={observedReleased} released_index={releasedIndex} pressed_after_release={observedPressedAfterRelease} pressed_index={pressedAfterReleaseIndex} hold_threshold={observedHoldThreshold} hold_index={holdThresholdIndex} hold_pressed_ms={holdThresholdPressedMs} refreshed_window={observedRefreshedWindow} refreshed_index={refreshedWindowIndex} refreshed_remaining_ms={refreshedWindowRemainingMs} released_after_hold={observedReleasedAfterHold} release_after_hold_index={releasedAfterHoldIndex}");
                 return 0;
             }
 
@@ -653,8 +678,13 @@ static async Task<int> WatchClearGestureAsync(
         connection.Dispose();
     }
 
+    if (observedHoldThreshold && observedRefreshedWindow && !observedReleasedAfterHold)
+    {
+        Console.WriteLine(
+            $"CLEAR_GESTURE_RELEASE_DIAGNOSTIC_MISSING released_before_press={observedReleased} released_index={releasedIndex} pressed_after_release={observedPressedAfterRelease} pressed_index={pressedAfterReleaseIndex} hold_index={holdThresholdIndex} hold_pressed_ms={holdThresholdPressedMs} refreshed_index={refreshedWindowIndex} refreshed_remaining_ms={refreshedWindowRemainingMs} latest_pairing={DecodeNullablePairing(latest?.Pairing)} latest_boot={DecodeNullableBootButton(latest?.BootButton)} latest_pressed_ms={latest?.BootPressedMs} latest_remaining_ms={latest?.PairingRemainingMs}");
+    }
     Console.WriteLine(
-        $"CLEAR_GESTURE_RESULT success=False released_before_press={observedReleased} pressed_after_release={observedPressedAfterRelease} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold} latest_pairing={DecodeNullablePairing(latest?.Pairing)} latest_boot={DecodeNullableBootButton(latest?.BootButton)} latest_pressed_ms={latest?.BootPressedMs} latest_remaining_ms={latest?.PairingRemainingMs}");
+        $"CLEAR_GESTURE_RESULT success=False released_before_press={observedReleased} released_index={releasedIndex} pressed_after_release={observedPressedAfterRelease} pressed_index={pressedAfterReleaseIndex} hold_threshold={observedHoldThreshold} hold_index={holdThresholdIndex} hold_pressed_ms={holdThresholdPressedMs} refreshed_window={observedRefreshedWindow} refreshed_index={refreshedWindowIndex} refreshed_remaining_ms={refreshedWindowRemainingMs} released_after_hold={observedReleasedAfterHold} release_after_hold_index={releasedAfterHoldIndex} latest_pairing={DecodeNullablePairing(latest?.Pairing)} latest_boot={DecodeNullableBootButton(latest?.BootButton)} latest_pressed_ms={latest?.BootPressedMs} latest_remaining_ms={latest?.PairingRemainingMs}");
     return 6;
 }
 

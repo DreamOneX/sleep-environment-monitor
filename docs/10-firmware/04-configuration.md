@@ -96,7 +96,9 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   embedded inside
   upload or storage task logic.
 - Keep BOOT / IO9 pairing-window timing in config and keep the pin input-only
-  with no internal pull resistor.
+  with no internal pull resistor. Phase 24R also keeps the runtime BLE
+  auth-record clear hold duration in config: about 8 seconds of BOOT / IO9 hold
+  after firmware boot clears saved BLE authorization records.
 - Keep LED policy timing in config: red LED2 boot/reset fast flash, red LED2
   heartbeat, blue LED3 normal status blink cadence, blue LED3 180 second
   post-boot BLE status window, and blue LED3 10 second BOOT / IO9-triggered
@@ -106,7 +108,8 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   auto-pair-on-auth-record-reset switch in config. A version mismatch,
   compatibility-checksum mismatch, missing/invalid header, invalid records, or
   empty record set may open the temporary authorization window on boot when the
-  switch is enabled.
+  switch is enabled. The runtime clear gesture erases the same BLE auth sector
+  and relies on that startup policy after the next boot.
 - Keep GATT fragment-size policy values in config. BLE transfer timeout policy
   values are not currently implemented as config entries.
 - Keep project GATT protocol constants in the BLE protocol module, not in

@@ -2086,6 +2086,72 @@ Phase 24Q commit message:
 feat: add BLE auth persistence compile path
 ```
 
+## Phase 24R: BLE Saved-Bond Validation And Auth Clear Gesture
+
+Phase 24R adds saved-bond validation tooling, validates the first Windows
+saved-bond restore path on hardware, and adds a documented user operation to
+clear saved BLE authorization records. It does not accept full Phase 24
+completion until the remaining auth-sector erase/update behavior, BOOT
+download-mode preservation, LED3 visual behavior, and live Wi-Fi/BLE ACK race
+checks are observed.
+
+Phase 24R scope:
+
+- Keep the default Wi-Fi firmware path unchanged and keep BLE disabled unless
+  `ble-upload` is enabled.
+- Add `tools/ble-watch scan-read-metadata-now`, which connects and requests
+  protected metadata without waiting for the BOOT / IO9 temporary authorization
+  window. Use `expect-success` after saved bond restore is expected and
+  `expect-reject` after saved BLE authorization records are cleared.
+- Make `ble-watch` print the Windows central pairing state for
+  connection-oriented validation commands.
+- Add a runtime-only BOOT / IO9 saved-auth clearing gesture: about 2 seconds
+  still opens the temporary authorization window; continuing the same hold to
+  about 8 seconds clears the saved BLE authorization sector and reopens the
+  window.
+- Keep BOOT / IO9 input-only with no internal pull resistor.
+- Preserve BOOT / IO9 reset or power-on download-mode behavior. The clear
+  gesture is only a runtime gesture after firmware has booted.
+- Preserve measurement spool flash format and measurement JSON payload shape.
+- Validate the Windows central saved-bond path: first pairing, BLE auth-sector
+  write after `PairingComplete`, reboot restore of one saved authorization
+  record, and encrypted `no-pair` metadata access through the saved bond.
+- Do not treat this slice as proof that phone/gateway interoperability,
+  unauthorized rejection after clearing, runtime clear erase behavior,
+  version/checksum reset behavior, BOOT download-mode preservation, live
+  Wi-Fi/BLE ACK race behavior, or LED3 visual behavior is hardware-validated.
+
+Phase 24R verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+Phase 24R flash notes:
+
+- No flash is required for compile/tool validation.
+- Hardware validation with the BLE+Wi-Fi build flashes the app image region.
+- Pairing and saved-bond validation may write the BLE auth metadata sector
+  `0x003bf000..0x003c0000`.
+- The runtime clear gesture erases the BLE auth metadata sector
+  `0x003bf000..0x003c0000`.
+- BLE ACK/drain checks may write or erase the measurement spool
+  `0x003c0000..0x00400000` through `storage_task`.
+
+Phase 24R commit message:
+
+```text
+test: validate BLE saved bond restore
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2123,6 +2189,10 @@ feat: add BLE auth persistence compile path
 - Use BOOT / IO9 only as a runtime input for a future pairing or authorization
   gesture.
 - Preserve BOOT / IO9 download-mode behavior during reset or power-on.
+- Provide and validate a user operation to clear saved BLE authorization
+  records. The current Phase 24R operation is a runtime BOOT / IO9 hold of
+  about 8 seconds after firmware boot, which erases
+  `0x003bf000..0x003c0000` and reopens the temporary authorization window.
 - Bound BLE ownership of LED3 so status is visible without turning LED3 into a
   permanent ambiguous indicator: after boot, LED3 must represent BLE status for
   the first 180 seconds; after any BOOT / IO9 press or BLE pairing trigger,
@@ -2148,6 +2218,7 @@ Add hardware-independent tests for:
 - BLE authorization metadata header parsing and auto-pair policy.
 - BLE authorization record encode/load/store/clear behavior and version /
   checksum auto-pair policy.
+- Runtime BOOT / IO9 auth-record clear gesture timing.
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing as hardware-independent logic.
 

@@ -291,7 +291,7 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     if !spawn_task(
         &spawner,
-        ble_pairing_task(boot_button, &BLE_LED_PAIRING_STATUS),
+        ble_pairing_task(boot_button, &BLE_LED_PAIRING_STATUS, ble_auth_workspace),
         "ble-pairing",
     ) {
         warn!("BLE pairing task spawn failed; BOOT/IO9 pairing window disabled");

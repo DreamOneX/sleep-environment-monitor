@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Devices.Enumeration;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Foundation;
 using Windows.Storage.Streams;
@@ -33,6 +34,26 @@ if (args.Length > 0 && string.Equals(args[0], "scan-closed-window", StringCompar
         projectUuidWindows,
         metadataUuidWindows,
         fragmentUuidWindows,
+        controlUuidWindows);
+}
+
+if (args.Length > 0 && string.Equals(args[0], "scan-read-metadata-now", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var expectation = args.Length > 3 ? args[3] : "expect-success";
+    var pairMode = args.Length > 4 ? args[4] : "auto-pair";
+    return await ScanThenReadMetadataNowAsync(
+        scanSeconds,
+        scanTargetName,
+        expectation,
+        pairMode,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
         controlUuidWindows);
 }
 
@@ -288,6 +309,7 @@ static async Task<int> ReadStatusAsync(
     }
 
     Console.WriteLine($"DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
+    PrintPairingState(device, "READ_STATUS");
 
     var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
     Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
@@ -456,6 +478,7 @@ static async Task<int> CheckClosedWindowAsync(
         Console.WriteLine("DEVICE_NOT_FOUND");
         return 2;
     }
+    PrintPairingState(device, "CLOSED_WINDOW");
 
     var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
     Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
@@ -499,17 +522,134 @@ static async Task<int> CheckClosedWindowAsync(
             $"CLOSED_CONTROL_WRITE exception=0x{error.HResult:x8} frame={Convert.ToHexString(controlFrame)}");
     }
 
-    var metadataRejected = metadataRead.Status == GattCommunicationStatus.ProtocolError &&
-        metadataRead.ProtocolError == 0x08;
-    var fragmentRejected = fragmentRead.Status == GattCommunicationStatus.ProtocolError &&
-        fragmentRead.ProtocolError == 0x08;
-    var controlRejected = controlWrite == GattCommunicationStatus.ProtocolError ||
-        controlExceptionHResult == unchecked((int)0x80650008);
+    var metadataRejected = IsProtectedReadStatusRejected(metadataRead.Status, metadataRead.ProtocolError);
+    var fragmentRejected = IsProtectedReadStatusRejected(fragmentRead.Status, fragmentRead.ProtocolError);
+    var controlRejected = IsProtectedWriteRejected(controlWrite, controlExceptionHResult);
 
     Console.WriteLine(
         $"CLOSED_WINDOW_RESULT metadata_rejected={metadataRejected} fragment_rejected={fragmentRejected} control_rejected={controlRejected}");
 
     return metadataRejected && fragmentRejected && controlRejected ? 0 : 8;
+}
+
+static async Task<int> ScanThenReadMetadataNowAsync(
+    int seconds,
+    string targetName,
+    string expectation,
+    string pairMode,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid controlUuid)
+{
+    var expectSuccess = string.Equals(expectation, "expect-success", StringComparison.OrdinalIgnoreCase);
+    var expectReject = string.Equals(expectation, "expect-reject", StringComparison.OrdinalIgnoreCase);
+    var allowPair = string.Equals(pairMode, "auto-pair", StringComparison.OrdinalIgnoreCase);
+    var skipPair = string.Equals(pairMode, "no-pair", StringComparison.OrdinalIgnoreCase);
+    if (!expectSuccess && !expectReject)
+    {
+        Console.Error.WriteLine(
+            "usage: scan-read-metadata-now [scan-seconds] [name] [expect-success|expect-reject] [auto-pair|no-pair]");
+        return 64;
+    }
+    if (!allowPair && !skipPair)
+    {
+        Console.Error.WriteLine(
+            "usage: scan-read-metadata-now [scan-seconds] [name] [expect-success|expect-reject] [auto-pair|no-pair]");
+        return 64;
+    }
+
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    return await ReadMetadataNowAsync(
+        found.Address,
+        found.AddressType,
+        expectSuccess,
+        allowPair,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        controlUuid);
+}
+
+static async Task<int> ReadMetadataNowAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    bool expectSuccess,
+    bool allowPair,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid controlUuid)
+{
+    const string label = "METADATA_NOW";
+    Console.WriteLine(
+        $"{label}_CONNECT address={FormatAddress(address)} address_type={addressType} expect_success={expectSuccess} allow_pair={allowPair}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return 2;
+    }
+    PrintPairingState(device, label);
+    if (expectSuccess && allowPair && !await EnsurePairedAsync(device, label))
+    {
+        Console.WriteLine(
+            $"{label}_RESULT success=False metadata_success=False rejected=False phase=pair");
+        return 5;
+    }
+
+    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
+    Console.WriteLine(
+        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return 3;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || control is null)
+    {
+        return 4;
+    }
+
+    _ = await ReadStatusSnapshotAsync(status, $"{label}_INITIAL");
+
+    var requestMetadata = EncodeControlFrame(1, 0, 0, 0);
+    var writeSucceeded = await WriteControlAsync(control, $"{label}_REQUEST_METADATA", requestMetadata);
+    if (!writeSucceeded)
+    {
+        Console.WriteLine(
+            $"{label}_RESULT success={!expectSuccess} metadata_success=False rejected=True phase=control_write");
+        return expectSuccess ? 5 : 0;
+    }
+
+    var metadataRead = await ReadProtectedCharacteristicAsync(metadata, $"{label}_METADATA");
+    var recordMetadata = default(RecordMetadata);
+    var metadataSucceeded = metadataRead.Status == GattCommunicationStatus.Success &&
+        metadataRead.Bytes is { } metadataBytes &&
+        TryDecodeMetadata(metadataBytes, out recordMetadata);
+    var rejected = !metadataSucceeded && IsProtectedReadResultRejected(metadataRead);
+
+    if (metadataSucceeded)
+    {
+        Console.WriteLine(
+            $"{label}_METADATA_DECODED version={recordMetadata.Version} sequence={recordMetadata.Sequence} payload_len={recordMetadata.PayloadLength} flags=0x{recordMetadata.Flags:x2} crc32=0x{recordMetadata.Crc32:x8} current_boot={recordMetadata.CurrentBoot}");
+    }
+
+    var accepted = expectSuccess ? metadataSucceeded : rejected;
+    Console.WriteLine(
+        $"{label}_RESULT success={accepted} metadata_success={metadataSucceeded} rejected={rejected} expect_success={expectSuccess}");
+    return accepted ? 0 : 6;
 }
 
 static async Task<GattCharacteristic?> GetCharacteristicAsync(
@@ -1870,6 +2010,131 @@ static byte[] BufferToBytes(IBuffer buffer)
     return bytes;
 }
 
+static void PrintPairingState(BluetoothLEDevice device, string label)
+{
+    try
+    {
+        var pairing = device.DeviceInformation.Pairing;
+        Console.WriteLine(
+            $"{label}_PAIRING is_paired={pairing.IsPaired} can_pair={pairing.CanPair} protection_level={pairing.ProtectionLevel}");
+    }
+    catch (Exception error)
+    {
+        Console.WriteLine($"{label}_PAIRING_ERROR type={error.GetType().Name} message={error.Message}");
+    }
+}
+
+static async Task<bool> EnsurePairedAsync(BluetoothLEDevice device, string label)
+{
+    try
+    {
+        var pairing = device.DeviceInformation.Pairing;
+        if (pairing.IsPaired)
+        {
+            Console.WriteLine($"{label}_PAIR already_paired=True");
+            return true;
+        }
+        if (!pairing.CanPair)
+        {
+            Console.WriteLine($"{label}_PAIR can_pair=False");
+            return false;
+        }
+
+        if (await TryCustomConfirmOnlyPairAsync(pairing.Custom, label))
+        {
+            PrintPairingState(device, $"{label}_PAIR_AFTER");
+            return true;
+        }
+
+        Console.WriteLine($"{label}_PAIR_FALLBACK_REQUEST protection_level=Encryption");
+        var result = await pairing.PairAsync(DevicePairingProtectionLevel.Encryption);
+        Console.WriteLine(
+            $"{label}_PAIR_FALLBACK_RESULT status={result.Status} protection_level={result.ProtectionLevelUsed}");
+        PrintPairingState(device, $"{label}_PAIR_AFTER");
+        return IsPairedResult(result.Status) || device.DeviceInformation.Pairing.IsPaired;
+    }
+    catch (Exception error)
+    {
+        Console.WriteLine($"{label}_PAIR_ERROR type={error.GetType().Name} message={error.Message}");
+        return false;
+    }
+}
+
+static async Task<bool> TryCustomConfirmOnlyPairAsync(
+    DeviceInformationCustomPairing customPairing,
+    string label)
+{
+    TypedEventHandler<DeviceInformationCustomPairing, DevicePairingRequestedEventArgs> handler =
+        (_, eventArgs) =>
+        {
+            Console.WriteLine($"{label}_PAIR_REQUESTED kind={eventArgs.PairingKind}");
+            if (eventArgs.PairingKind == DevicePairingKinds.ConfirmOnly)
+            {
+                eventArgs.Accept();
+                Console.WriteLine($"{label}_PAIR_REQUEST_ACCEPTED kind={eventArgs.PairingKind}");
+            }
+        };
+
+    customPairing.PairingRequested += handler;
+    try
+    {
+        Console.WriteLine($"{label}_PAIR_CUSTOM_REQUEST kinds=ConfirmOnly protection_level=Encryption");
+        var result = await customPairing.PairAsync(
+            DevicePairingKinds.ConfirmOnly,
+            DevicePairingProtectionLevel.Encryption);
+        Console.WriteLine(
+            $"{label}_PAIR_CUSTOM_RESULT status={result.Status} protection_level={result.ProtectionLevelUsed}");
+        return IsPairedResult(result.Status);
+    }
+    catch (Exception error)
+    {
+        Console.WriteLine($"{label}_PAIR_CUSTOM_ERROR type={error.GetType().Name} message={error.Message}");
+        return false;
+    }
+    finally
+    {
+        customPairing.PairingRequested -= handler;
+    }
+}
+
+static bool IsPairedResult(DevicePairingResultStatus status) =>
+    status is DevicePairingResultStatus.Paired or DevicePairingResultStatus.AlreadyPaired;
+
+static async Task<ProtectedReadResult> ReadProtectedCharacteristicAsync(
+    GattCharacteristic characteristic,
+    string label)
+{
+    var read = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
+    Console.WriteLine($"{label}_READ status={read.Status} protocol_error=0x{read.ProtocolError:x}");
+    if (read.Status != GattCommunicationStatus.Success)
+    {
+        return new ProtectedReadResult(read.Status, read.ProtocolError, null);
+    }
+
+    var bytes = BufferToBytes(read.Value);
+    Console.WriteLine($"{label}_BYTES len={bytes.Length} hex={Convert.ToHexString(bytes)}");
+    return new ProtectedReadResult(read.Status, read.ProtocolError, bytes);
+}
+
+static bool IsProtectedReadResultRejected(ProtectedReadResult result) =>
+    IsProtectedReadStatusRejected(result.Status, result.ProtocolError);
+
+static bool IsProtectedReadStatusRejected(GattCommunicationStatus status, byte? protocolError) =>
+    status == GattCommunicationStatus.AccessDenied ||
+    (status == GattCommunicationStatus.ProtocolError && IsProtectedAttError(protocolError));
+
+static bool IsProtectedWriteRejected(GattCommunicationStatus? status, int? exceptionHResult) =>
+    status == GattCommunicationStatus.AccessDenied ||
+    status == GattCommunicationStatus.ProtocolError ||
+    exceptionHResult is { } hresult && IsProtectedHResult(hresult);
+
+static bool IsProtectedAttError(byte? protocolError) => protocolError is 0x05 or 0x08 or 0x0f;
+
+static bool IsProtectedHResult(int hresult) =>
+    hresult == unchecked((int)0x80650005) ||
+    hresult == unchecked((int)0x80650008) ||
+    hresult == unchecked((int)0x8065000f);
+
 static string DecodeRuntime(byte value) => value switch
 {
     0 => "Disabled",
@@ -1999,6 +2264,11 @@ internal readonly record struct DrainRecordsResult(
     IReadOnlyList<ulong> Sequences,
     StatusSnapshot? InitialStatus,
     StatusSnapshot? FinalStatus);
+
+internal readonly record struct ProtectedReadResult(
+    GattCommunicationStatus Status,
+    byte? ProtocolError,
+    byte[]? Bytes);
 
 internal readonly record struct StatusSnapshot(
     byte Version,

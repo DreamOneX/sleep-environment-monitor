@@ -25,6 +25,13 @@ Common commands:
 # Confirm closed-window record access is rejected.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-closed-window 30 sleep-env-esp32c3
 
+# Directly request protected metadata without waiting for the BOOT / IO9
+# authorization window. Use expect-success after saved bonding is validated;
+# use expect-reject after clearing saved BLE authorization records.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
+
 # Wait for pairing window, transfer a full record, and do not ACK storage.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
 
@@ -50,7 +57,8 @@ Common commands:
 ```
 
 The tool prints Windows-observed UUIDs and raw binary status/metadata/fragment
-frames. `scan-transfer-record` first polls the status characteristic until the
+frames. It also prints Windows pairing state for commands that connect to the
+device. `scan-transfer-record` first polls the status characteristic until the
 BOOT / IO9 pairing window is open, then requests metadata and fragments.
 `scan-transfer-record-notify` also subscribes to fragment notifications and
 requires each requested fragment notification to match the subsequently read
@@ -58,6 +66,11 @@ fragment.
 `scan-drain-then-disconnect-preserves-record` drains records first so the
 disconnect-preservation check is not confused by full-spool drop-oldest
 behavior.
+`scan-read-metadata-now` does not wait for the BOOT / IO9 window. `auto-pair`
+uses Windows Custom Pairing with ConfirmOnly acceptance for first saved-bond
+validation. `no-pair` skips pairing and is intended for reboot restore
+validation or rejection validation after saved authorization records are
+cleared.
 
 Manual transfer flow:
 
@@ -74,9 +87,17 @@ state to `Released/pressed_ms=0` before another manual run. When the tool sees
 that expired-held state, it prints `PAIRING_HELD_AFTER_EXPIRED` and exits
 instead of waiting for the full pairing timeout.
 
+Runtime BLE auth clearing flow:
+
+1. Hold BOOT / IO9 after firmware has booted.
+2. About 2 seconds opens the temporary authorization window.
+3. Continue holding until about 8 seconds to request BLE auth-record clearing.
+4. Release BOOT / IO9 after firmware logs the clear or after the tool observes
+   the reopened pairing window.
+
 For `ack`, `scan-ack-then-peek-next`, or
 `scan-drain-then-disconnect-preserves-record` mode, declare the flash range
 before running hardware validation: the firmware may write or erase the
 measurement spool region `0x003c0000..0x00400000` through `storage_task`.
-These commands do not deliberately write the BLE auth metadata sector
-`0x003bf000..0x003c0000`.
+Pairing, saved-bond restore validation, and the runtime clear gesture may write
+or erase the BLE auth metadata sector `0x003bf000..0x003c0000`.

@@ -345,6 +345,17 @@ Current firmware uses LED2 as the red heartbeat indicator and LED3 as the blue
 status/BLE indicator. LED1 is tied directly to the 3.3 V rail and cannot be
 controlled by firmware.
 
+LED policy tracked for Phase 24:
+
+- LED2 stays the red heartbeat indicator on IO0. Firmware may fast-flash it
+  briefly after boot/reset before the steady heartbeat.
+- LED3 is the blue combined status/BLE indicator on IO1. During BLE indication
+  windows it fast-blinks for an open pairing/authorization window and
+  slow-blinks for BLE advertising, connecting, or connected state.
+- LED3 BLE indication is time-bounded: first 180 seconds after BLE-enabled
+  boot, at least 10 seconds after a runtime BOOT / IO9 press or BLE trigger,
+  and the full open pairing/authorization window when that is longer.
+
 ---
 
 ## Debug / Expansion Headers

@@ -1,11 +1,11 @@
 # Handoff
 
-Last updated: 2026-05-24.
+Last updated: 2026-05-25.
 
 ## Current State
 
-Phase 24Q is implemented in the current working tree, with compile/unit
-verification refreshed in this handoff. Phase 24 is not complete yet.
+Phase 24R is implemented and partially hardware-validated in the current
+working tree. Phase 24 is not complete yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
 current LED status boundary:
@@ -20,31 +20,45 @@ current LED status boundary:
 - Firmware keeps LED2 as heartbeat with a short boot/reset fast-flash and uses
   LED3 as normal status plus time-bounded BLE status overlay.
 
-Phase 24Q adds a compile-validated BLE security and authorization-record
-persistence path:
+Phase 24Q added a compile-validated BLE security and authorization-record
+persistence path. Phase 24R then validated the first Windows saved-bond restore
+path on hardware and added a runtime saved-auth clear gesture:
 
 - `firmware/src/storage/ble_auth.rs` now models fixed-size BLE auth records
   with identity address, LTK, optional IRK, security level, bonded flag, record
   CRC, record-set checksum, version policy, load/store/clear helpers, and pure
   tests.
 - `firmware/src/tasks/ble.rs` seeds TrouBLE security from TRNG, restores saved
-  bond records before host build, requests encryption when a pairing window or
-  saved auth exists, requires encrypted matching saved auth outside the BOOT /
-  IO9 window, and stores a bond record on `PairingComplete`.
-- This is a compile/static milestone only for saved pairing. No hardware
-  pairing, reboot restore, phone/gateway interoperability, or BLE auth-sector
-  write/erase/update validation has been run for Phase 24Q.
+  bond records before host build, proactively requests security only while the
+  BOOT / IO9 pairing window is open, requires encrypted matching saved auth
+  outside the BOOT / IO9 window, and stores a bond record on
+  `PairingComplete`.
+- `tools/ble-watch` now includes `scan-read-metadata-now`, Windows Custom
+  ConfirmOnly pairing, Windows pairing-state logging, and `no-pair` mode.
+- Runtime BOOT / IO9 handling keeps the 2 second authorization-window gesture
+  and adds an 8 second saved-auth clear gesture that erases
+  `0x003bf000..0x003c0000` and reopens the temporary window.
+- Hardware validation confirmed Windows pairing, BLE auth-sector write after
+  `PairingComplete`, reboot restore of one saved authorization record, and
+  encrypted metadata access with `scan-read-metadata-now ... expect-success
+  no-pair`.
 
-No firmware image was flashed during this handoff state.
+Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
+build using `probe-rs` through the ESP JTAG interface. Before flashing, the
+declared ranges were:
 
 Important flash ranges:
 
-- BLE auth metadata sector: `0x003bf000..0x003c0000`. Current target code can
-  write/erase this sector when BLE-enabled firmware receives
-  `PairingComplete { bond: Some(..) }`, but this handoff did not deliberately
-  exercise that range.
+- App firmware region: approximately `0x00010000..0x003bf000`.
+- BLE auth metadata sector: `0x003bf000..0x003c0000`. Phase 24R deliberately
+  exercised a write to this sector through `PairingComplete` and restored one
+  saved record after reboot. The runtime clear erase path is implemented but
+  was not observed on hardware because BOOT / IO9 stayed reported as released
+  during the clear-gesture watch runs.
 - Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
   exercise normal spool writes/erases through `storage_task` in this range.
+  During the long Phase 24R runtime, the storage task continued appending and
+  dropping oldest records as the spool filled.
 
 Before any future flash-write validation, state the exact range being
 exercised.
@@ -63,25 +77,26 @@ exercised.
   to the LED3 status task, and wires BLE runtime/pairing signals into LED3.
 - `firmware/src/tasks/ble.rs` publishes BLE runtime and pairing status for the
   LED overlay, owns the BLE security compile path, and stores/loads BLE auth
-  records through the reserved auth sector.
+  records through the reserved auth sector. It also clears the saved auth
+  sector on the 8 second runtime BOOT / IO9 gesture.
 - `firmware/src/bin/main.rs` obtains a BLE security seed from TRNG before
   reusing ADC1 for the microphone path.
-- Documentation records Phase 24P hardware evidence, Phase 24Q compile
-  evidence, current LED mapping, and the remaining Phase 24 validation gaps.
+- Documentation records Phase 24P storage-transfer evidence, Phase 24R
+  saved-bond restore evidence, current LED mapping, and the remaining Phase 24
+  validation gaps.
 
-The hardware-validated BLE authorization path is still the temporary BOOT /
-IO9 window. Saved BLE pairing records now have a target compile path, but they
-are not accepted as hardware-validated behavior until pairing, flash
-write/erase/update, reboot restore, version/checksum reset, and user clearing
-are tested.
+The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
+window and the Windows saved-bond restore path. Phone/gateway interoperability,
+runtime saved-auth clearing, rejection after clearing, version/checksum reset,
+record replacement, and LED3 visual behavior remain unvalidated.
 
 ## Subagents
 
 Requested subagents completed or reported during this handoff:
 
-- Documentation/fact check: no high-severity current fact conflicts were found;
-  old "paired central" wording and old LED2 status wording were updated or
-  marked as historical where relevant.
+- Documentation/fact check: no high-severity current fact conflicts were found.
+  The important follow-up was to keep old "paired central" wording precise and
+  keep old LED2 status wording marked as historical where relevant.
 - Architecture file-tree/config update: directly updated
   `docs/10-firmware/00-architecture.md` with directory-first file tree and
   `config.rs` ownership details.
@@ -90,8 +105,9 @@ Requested subagents completed or reported during this handoff:
   avoid committing real passwords, mark WPA/mixed modes as legacy, and consider
   test/build-time validation for the default credential triple.
 - Duplicate-code check: Phase 24 should avoid broad refactors; Phase 25 should
-  first clean `tools/ble-watch` command/GATT/transfer duplication, then smaller
-  firmware storage/GATT status publishing duplication.
+  keep `docs/10-firmware/05-ble.md` as the BLE ACK/security rule authority,
+  keep LED overlay rules centralized, and split protocol/helper duplication
+  only after behavior is frozen.
 - `cfg(target_arch = "riscv32")` check: most cfgs are valid embedded/host-test
   boundaries; the real boundary debt is the large `tasks/ble.rs` module, which
   should be split in Phase 25 after behavior is frozen.
@@ -117,29 +133,28 @@ git diff --check
 
 Observed result:
 
-- `cargo test --lib`: `181 passed; 0 failed`.
+- `cargo test --lib`: `182 passed; 0 failed`.
 - Normal ESP32-C3 target build: passed.
 - BLE+Wi-Fi coexistence ESP32-C3 target build: passed.
 - Host clippy, normal target clippy, and BLE+coex target clippy: passed.
-- `tools/ble-watch` Windows .NET build was not rerun in Phase 24Q because no
-  C# tool code changed.
+- `tools/ble-watch` Windows .NET build: passed.
 - `git diff --check`: passed.
 
 Milestone commit message:
 
 ```text
-feat: add BLE auth persistence compile path
+test: validate BLE saved bond restore
 ```
 
 ## Remaining Phase 24 Work
 
 - Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
-- Validate real BLE pairing, saved bond restore across reboot, and rejected
-  unauthorized/unencrypted access on hardware.
-- Validate BLE auth metadata write/erase/update behavior, version/checksum
-  reset behavior, automatic pairing-window opening after auth-record reset, and
-  user clearing.
+- Validate phone/gateway interoperability beyond the Windows central.
+- Validate rejected unauthorized/unencrypted access after saved-auth clearing.
+- Validate BLE auth metadata erase/update behavior, version/checksum reset
+  behavior, automatic pairing-window opening after auth-record reset, record
+  replacement, and user clearing.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
   blink, advertising/connecting/connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.

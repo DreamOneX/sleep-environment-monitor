@@ -650,9 +650,13 @@ responsibilities:
   version-incompatible, or checksum-mismatched.
 - In `ble-upload` target builds, load structured BLE authorization records
   from the reserved auth sector, restore TrouBLE bond information before host
-  build, seed TrouBLE security from TRNG, require encryption for measurement
-  metadata/fragment/control access when saved records exist, and store a bond
-  record on `PairingComplete`.
+  build, seed TrouBLE security from TRNG, proactively request security only
+  while the BOOT / IO9 pairing window is open, require encryption for
+  measurement metadata/fragment/control access when saved records exist, and
+  store a bond record on `PairingComplete`.
+- Clear saved BLE authorization records from `0x003bf000..0x003c0000` after an
+  8 second runtime BOOT / IO9 hold, then reopen the temporary authorization
+  window.
 - Publish BLE runtime and pairing-window status to the LED status task so blue
   LED3 can show time-bounded BLE indications while red LED2 remains heartbeat.
 - Provide pure LED3 BLE timing and pattern helpers for the 180 second boot
@@ -661,13 +665,13 @@ responsibilities:
 
 Future runtime responsibilities:
 
-- Validate the current BLE pairing/security and authorization-record
-  persistence path on hardware, including pairing, reboot restore, rejected
-  unencrypted access, record replacement, version/checksum reset behavior, and
-  user-controlled clearing.
+- Validate the remaining BLE pairing/security and authorization-record paths on
+  hardware, including rejected access after clearing, record replacement,
+  version/checksum reset behavior, and user-controlled clearing. Phase 24R has
+  already validated the first Windows saved-bond write and reboot-restore path.
 - Validate remaining live Wi-Fi/BLE ACK race behavior, BOOT download-mode
-  preservation, BLE auth metadata write/erase/update behavior, persisted
-  authorization records, and LED3 hardware visual behavior.
+  preservation, BLE auth metadata erase/update behavior beyond the first saved
+  bond write, and LED3 hardware visual behavior.
 - Never write the measurement spool directly; use `storage_task` for all
   measurement append/peek/ACK behavior. BLE auth-sector writes are limited to
   the reserved `0x003bf000..0x003c0000` authorization record sector.
@@ -699,11 +703,14 @@ disconnect-before-Complete/ACK preservation after draining enough records to
 avoid full-spool drop-oldest interference. Phase 24P also compile-validates the
 LED3 BLE overlay path and adds pure timing/pattern tests. Phase 24Q
 compile-validates the TrouBLE security/bond-record persistence path and adds
-authorization record load/store tests.
-Live Wi-Fi/BLE ACK race behavior, BLE auth metadata write/erase behavior on
-hardware, saved-pairing persistence across reboot, LED3 BLE indication hardware
-behavior, and BOOT download-mode preservation still need future
-hardware/runtime validation.
+authorization record load/store tests. Phase 24R hardware-validates Windows
+Custom ConfirmOnly pairing, BLE auth-sector write after `PairingComplete`,
+startup restore of one saved authorization record after reboot, and encrypted
+`no-pair` metadata access through the saved bond.
+Live Wi-Fi/BLE ACK race behavior, BLE auth metadata erase/update behavior after
+the first bond write, rejection after saved-auth clearing, version/checksum
+reset behavior, LED3 BLE indication hardware behavior, and BOOT download-mode
+preservation still need future hardware/runtime validation.
 
 ---
 

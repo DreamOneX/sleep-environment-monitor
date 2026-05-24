@@ -604,24 +604,29 @@ pub enum BlePairingEvent {
     None,
     WindowOpened,
     WindowExpired,
+    AuthRecordsClearRequested,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BlePairingGesture {
     hold_millis: u64,
+    clear_hold_millis: u64,
     window_millis: u64,
     pressed_millis: u64,
     opened_for_current_press: bool,
+    cleared_for_current_press: bool,
     state: BlePairingState,
 }
 
 impl BlePairingGesture {
-    pub const fn new(hold_millis: u64, window_millis: u64) -> Self {
+    pub const fn new(hold_millis: u64, clear_hold_millis: u64, window_millis: u64) -> Self {
         Self {
             hold_millis,
+            clear_hold_millis,
             window_millis,
             pressed_millis: 0,
             opened_for_current_press: false,
+            cleared_for_current_press: false,
             state: BlePairingState::Closed,
         }
     }
@@ -651,12 +656,20 @@ impl BlePairingGesture {
 
         if button_state.is_pressed() {
             self.pressed_millis = self.pressed_millis.saturating_add(elapsed_millis);
+            if self.clear_hold_millis > 0
+                && !self.cleared_for_current_press
+                && self.pressed_millis >= self.clear_hold_millis
+            {
+                self.cleared_for_current_press = true;
+                return BlePairingEvent::AuthRecordsClearRequested;
+            }
             if !self.opened_for_current_press && self.pressed_millis >= self.hold_millis {
                 return self.open_window();
             }
         } else {
             self.pressed_millis = 0;
             self.opened_for_current_press = false;
+            self.cleared_for_current_press = false;
         }
 
         if expired {
@@ -761,8 +774,8 @@ use crate::{
     drivers::flash::RomBleAuthFlash,
     storage::ble_auth::{
         AUTH_HEADER_LEN, AUTH_RECORD_LEN, BleAuthAddressKind, BleAuthRecord, BleAuthRecordStatus,
-        BleAuthSecurityLevel, load_auth_records, should_auto_open_pairing_window,
-        store_auth_records,
+        BleAuthSecurityLevel, clear_auth_records, load_auth_records,
+        should_auto_open_pairing_window, store_auth_records,
     },
     util::status::{BleLedPairingStatus, BleLedRuntimeState},
 };
@@ -1065,9 +1078,11 @@ pub async fn ble_task(
 pub async fn ble_pairing_task(
     boot_button: Input<'static>,
     led_pairing_status: &'static TaskSignal<BleLedPairingStatus>,
+    auth_workspace: &'static BleAuthWorkspace,
 ) {
     let mut pairing_gesture = BlePairingGesture::new(
         crate::config::ble::PAIRING_HOLD_MILLIS,
+        crate::config::ble::AUTH_CLEAR_HOLD_MILLIS,
         crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
     );
     if should_auto_open_pairing_window_on_boot() {
@@ -1087,8 +1102,13 @@ pub async fn ble_pairing_task(
             boot_button_state,
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         );
-        publish_pairing_snapshot(&pairing_gesture, boot_button_state, led_pairing_status).await;
         log_pairing_event(pairing_event, &pairing_gesture);
+        if matches!(pairing_event, BlePairingEvent::AuthRecordsClearRequested)
+            && clear_saved_ble_auth_records(auth_workspace).await
+        {
+            log_pairing_event(pairing_gesture.open_window(), &pairing_gesture);
+        }
+        publish_pairing_snapshot(&pairing_gesture, boot_button_state, led_pairing_status).await;
 
         Timer::after(Duration::from_millis(
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
@@ -1129,7 +1149,44 @@ fn log_pairing_event(pairing_event: BlePairingEvent, pairing_gesture: &BlePairin
             pairing_gesture.state().remaining_millis()
         ),
         BlePairingEvent::WindowExpired => info!("ble pairing window expired"),
+        BlePairingEvent::AuthRecordsClearRequested => info!(
+            "ble auth records clear requested pressed_ms={=u64}",
+            pairing_gesture.pressed_millis()
+        ),
         BlePairingEvent::None => {}
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn clear_saved_ble_auth_records(auth_workspace: &'static BleAuthWorkspace) -> bool {
+    let mut flash = match RomBleAuthFlash::new() {
+        Ok(flash) => flash,
+        Err(error) => {
+            warn!("ble auth flash init failed before clear error={:?}", error);
+            return false;
+        }
+    };
+    let offset = flash.absolute_offset();
+    let len = flash.len();
+    match clear_auth_records(&mut flash) {
+        Ok(()) => {
+            let mut workspace = auth_workspace.lock().await;
+            workspace.records = [BleAuthRecord::EMPTY; crate::config::ble::AUTH_RECORD_CAPACITY];
+            workspace.status = BleAuthRecordStatus::Missing;
+            workspace.record_count = 0;
+            info!(
+                "ble auth records cleared offset=0x{:08x} len={=usize}",
+                offset, len
+            );
+            true
+        }
+        Err(error) => {
+            warn!(
+                "ble auth records clear failed error={:?} offset=0x{:08x} len={=usize}",
+                error, offset, len
+            );
+            false
+        }
     }
 }
 
@@ -1619,22 +1676,16 @@ async fn gatt_advertise_loop(
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 async fn configure_ble_connection_security(
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
-    auth_workspace: &'static BleAuthWorkspace,
+    _auth_workspace: &'static BleAuthWorkspace,
 ) {
     let pairing_open = { BLE_PAIRING_STATE.lock().await.is_open() };
-    let has_saved_auth = {
-        let workspace = auth_workspace.lock().await;
-        matches!(workspace.status, BleAuthRecordStatus::Valid { .. }) && workspace.record_count > 0
-    };
     if let Err(error) = connection.raw().set_bondable(pairing_open) {
         warn!(
             "ble connection bondable configuration failed error={:?}",
             error
         );
     }
-    if (pairing_open || has_saved_auth)
-        && let Err(error) = connection.raw().request_security()
-    {
+    if pairing_open && let Err(error) = connection.raw().request_security() {
         warn!("ble security request failed error={:?}", error);
     }
 }
@@ -2544,7 +2595,7 @@ mod tests {
 
     #[test]
     fn pairing_gesture_ignores_short_press() {
-        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
 
         assert_eq!(
             gesture.update(BootButtonState::Pressed, 1_900),
@@ -2559,7 +2610,7 @@ mod tests {
 
     #[test]
     fn pairing_gesture_opens_window_after_long_press() {
-        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
 
         assert_eq!(
             gesture.update(BootButtonState::Pressed, 1_000),
@@ -2579,7 +2630,7 @@ mod tests {
 
     #[test]
     fn pairing_gesture_can_open_window_without_button_press() {
-        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
 
         assert_eq!(gesture.open_window(), BlePairingEvent::WindowOpened);
         assert_eq!(
@@ -2596,7 +2647,7 @@ mod tests {
 
     #[test]
     fn pairing_gesture_does_not_retrigger_until_button_released() {
-        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
 
         assert_eq!(
             gesture.update(BootButtonState::Pressed, 2_000),
@@ -2618,7 +2669,7 @@ mod tests {
 
     #[test]
     fn pairing_window_expires_after_configured_duration() {
-        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
 
         assert_eq!(
             gesture.update(BootButtonState::Pressed, 2_000),
@@ -2639,6 +2690,36 @@ mod tests {
             BlePairingEvent::WindowExpired
         );
         assert_eq!(gesture.state(), BlePairingState::Closed);
+    }
+
+    #[test]
+    fn pairing_gesture_requests_auth_record_clear_after_longer_hold_once() {
+        let mut gesture = BlePairingGesture::new(2_000, 8_000, 60_000);
+
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::WindowOpened
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 5_999),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 1),
+            BlePairingEvent::AuthRecordsClearRequested
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 8_000),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Released, 50),
+            BlePairingEvent::None
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 8_000),
+            BlePairingEvent::AuthRecordsClearRequested
+        );
     }
 
     #[test]

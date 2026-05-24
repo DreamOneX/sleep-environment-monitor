@@ -647,6 +647,8 @@ Scope:
 - Make `aggregator_task` submit merged measurements through `StorageCommand::Append`.
 - Make `uploader_task` request `StorageCommand::Peek`, upload the oldest pending CSV payload, and issue `StorageCommand::Ack` only after HTTP 2xx.
 - Add `ErrorFlags::STORAGE` and include it in LED2 status policy as a solid-on error state.
+  Later hardware clarification: current normal status and BLE indication belong
+  to blue LED3 on IO1; red LED2 on IO0 is heartbeat.
 - Keep storage flash access isolated to `storage_task`; sensor, microphone, aggregator, and uploader tasks do not write flash directly.
 - Keep the Phase 18B flash-spool write alignment changes: records and ACK entries are 4-byte aligned, and recovery scans with small fixed buffers instead of reading the whole spool region into stack memory.
 - Update [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md) with the implemented storage task protocol and persistent backlog data flow.
@@ -2612,3 +2614,113 @@ Remaining Phase 24 validation:
   behavior, automatic pairing-window opening after auth-record reset, and user
   clearing remain unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
+
+## Milestone 46: Phase 24R BLE Saved-Bond Restore Hardware Validation
+
+Phase 24R implementation and validation:
+
+- Added `scan-read-metadata-now` to [../../tools/ble-watch/](../../tools/ble-watch/)
+  for protected metadata access without waiting for the BOOT / IO9 temporary
+  authorization window.
+- Added Windows Custom ConfirmOnly pairing support, Windows pairing-state
+  logging, and `no-pair` mode to the BLE watch tool.
+- Added a runtime BOOT / IO9 saved-auth clearing gesture: about 2 seconds opens
+  the temporary authorization window, and about 8 seconds requests clearing the
+  BLE auth sector and reopens the window.
+- Changed BLE security startup so the firmware requests security proactively
+  only while the pairing window is open. Saved-bond reconnects rely on
+  encrypted measurement characteristics to trigger link encryption.
+- Kept LED facts documented: LED1 is the green 3.3 V power LED and is not
+  MCU-controlled; LED2 is the red heartbeat LED on IO0; LED3 is the blue
+  status/BLE LED on IO1.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+Observed validation results:
+
+- `cargo test --lib` passed with `182 passed; 0 failed`.
+- The normal ESP32-C3 target build passed.
+- The BLE+Wi-Fi coexistence ESP32-C3 target build passed.
+- Host clippy, normal target clippy, and BLE+coex target clippy passed.
+- The Windows .NET `tools/ble-watch` build passed.
+- `git diff --check` passed.
+
+Hardware validation setup and flash ranges:
+
+- Firmware was flashed with the BLE+Wi-Fi build through `probe-rs` JTAG using
+  the ESP JTAG device.
+- Declared flash ranges before flashing and validation:
+  - app firmware region: approximately `0x00010000..0x003bf000`;
+  - BLE auth metadata sector: `0x003bf000..0x003c0000`;
+  - measurement spool: `0x003c0000..0x00400000`.
+- The successful pairing path deliberately exercised a BLE auth-sector write
+  in `0x003bf000..0x003c0000`.
+- The runtime 8 second clear gesture did not exercise the BLE auth-sector erase
+  path on hardware in this milestone.
+- The measurement spool continued normal runtime appends and drop-oldest
+  behavior in `0x003c0000..0x00400000` during the long run.
+
+Observed saved-bond pairing and restore:
+
+- Initial startup reported missing BLE auth records and auto-opened the
+  temporary pairing window.
+- A first implicit encrypted GATT access without explicit Windows Custom
+  Pairing failed before the tool was updated.
+- After adding Custom ConfirmOnly pairing, `scan-read-metadata-now 30
+  sleep-env-esp32c3 expect-success` paired successfully, wrote the protected
+  metadata request successfully, and read metadata successfully.
+- Firmware RTT showed `Pairing method JustWorks`, `Link encrypted!`,
+  `ble pairing complete security_level=Encrypted bonded=true saved_bonds=1`,
+  and `ble auth bond stored count=1 offset=0x003bf000 len=4096`.
+- After reboot, startup reported
+  `ble auth records restored status=Valid { records_version: 1, record_count: 1 } loaded=1 restored=1`
+  and `auto_pair=false`.
+- `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair`
+  succeeded with Windows reporting `is_paired=True`, metadata write success,
+  metadata read success, and `METADATA_NOW_RESULT success=True`.
+- Firmware RTT showed the link encrypting through the saved bond and metadata
+  being prepared without requiring a new BOOT / IO9 authorization gesture.
+
+Observed non-passing hardware checks:
+
+- Runtime 8 second BOOT / IO9 saved-auth clearing was implemented but not
+  validated. Two `scan-watch-status` runs continued to report
+  `boot_button=Released pressed_ms=0`, and firmware RTT did not show the clear
+  requested or clear completed logs.
+- LED3 hardware visual behavior was not accepted in this milestone. The
+  firmware logic and docs still require future visual confirmation of pairing
+  fast blink, advertising/connecting/connected slow blink, the 180 second
+  post-boot BLE status window, and the 10 second BOOT / IO9-triggered BLE
+  status window.
+- BOOT / IO9 download-mode preservation was not validated.
+- Rejection after saved-auth clearing was not validated because the clear
+  gesture was not observed.
+- Version/checksum reset hardware behavior and record replacement behavior were
+  not validated.
+- Live Wi-Fi/BLE ACK race behavior was not validated. In the BLE+coex runtime,
+  Wi-Fi controller initialization failed with `error: 257`, so network and
+  uploader tasks were disabled during the observed run.
+
+Remaining Phase 24 validation:
+
+- Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
+- Validate BOOT / IO9 still enters download mode during reset or power-on.
+- Validate BLE auth metadata erase/update behavior beyond the observed first
+  bond write, including version/checksum reset behavior, automatic
+  pairing-window opening after auth-record reset, record replacement, and user
+  clearing.
+- Validate rejected unauthorized/unencrypted access after saved-auth clearing.
+- Validate phone/gateway interoperability beyond the Windows central.
+- Manually accept LED3 hardware visual behavior.

@@ -57,6 +57,41 @@ if (args.Length > 0 && string.Equals(args[0], "scan-read-metadata-now", StringCo
         controlUuidWindows);
 }
 
+if (args.Length > 0 && string.Equals(args[0], "scan-unpair", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    return await ScanThenUnpairAsync(
+        scanSeconds,
+        scanTargetName,
+        projectUuid,
+        projectUuidWindows);
+}
+
+if (args.Length > 0 && string.Equals(args[0], "scan-watch-clear-gesture", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var watchSeconds = args.Length > 3 && int.TryParse(args[3], out var parsedWatchSeconds)
+        ? parsedWatchSeconds
+        : 180;
+    var holdMillis = args.Length > 4 && uint.TryParse(args[4], out var parsedHoldMillis)
+        ? parsedHoldMillis
+        : 8_000u;
+    return await ScanThenWatchClearGestureAsync(
+        scanSeconds,
+        scanTargetName,
+        watchSeconds,
+        holdMillis,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows);
+}
+
 if (args.Length > 0 && string.Equals(args[0], "scan-transfer-record", StringComparison.OrdinalIgnoreCase))
 {
     var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
@@ -374,6 +409,82 @@ static async Task<int> ScanThenWatchStatusAsync(
     return await WatchStatusAsync(found.Address, found.AddressType, watchSeconds, serviceUuid, statusUuid);
 }
 
+static async Task<int> ScanThenUnpairAsync(
+    int scanSeconds,
+    string targetName,
+    Guid advertisementUuid,
+    Guid serviceUuid)
+{
+    var found = await ScanForTargetAsync(scanSeconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    return await UnpairAsync(found.Address, found.AddressType);
+}
+
+static async Task<int> UnpairAsync(
+    ulong address,
+    BluetoothAddressType addressType)
+{
+    const string label = "UNPAIR";
+    Console.WriteLine($"{label}_CONNECT address={FormatAddress(address)} address_type={addressType}");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return 2;
+    }
+
+    PrintPairingState(device, label);
+    var pairing = device.DeviceInformation.Pairing;
+    if (!pairing.IsPaired)
+    {
+        Console.WriteLine($"{label}_RESULT success=True already_unpaired=True");
+        return 0;
+    }
+
+    try
+    {
+        var result = await pairing.UnpairAsync();
+        Console.WriteLine($"{label}_RESULT status={result.Status}");
+        PrintPairingState(device, $"{label}_AFTER");
+        return result.Status == DeviceUnpairingResultStatus.Unpaired ? 0 : 3;
+    }
+    catch (Exception error)
+    {
+        Console.WriteLine($"{label}_ERROR type={error.GetType().Name} message={error.Message}");
+        return 4;
+    }
+}
+
+static async Task<int> ScanThenWatchClearGestureAsync(
+    int scanSeconds,
+    string targetName,
+    int watchSeconds,
+    uint holdMillis,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid)
+{
+    var found = await ScanForTargetAsync(scanSeconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    return await WatchClearGestureAsync(
+        found.Address,
+        found.AddressType,
+        watchSeconds,
+        holdMillis,
+        serviceUuid,
+        statusUuid);
+}
+
 static async Task<int> WatchStatusAsync(
     ulong address,
     BluetoothAddressType addressType,
@@ -429,6 +540,118 @@ static async Task<int> WatchStatusAsync(
     }
 
     return 0;
+}
+
+static async Task<int> WatchClearGestureAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    int watchSeconds,
+    uint holdMillis,
+    Guid serviceUuid,
+    Guid statusUuid)
+{
+    Console.WriteLine(
+        $"CLEAR_GESTURE_CONNECT address={FormatAddress(address)} address_type={addressType} seconds={watchSeconds} hold_ms={holdMillis}");
+    Console.WriteLine(
+        "CLEAR_GESTURE_OPERATOR action=release_boot_io9_until_released_then_hold_9_to_10_seconds_then_release");
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine("CLEAR_GESTURE_DEVICE_NOT_FOUND");
+        return 2;
+    }
+
+    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
+    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        return 3;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    if (status is null)
+    {
+        return 4;
+    }
+
+    var observedReleased = false;
+    var observedPressedAfterRelease = false;
+    var observedHoldThreshold = false;
+    var observedRefreshedWindow = false;
+    var observedReleasedAfterHold = false;
+    const uint refreshedWindowMinMillis = 55_000;
+    StatusSnapshot? latest = null;
+    var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(watchSeconds);
+    var index = 0;
+    while (DateTimeOffset.UtcNow < deadline)
+    {
+        index++;
+        var maybeSnapshot = await ReadStatusSnapshotAsync(status, $"CLEAR_GESTURE_{index}");
+        if (maybeSnapshot is null)
+        {
+            return 5;
+        }
+        var snapshot = maybeSnapshot.Value;
+        latest = snapshot;
+        var bootReleased = snapshot.BootButton == 0;
+        var bootPressed = snapshot.BootButton == 1;
+        var pressedMs = snapshot.BootPressedMs ?? 0;
+        var pairingOpen = snapshot.Pairing == 1;
+        var pairingRemainingMs = snapshot.PairingRemainingMs ?? 0;
+
+        if (bootReleased)
+        {
+            if (!observedReleased)
+            {
+                Console.WriteLine($"CLEAR_GESTURE_RELEASED index={index}");
+            }
+            observedReleased = true;
+            if (observedHoldThreshold)
+            {
+                observedReleasedAfterHold = true;
+            }
+        }
+        if (observedReleased && bootPressed)
+        {
+            if (!observedPressedAfterRelease)
+            {
+                Console.WriteLine($"CLEAR_GESTURE_PRESSED_AFTER_RELEASE index={index}");
+            }
+            observedPressedAfterRelease = true;
+        }
+        if (observedPressedAfterRelease && pressedMs >= holdMillis)
+        {
+            if (!observedHoldThreshold)
+            {
+                Console.WriteLine(
+                    $"CLEAR_GESTURE_HOLD_THRESHOLD index={index} pressed_ms={pressedMs}");
+            }
+            observedHoldThreshold = true;
+        }
+        if (observedHoldThreshold && pairingOpen && pairingRemainingMs >= refreshedWindowMinMillis)
+        {
+            if (!observedRefreshedWindow)
+            {
+                Console.WriteLine(
+                    $"CLEAR_GESTURE_WINDOW_REFRESHED index={index} remaining_ms={pairingRemainingMs} min_ms={refreshedWindowMinMillis}");
+            }
+            observedRefreshedWindow = true;
+        }
+
+        if (observedHoldThreshold && observedRefreshedWindow && observedReleasedAfterHold)
+        {
+            Console.WriteLine(
+                $"CLEAR_GESTURE_RESULT success=True released_before_press={observedReleased} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold}");
+            return 0;
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(1));
+    }
+
+    Console.WriteLine(
+        $"CLEAR_GESTURE_RESULT success=False released_before_press={observedReleased} pressed_after_release={observedPressedAfterRelease} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold} latest_pairing={DecodeNullablePairing(latest?.Pairing)} latest_boot={DecodeNullableBootButton(latest?.BootButton)} latest_pressed_ms={latest?.BootPressedMs} latest_remaining_ms={latest?.PairingRemainingMs}");
+    return 6;
 }
 
 static async Task DumpGattAsync(BluetoothLEDevice device)
@@ -2223,12 +2446,18 @@ static string DecodePairing(byte value) => value switch
     _ => $"Unknown({value})",
 };
 
+static string DecodeNullablePairing(byte? value) =>
+    value is { } actual ? DecodePairing(actual) : "Missing";
+
 static string DecodeBootButton(byte value) => value switch
 {
     0 => "Released",
     1 => "Pressed",
     _ => $"Unknown({value})",
 };
+
+static string DecodeNullableBootButton(byte? value) =>
+    value is { } actual ? DecodeBootButton(actual) : "Missing";
 
 internal sealed record AdvertisementRecord(
     DateTimeOffset Timestamp,

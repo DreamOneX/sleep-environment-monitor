@@ -21,11 +21,21 @@ evidence confirms the Windows saved-bond path:
 Phase 24 is still open because several runtime, visual, interoperability, and
 reset/erase paths have not been accepted on hardware.
 
+Windows Settings showing the board as paired but not connected is expected
+when `ble-watch` or another central application is not holding a GATT session.
+If Windows still reports paired while firmware rejects protected access after
+BLE auth records are cleared or reset, remove the Windows-side pairing with
+`scan-unpair` before re-pairing.
+
 ## Phase 24 Remaining Acceptance
 
 - [ ] Validate the runtime 8 second BOOT / IO9 saved-auth clear gesture after
   firmware boot. Expected effect: erase the BLE auth metadata sector
   `0x003bf000..0x003c0000` and reopen the temporary authorization window.
+  Use `scan-watch-clear-gesture` for delay-safe operator coordination, then
+  verify protected access rejection with
+  `scan-read-metadata-now ... expect-reject no-pair` after the temporary
+  window closes.
 - [ ] Manually accept LED3 visual behavior on hardware: pairing or
   authorization fast blink, advertising/connecting/connected slow blink, the
   180 second boot BLE status window, and the 10 second BOOT / IO9-triggered BLE

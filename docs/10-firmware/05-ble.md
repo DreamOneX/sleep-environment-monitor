@@ -297,6 +297,14 @@ implement a mobile app or gateway in Phase 24.
 The BLE central role only means "the device that connects to the board and
 consumes the GATT protocol." It does not change the firmware/server REST API.
 
+For the current Windows validation central, Windows Settings showing the board
+as paired but not connected is expected when no central application is holding a
+GATT session. The Phase 24 acceptance signal is `ble-watch` GATT access and
+status/record behavior, not the passive connected label in Windows Settings.
+If Windows still reports a saved pairing while firmware rejects protected GATT
+access after auth records were cleared or reset, treat it as a stale
+central-side bond and remove the Windows pairing record before re-pairing.
+
 ## Protocol Boundary
 
 Phase 24 uses a project-specific GATT service instead of a generic UART
@@ -372,7 +380,10 @@ press after boot. About 2 seconds opens the temporary authorization window.
 Continuing the same runtime hold to about 8 seconds requests clearing saved BLE
 authorization records, erasing `0x003bf000..0x003c0000` and reopening the
 temporary authorization window. A boot-time held button must continue to mean
-download mode, not BLE pairing or BLE record clearing.
+download mode, not BLE pairing or BLE record clearing. Older manual validation
+notes that say to hold BOOT / IO9 for 3 seconds mean only "hold long enough to
+cross the about-2-second threshold"; there is no 3 second firmware window. The
+temporary authorization window lasts about 60 seconds after it opens.
 
 ## Observable BLE Status
 

@@ -32,6 +32,13 @@ Common commands:
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
 
+# Remove the board pairing record from Windows before re-pairing.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+
+# Watch the status characteristic while the operator performs the runtime
+# BOOT / IO9 saved-auth clear gesture. This avoids relying on chat timing.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000
+
 # Wait for pairing window, transfer a full record, and do not ACK storage.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-transfer-record 30 sleep-env-esp32c3 no-ack 128
 
@@ -71,6 +78,12 @@ uses Windows Custom Pairing with ConfirmOnly acceptance for first saved-bond
 validation. `no-pair` skips pairing and is intended for reboot restore
 validation or rejection validation after saved authorization records are
 cleared.
+`scan-unpair` removes the Windows-side pairing record for the scanned board.
+Use it when Windows still reports the device as paired but the firmware has
+cleared or rejected the saved BLE authorization record. Windows Settings may
+show this custom GATT peripheral as paired but not connected when no central
+application such as `ble-watch` is holding a GATT session; that state alone is
+expected and is not a firmware connection failure.
 
 Manual transfer flow:
 
@@ -94,6 +107,25 @@ Runtime BLE auth clearing flow:
 3. Continue holding until about 8 seconds to request BLE auth-record clearing.
 4. Release BOOT / IO9 after firmware logs the clear or after the tool observes
    the reopened pairing window.
+
+Delay-safe clear validation flow:
+
+1. Start `scan-watch-clear-gesture`.
+2. During the watch window, release BOOT / IO9 until the tool can observe
+   `CLEAR_GESTURE_RELEASED`.
+3. Hold BOOT / IO9 for about 9 to 10 seconds.
+4. Release BOOT / IO9 after the hold. The command succeeds only after it has
+   observed release before the press, the 8 second hold threshold, a refreshed
+   near-full pairing window after that threshold, and release after the hold.
+
+After the clear gesture succeeds, wait for the temporary authorization window
+to close and run `scan-read-metadata-now ... expect-reject no-pair` to confirm
+the old saved authorization record no longer grants protected GATT access.
+
+The 3 second hold used in older manual transfer instructions is only an
+operator-side suggestion to exceed the firmware's about-2-second authorization
+threshold. It is not a 3 second firmware window. The temporary authorization
+window lasts about 60 seconds after it opens.
 
 For `ack`, `scan-ack-then-peek-next`, or
 `scan-drain-then-disconnect-preserves-record` mode, declare the flash range

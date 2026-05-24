@@ -37,7 +37,8 @@ path on hardware and added a runtime saved-auth clear gesture:
   outside the BOOT / IO9 window, and stores a bond record on
   `PairingComplete`.
 - `tools/ble-watch` now includes `scan-read-metadata-now`, Windows Custom
-  ConfirmOnly pairing, Windows pairing-state logging, and `no-pair` mode.
+  ConfirmOnly pairing, Windows pairing-state logging, `no-pair` mode,
+  `scan-unpair`, and `scan-watch-clear-gesture`.
 - Runtime BOOT / IO9 handling keeps the 2 second authorization-window gesture
   and adds an 8 second saved-auth clear gesture that erases
   `0x003bf000..0x003c0000` and reopens the temporary window.
@@ -89,9 +90,14 @@ exercised.
   validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
-window and the Windows saved-bond restore path. Phone/gateway interoperability,
-runtime saved-auth clearing, rejection after clearing, version/checksum reset,
-record replacement, and LED3 visual behavior remain unvalidated.
+window and the Windows saved-bond restore path. Windows Settings may show the
+custom GATT peripheral as paired but not connected when `ble-watch` is not
+holding a GATT session; that passive Settings label is not a Phase 24
+acceptance signal. If Windows still reports paired while firmware rejects
+protected access after an auth reset/clear, use `scan-unpair` before
+re-pairing. Phone/gateway interoperability, runtime saved-auth clearing,
+rejection after clearing, version/checksum reset, record replacement, and LED3
+visual behavior remain unvalidated.
 
 ## Subagents
 

@@ -40,7 +40,8 @@ feat: bring up minimal LED heartbeat firmware
 Scope:
 
 - Keep `main.rs` focused on clocks, GPIO setup, Embassy runtime startup, and one LED heartbeat task.
-- Add `tasks::led::heartbeat_task` for LED1.
+- Add `tasks::led::heartbeat_task` for LED1. Later hardware clarification: this
+  name was stale; the MCU heartbeat indicator is red LED2 on IO0.
 - Use active-low LED behavior: `LOW = on`, `HIGH = off`.
 - Remove early Wi-Fi initialization from the boot path so board bring-up can be validated before network work.
 
@@ -48,7 +49,9 @@ Expected manual check:
 
 - Flash the firmware to the ESP32-C3 board.
 - Confirm the board does not repeatedly reconnect over USB.
-- Confirm LED1 pulses once per second.
+- Confirm LED1 pulses once per second. Later hardware clarification: this is a
+  historical stale expectation; LED1 is the green 3.3 V power indicator and is
+  not MCU-controlled.
 - Confirm RESET still restarts the board.
 - Confirm BOOT still allows download mode.
 
@@ -59,6 +62,11 @@ cargo build
 cargo test --lib
 cargo build --target riscv32imc-unknown-none-elf
 ```
+
+Later hardware clarification: this milestone's LED1 heartbeat naming is a
+historical stale expectation. LED1 is the green power indicator tied to the
+3.3 V rail and is not MCU-controlled; the MCU heartbeat indicator is red LED2
+on IO0.
 
 ## Milestone 3: I2C Sensor Bring-Up
 
@@ -290,6 +298,10 @@ cargo build --target riscv32imc-unknown-none-elf
 cargo clippy --all-targets
 ```
 
+Later hardware clarification: normal firmware status and BLE status indication
+belong to blue LED3 on IO1. Red LED2 on IO0 is the heartbeat indicator, and
+green LED1 is tied to the 3.3 V rail.
+
 Hardware validation:
 
 - `python3 post_receiver.py` starts a local POST receiver on `0.0.0.0:8080`.
@@ -329,9 +341,13 @@ Phase 15: System Hardening
 
 Scope:
 
-- Add a LED2 status task driven by the existing `status_to_leds` mapping.
+- Add a LED2 status task driven by the existing `status_to_leds` mapping. Later
+  hardware clarification moved normal status/BLE indication to blue LED3 on
+  IO1; red LED2 on IO0 is heartbeat.
 - Publish latest measurement error flags from aggregation to the status task.
-- Fold upload failures into status error flags so upload errors are visible through LED2.
+- Fold upload failures into status error flags so upload errors are visible
+  through LED2. Later hardware clarification: current status indication belongs
+  to blue LED3.
 - Document the LED2 priority table and blink timing in [../10-firmware/00-architecture.md](../10-firmware/00-architecture.md).
 - Replace firmware startup `.expect` calls with logged failures and fallback status/sample signals where the firmware can continue.
 - Bound microphone ADC read retries so the microphone task cannot loop forever on repeated ADC failures.
@@ -2235,7 +2251,9 @@ Observed post-ACK recheck:
   pairing `Closed`, BOOT / IO9 `Released`, and `pressed_ms=0`.
 - No metadata read, fragment read, `CompleteRecord`, or BLE ACK occurred during
   those post-ACK recheck attempts.
-- Therefore, post-ACK oldest-record advancement remains unvalidated.
+- Therefore, post-ACK oldest-record advancement remained unvalidated in this
+  milestone. Milestone 44 / Phase 24P later validated post-ACK oldest-record
+  advancement with `scan-ack-then-peek-next`.
 
 Notes:
 
@@ -2308,9 +2326,11 @@ Observed disconnect-preservation attempt:
 - The command timed out with `PAIRING_TIMEOUT attempts=151`.
 - A follow-up status read still reported pairing `Closed`, BOOT / IO9
   `Pressed`, remaining `0 ms`, and `pressed_ms=200500`.
-- Therefore, disconnect preservation remains unvalidated. This attempt only
-  confirms the already documented no-retrigger behavior after an expired
-  continuous BOOT / IO9 press.
+- Therefore, disconnect preservation remained unvalidated in this milestone.
+  This attempt only confirms the already documented no-retrigger behavior after
+  an expired continuous BOOT / IO9 press. Milestone 44 / Phase 24P later
+  validated disconnect-before-Complete/ACK preservation after a drain
+  precondition.
 
 Notes:
 
@@ -2429,3 +2449,83 @@ Remaining Phase 24 validation:
 - Real persisted BLE bonding or equivalent authorization records remain future
   work.
 - BOOT / IO9 download-mode preservation remains unvalidated.
+
+## Milestone 44: Phase 24P BLE Disconnect Preservation And LED Status Boundary
+
+Phase 24P validation and implementation:
+
+- Added `scan-drain-then-disconnect-preserves-record` to the Windows BLE
+  central validation tool in [../../tools/ble-watch/](../../tools/ble-watch/).
+- Confirmed `scan-ack-then-peek-next` can ACK one BLE-transferred oldest record
+  and then reconnect to observe the next oldest record.
+- Confirmed disconnect before `CompleteRecord` or `AckRecord` preserves the
+  same oldest pending record across reconnect after first draining enough
+  records to avoid full-spool drop-oldest interference.
+- Corrected LED hardware facts: LED1 is the green power indicator tied to the
+  3.3 V rail and is not MCU-controlled; LED2 is the red active-low LED on IO0;
+  LED3 is the blue active-low LED on IO1.
+- Kept LED2 as heartbeat and added a short boot/reset fast-flash boundary.
+- Routed normal firmware status to blue LED3 and added a BLE status overlay
+  boundary for pairing-window fast blink, advertising/connected slow blink,
+  the 180 second boot BLE status window, and the 10 second BOOT / IO9-triggered
+  BLE status window.
+- Documented that pairing records are not persisted yet. Current authorization
+  remains RAM-only; future work must define real BLE bonding or equivalent
+  persistent authorization records, record contents, write/erase/update rules,
+  version/checksum migration behavior, and user-controlled clearing.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-ack-then-peek-next 30 sleep-env-esp32c3 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-drain-then-disconnect-preserves-record 30 sleep-env-esp32c3 128 25 40 8
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+```
+
+Observed post-ACK oldest advancement:
+
+- Flash range declared before validation: measurement spool
+  `0x003c0000..0x00400000`.
+- Command: `scan-ack-then-peek-next 30 sleep-env-esp32c3 128`.
+- ACKed sequence `108009`.
+- Reconnected oldest sequence was `108010`.
+- Result: `success=True`.
+
+Observed disconnect preservation after drain:
+
+- Flash range declared before validation: measurement spool
+  `0x003c0000..0x00400000`.
+- The user held BOOT / IO9 for about 4 seconds to open the authorization
+  window.
+- Command:
+  `scan-drain-then-disconnect-preserves-record 30 sleep-env-esp32c3 128 25 40 8`.
+- Drain phase ACKed 40 records, from sequence `109090` through `109129`.
+- Target pending after drain was 25; final pending was 24.
+- The first partial read after drain observed sequence `109130`, payload length
+  `199`, then disconnected before `CompleteRecord` or `AckRecord`.
+- Reconnect metadata again reported sequence `109130`, payload length `199`.
+- Result:
+  `DRAIN_THEN_DISCONNECT_RESULT success=True ... first_sequence=109130 second_sequence=109130`.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- The BLE ACK and drain validations may have exercised normal measurement
+  spool writes/erases through `storage_task` in `0x003c0000..0x00400000`.
+- The BLE auth metadata sector `0x003bf000..0x003c0000` was not deliberately
+  written or erased.
+- LED3 BLE pattern logic is compile/unit validated only in this milestone;
+  actual blue LED visual behavior has not been manually accepted on hardware.
+
+Remaining Phase 24 validation:
+
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated on hardware.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- BLE auth metadata write/erase/update behavior remains future work.
+- Real persisted BLE bonding or equivalent authorization records remain future
+  work.
+- LED3 BLE hardware visual behavior remains unvalidated.

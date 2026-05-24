@@ -42,9 +42,13 @@ The final firmware should provide:
 - RESTful upload, server discovery, and real-world time support as described in [03-network.md](03-network.md).
 - Future Bluetooth Low Energy upload through a structured project GATT protocol
   as described in [05-ble.md](05-ble.md).
-- Status LEDs:
-  - LED1: runtime heartbeat
-  - LED2: error / Wi-Fi / upload status
+- LED indicators:
+  - LED1: green power indicator tied to the 3.3 V rail; not firmware-controlled.
+  - LED2: red active-low heartbeat on IO0, with a short boot/reset fast-flash
+    before the steady heartbeat.
+  - LED3: blue active-low combined status/BLE indicator on IO1. It shows
+    normal firmware status outside BLE indication windows and time-bounded BLE
+    status when BLE is enabled or triggered.
 - Hardware-independent unit tests for all pure logic.
 
 ---
@@ -83,8 +87,9 @@ a configuration error.
 | I2C SDA | IO4 | Shared I2C bus |
 | I2C SCL | IO5 | Shared I2C bus |
 | Microphone ADC | IO3 / ADC1_CH3 | Analog input |
-| LED1 | IO0 | Active-low |
-| LED2 | IO1 | Active-low |
+| LED1 | 3.3 V rail | Green power indicator; not MCU-controlled |
+| LED2 | IO0 | Red LED; active-low heartbeat |
+| LED3 | IO1 | Blue LED; active-low firmware/BLE status |
 | UART RX | IO20 | Debug header |
 | UART TX | IO21 | Debug header |
 | BOOT | IO9 | Active-low; future BLE pairing input only after boot |
@@ -103,36 +108,41 @@ a configuration error.
 ## 4. Current Source Tree
 
 ```text
-Cargo.toml
+docs/
+├── 00-project/
+├── 10-firmware/
+├── 20-server/
+├── 30-integration/
+└── README.md
 firmware/
 ├── src
 │   ├── bin
 │   │   └── main.rs
 │   ├── drivers
-│   │   ├── mod.rs
 │   │   ├── flash.rs
 │   │   ├── mic.rs
+│   │   ├── mod.rs
 │   │   ├── opt3001.rs
 │   │   └── sht40.rs
 │   ├── storage
-│   │   ├── mod.rs
 │   │   ├── ble_auth.rs
 │   │   ├── flash_model.rs
+│   │   ├── mod.rs
 │   │   └── spool.rs
 │   ├── tasks
-│   │   ├── mod.rs
 │   │   ├── aggregator.rs
 │   │   ├── ble.rs
 │   │   ├── led.rs
 │   │   ├── mic.rs
+│   │   ├── mod.rs
 │   │   ├── net.rs
 │   │   ├── sensor.rs
 │   │   ├── storage.rs
 │   │   ├── upload.rs
 │   │   └── wifi.rs
 │   ├── util
-│   │   ├── mod.rs
 │   │   ├── logging.rs
+│   │   ├── mod.rs
 │   │   ├── queue.rs
 │   │   └── status.rs
 │   ├── board.rs
@@ -145,12 +155,7 @@ firmware/
 server/
 ├── README.md
 └── post_receiver.py
-docs/
-├── 00-project/
-├── 10-firmware/
-├── 20-server/
-├── 30-integration/
-└── README.md
+Cargo.toml
 ```
 
 High-level firmware groups:
@@ -161,7 +166,10 @@ High-level firmware groups:
 - `tasks/`: Embassy runtime task boundaries.
 - `util/`: shared hardware-independent helpers.
 - `board.rs`: physical board constants.
-- `config.rs`: deployment and behavior policy constants.
+- `config.rs`: deployment knobs and behavior policy constants for runtime,
+  networking, BLE, Wi-Fi, upload, sampling, storage, aggregation, and LED
+  behavior. It intentionally does not own physical board facts or driver
+  protocol constants.
 - `lib.rs`: firmware library module root.
 - `types.rs`: shared data types.
 
@@ -183,8 +191,8 @@ pub const PIN_I2C_SCL: u8 = 5;
 
 pub const PIN_MIC_ADC: u8 = 3;
 
-pub const PIN_LED1: u8 = 0;
-pub const PIN_LED2: u8 = 1;
+pub const PIN_LED2: u8 = 0;
+pub const PIN_LED3: u8 = 1;
 
 pub const I2C_ADDR_SHT40: u8 = 0x44;
 pub const I2C_ADDR_OPT3001: u8 = 0x45;
@@ -421,9 +429,9 @@ Responsibilities:
 
 This module must be fully unit tested.
 
-LED2 policy:
+Normal blue LED3 status policy:
 
-| Priority | Condition | LED2 pattern | Meaning |
+| Priority | Condition | LED3 pattern | Meaning |
 |---:|---|---|---|
 | 1 | `ErrorFlags::SENSOR_MASK` intersects current flags | `FastBlink` | SHT40, OPT3001, or microphone failure |
 | 2 | `ErrorFlags::UPLOAD_MASK` intersects current flags, `ErrorFlags::TIME` is set, or `ErrorFlags::STORAGE` is set | `On` | Measurement upload, time sync, or persistent storage is failing |
@@ -435,7 +443,31 @@ Timing:
 - LED outputs are active-low: `LOW = on`, `HIGH = off`.
 - `FastBlink` toggles every 100 ms.
 - `SlowBlink` toggles every 500 ms.
-- LED1 is a separate runtime heartbeat: 100 ms on, 900 ms off.
+- Red LED2 boot/reset fast-flashes for 15 cycles at 100 ms on / 100 ms off,
+  then becomes the heartbeat: 100 ms on, 900 ms off.
+
+Blue LED3 BLE overlay policy:
+
+| Priority | Condition while BLE indication is active | LED3 pattern | Meaning |
+|---:|---|---|---|
+| 1 | Pairing or authorization window is open | `FastBlink` | User-visible BLE pairing/authorization opportunity |
+| 2 | BLE is advertising or connected | `SlowBlink` | BLE central can discover, connect, or is connected |
+| 3 | BLE is enabled but idle, or BLE is disabled | `Off` | No active BLE operation to surface |
+
+LED3 BLE indication must be time-bounded:
+
+- After boot, when BLE is enabled, LED3 represents BLE status for the first
+  180 seconds.
+- After any BOOT / IO9 press or pairing/authorization trigger, LED3 represents
+  BLE status for at least the next 10 seconds.
+- If a trigger opens a longer pairing or authorization window, LED3 keeps the
+  pairing-window `FastBlink` feedback for the full open window.
+- When no BLE indication window is active, LED3 returns to the normal firmware
+  status policy above.
+
+Phase 24P compile-validates the LED3 BLE overlay path and pure timing/pattern
+tests. Hardware visual acceptance of the LED3 BLE blink patterns remains a
+manual Phase 24 check.
 
 ---
 
@@ -550,7 +582,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A through Phase 24O
+Current Phase 24A through Phase 24P
 responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
@@ -608,6 +640,11 @@ responsibilities:
   startup and use the config-gated policy to open the RAM-only authorization
   window when the header is absent, invalid, empty, version-incompatible, or
   checksum-mismatched.
+- Publish BLE runtime and pairing-window status to the LED status task so blue
+  LED3 can show time-bounded BLE indications while red LED2 remains heartbeat.
+- Provide pure LED3 BLE timing and pattern helpers for the 180 second boot
+  window, 10 second BOOT / IO9 trigger window, pairing-window fast blink, and
+  advertising/connected slow blink.
 
 Future runtime responsibilities:
 
@@ -617,9 +654,9 @@ Future runtime responsibilities:
   records only after the security model defines storage location, update rules,
   and user-controlled clearing. Current Phase 24 authorization is RAM-only and
   does not save pairing records in flash.
-- Validate Wi-Fi/BLE ACK race behavior, disconnect preservation during live
-  transfer, post-ACK oldest-record advancement, and BOOT download-mode
-  preservation.
+- Validate remaining live Wi-Fi/BLE ACK race behavior, BOOT download-mode
+  preservation, BLE auth metadata write/erase/update behavior, persisted
+  authorization records, and LED3 hardware visual behavior.
 - Never write flash directly.
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
@@ -644,10 +681,14 @@ validation, `CompleteRecord`, and ACK-mode BLE storage drain while Wi-Fi upload
 is unavailable. Phase 24M central validation confirms fragment notifications
 matching requested fragment reads. Phase 24N adds storage-level unit coverage
 that a stale BLE ACK after Wi-Fi ACK does not remove the next oldest record.
-Live Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
-post-ACK oldest-record advancement, BLE auth metadata write/erase behavior,
-persisted bonding or authorization records, and BOOT download-mode preservation
-still need future hardware/runtime validation.
+Phase 24P central validation confirms post-ACK oldest-record advancement and
+disconnect-before-Complete/ACK preservation after draining enough records to
+avoid full-spool drop-oldest interference. Phase 24P also compile-validates the
+LED3 BLE overlay path and adds pure timing/pattern tests.
+Live Wi-Fi/BLE ACK race behavior, BLE auth metadata write/erase behavior,
+persisted bonding or authorization records, LED3 BLE indication hardware
+behavior, and BOOT download-mode preservation still need future
+hardware/runtime validation.
 
 ---
 

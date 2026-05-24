@@ -200,7 +200,7 @@ Phase 24O adds a BLE authorization metadata and auto-pair policy boundary:
   persist real bonded peers, pairing keys, allowlists, or authorization
   records.
 
-Phase 24A through 24O do not change the measurement spool flash format or
+Phase 24A through 24P do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -209,13 +209,22 @@ measurement access rejection, BOOT / IO9 authorized-window entry, full record
 reads, `CompleteRecord`, and ACK-mode BLE storage drain now compile or run.
 BLE notification behavior has also been hardware-validated with the Windows
 central. Storage-level stale ACK protection for a Wi-Fi/BLE race is covered by
-unit tests. Live Wi-Fi/BLE ACK race behavior, disconnect preservation during
-live transfer, post-ACK oldest-record advancement, BOOT download-mode
-preservation, and real persisted BLE bonding/authorization records have not
-been validated yet. Full BLE upload bring-up remains future Phase 24 work.
+unit tests. Phase 24P additionally validates post-ACK oldest-record
+advancement and live disconnect-before-Complete/ACK preservation with the
+Windows central after draining enough records to avoid full-spool drop-oldest
+interference. Live Wi-Fi/BLE ACK race behavior, BOOT download-mode
+preservation, LED3 hardware visual behavior, and real persisted BLE
+bonding/authorization records have not been validated yet. Full BLE upload
+bring-up remains future Phase 24 work.
 The current effective authorization state is still RAM-only: firmware opens a
 temporary BOOT / IO9 authorization window and does not save usable pairing
-records yet.
+records yet. The BLE authorization metadata sector is only a future
+record-set header and startup policy boundary until real bonding or an
+equivalent persistent authorization record is implemented. Future work must
+define and validate record contents, writes, erases, updates, version/checksum
+migration behavior, and user-controlled clearing. LED3 BLE operation feedback
+now has a compile/unit-tested firmware boundary, but the actual blue LED
+patterns have not been visually accepted on hardware yet.
 
 ## Goals
 
@@ -317,6 +326,39 @@ The implemented temporary authorization gesture is an active-low runtime long
 press after boot. A boot-time held button must continue to mean download mode,
 not BLE pairing.
 
+## Observable BLE Status
+
+Phase 24 completion requires BLE-related operations to be visible on LED3.
+Current board facts and firmware naming are:
+
+- LED1 is the green power indicator tied directly to the 3.3 V rail; firmware
+  cannot control it.
+- LED2 is the red active-low MCU-controlled LED on IO0; firmware keeps it as
+  the heartbeat indicator and may fast-flash it briefly after boot/reset.
+- LED3 is the blue active-low MCU-controlled LED on IO1; firmware uses it as
+  the normal status LED and overlays time-bounded BLE status indications.
+
+Minimum LED3 behavior:
+
+- Fast-blink LED3 while the BLE pairing or authorization window is open.
+- Slow-blink LED3 while BLE is advertising, connecting, or connected.
+- Keep LED3 off, or hand it to a separately documented non-BLE policy, when no
+  BLE indication window is active.
+
+BLE indication timing:
+
+- For the first 180 seconds after boot, LED3 must represent BLE status when BLE
+  is enabled.
+- After any BOOT / IO9 press or pairing/authorization trigger, LED3 must
+  represent BLE status for at least the next 10 seconds.
+- If the trigger opens a pairing or authorization window longer than 10
+  seconds, LED3 must continue the pairing-window fast blink for the full open
+  window.
+
+The LED3 pattern decision and timing-window logic are implemented as
+hardware-independent status mapping with unit tests. Manual integration must
+still verify the actual active-low blue LED behavior on hardware.
+
 ## Security
 
 BLE measurement access requires pairing or an equivalent authorization step.
@@ -349,8 +391,10 @@ Phase 24 has hardware-independent tests for:
 - BLE feature enable/disable config selection.
 - BOOT / IO9 pairing gesture state logic.
 - BLE authorization metadata header parsing and auto-pair policy.
+- LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
+  timing.
 
 Remaining hardware checks should confirm real pairing or equivalent persistent
-authorization, disconnect recovery, live Wi-Fi/BLE coexistence races,
-post-ACK oldest-record advancement, and that BOOT still enters download mode
-during reset or power-on.
+authorization, live Wi-Fi/BLE coexistence races, BLE auth metadata
+write/erase/update behavior, LED3 BLE status indication timing and patterns,
+and that BOOT still enters download mode during reset or power-on.

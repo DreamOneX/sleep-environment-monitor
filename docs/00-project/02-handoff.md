@@ -4,69 +4,84 @@ Last updated: 2026-05-24.
 
 ## Current State
 
-Phase 24O is implemented and verified in the current working tree. The
-milestone adds BLE authorization metadata header parsing plus a config-gated
-auto-pair-on-boot policy.
+Phase 24P is implemented in the current working tree, with compile/unit
+verification partly refreshed in this handoff. Phase 24 is not complete yet.
 
-No firmware image has been flashed during this handoff state. No new hardware
-flash write/erase validation has been run.
+Phase 24P adds live BLE evidence for two storage-transfer checks and the current
+LED status boundary:
+
+- Post-ACK oldest-record advancement succeeded with `scan-ack-then-peek-next`:
+  ACKed sequence `108009`, then observed next oldest sequence `108010`.
+- Disconnect before `CompleteRecord` or `AckRecord` preserved the oldest record
+  after a drain precondition: first and second metadata reads both reported
+  sequence `109130`, payload length `199`.
+- LED facts are corrected: LED1 is green power on the 3.3 V rail and is not
+  MCU-controlled; LED2 is red active-low on IO0; LED3 is blue active-low on IO1.
+- Firmware keeps LED2 as heartbeat with a short boot/reset fast-flash and uses
+  LED3 as normal status plus time-bounded BLE status overlay.
+
+No firmware image was flashed during this handoff state.
 
 Important flash ranges:
 
-- BLE auth metadata sector: `0x003bf000..0x003c0000`. Phase 24O target code
-  reads only the header; it does not write or erase this sector.
-- Measurement spool: `0x003c0000..0x00400000`. Phase 24O should not change the
-  spool format or measurement JSON payload shape.
+- BLE auth metadata sector: `0x003bf000..0x003c0000`. Current target code reads
+  only the header; it does not write or erase this sector.
+- Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
+  exercise normal spool writes/erases through `storage_task` in this range.
 
 Before any future flash-write validation, state the exact range being
 exercised.
 
 ## Implemented
 
-- `firmware/src/board.rs` reserves a 4 KiB BLE auth metadata sector before the
-  existing measurement spool.
-- `firmware/src/drivers/flash.rs` validates both BLE auth and spool regions and
-  adds a target-only read-only `RomBleAuthFlash`.
-- `firmware/src/storage/ble_auth.rs` defines the BLE auth metadata header,
-  checksum/version inspection, and auto-pair policy helper with unit tests.
-- `firmware/src/config.rs` adds BLE auth record version/checksum policy
-  constants, the auto-pair switch, and stricter Wi-Fi credential validation.
-- `firmware/src/tasks/ble.rs` reads the BLE auth header at startup in
-  `ble-upload` builds and opens the RAM-only authorization window when policy
-  requires it.
-- `firmware/src/tasks/wifi.rs` now keeps the ESP radio authentication-method
-  adapter at the Wi-Fi use site instead of in `config.rs`.
-- Documentation records Phase 24O and the current `tools/ble-watch` path.
+- `tools/ble-watch` includes `scan-drain-then-disconnect-preserves-record`.
+- `firmware/src/board.rs` maps MCU-controlled LEDs as `PIN_LED2 = 0` and
+  `PIN_LED3 = 1`.
+- `firmware/src/tasks/led.rs` fast-flashes red LED2 at boot/reset and then runs
+  the heartbeat.
+- `firmware/src/util/status.rs` exposes pure LED status mapping for the blue
+  LED3 BLE overlay, including pairing fast blink, BLE runtime slow blink, and
+  boot/trigger indication windows.
+- `firmware/src/bin/main.rs` routes GPIO0 to the LED2 heartbeat task and GPIO1
+  to the LED3 status task, and wires BLE runtime/pairing signals into LED3.
+- `firmware/src/tasks/ble.rs` publishes BLE runtime and pairing status for the
+  LED overlay.
+- Documentation now records Phase 24P evidence, current LED mapping, and the
+  remaining Phase 24 validation gaps.
 
-Phase 24O does not implement real BLE bonding, pairing-key storage, peer
-allowlists, authorization-record persistence, or user-controlled clearing. The
-current authorization state remains RAM-only.
+Current BLE authorization remains RAM-only. The firmware does not persist real
+bonded peers, pairing keys, allowlists, authorization records, or
+user-controlled clearing yet. The BLE auth metadata sector is only a future
+record-set header and startup policy boundary until real bonding or an
+equivalent persistent authorization record is implemented, including record
+contents, write/erase/update rules, version/checksum migration behavior, and
+user-controlled clearing.
 
 ## Subagents
 
-All requested subagents have completed.
+Requested subagents completed or reported during this handoff:
 
-- Documentation drift check: requested Phase 24O walkthrough entry, architecture
-  Phase 24A-O updates, config doc updates, README/BLE wording cleanup, and
-  current `tools/ble-watch` command paths.
-- Wi-Fi config check: default `FZU` open network is acceptable only as bring-up
-  default; Wi-Fi validation should use byte limits and 64-byte hex PSK checks.
-- Duplicate-code check: recommended sharing ROM flash range/read helpers and
-  centralizing BLE pairing-window open transition; these have been addressed in
-  the working tree.
+- Architecture file-tree/config update: directly updated
+  `docs/10-firmware/00-architecture.md` with directory-first file tree and
+  `config.rs` ownership details.
+- Wi-Fi config check: default `FZU` open network remains a bring-up default and
+  should not be treated as a deployment credential model; future work should
+  avoid committing real passwords, mark WPA/mixed modes as legacy, and consider
+  test/build-time validation for the default credential triple.
+- Duplicate-code check: Phase 24 should avoid broad refactors; Phase 25 should
+  first clean `tools/ble-watch` command/GATT/transfer duplication, then smaller
+  firmware storage/GATT status publishing duplication.
 - `cfg(target_arch = "riscv32")` check: most cfgs are valid embedded/host-test
-  boundaries; Phase 25 should split `tasks/ble.rs`; HAL adapters should live at
-  use sites where practical.
-- Phase 25 refactor plan: do equivalent module-boundary refactors only. Freeze
-  BLE UUIDs, status/metadata/control frame bytes, Wi-Fi HTTP 2xx ACK semantics,
-  BLE ACK policy, flash ranges, and payload JSON shape.
-- Architecture file-tree/config subagent: updated only
-  `docs/10-firmware/00-architecture.md` with directory-first file tree,
-  `config.rs` ownership details, and BLE auth metadata facts.
+  boundaries; the real boundary debt is the large `tasks/ble.rs` module, which
+  should be split in Phase 25 after behavior is frozen.
+- Phase 25 refactor plan: split `tools/ble-watch`, `tasks/upload.rs`, and
+  `tasks/ble.rs` by equivalent moves only. Freeze BLE UUIDs, status/metadata /
+  control frame bytes, Wi-Fi HTTP 2xx ACK semantics, BLE ACK policy, flash
+  ranges, and payload JSON shape.
 
 ## Verification
 
-These commands passed after the latest code and documentation changes:
+Passed after the latest code and documentation edits:
 
 ```bash
 cargo fmt
@@ -76,22 +91,37 @@ cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coe
 cargo clippy --all-targets
 cargo clippy --target riscv32imc-unknown-none-elf
 cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\ble-watch.csproj'
 git diff --check
 ```
 
 Observed result:
 
-- `cargo test --lib`: `168 passed; 0 failed`.
+- `cargo test --lib`: `173 passed; 0 failed`.
 - Normal ESP32-C3 target build: passed.
 - BLE+Wi-Fi coexistence ESP32-C3 target build: passed.
 - Host clippy, normal target clippy, and BLE+coex target clippy: passed.
+- `tools/ble-watch` Windows .NET build: passed with `0` warnings and `0`
+  errors.
 - `git diff --check`: passed.
 
 Milestone commit message:
 
 ```text
-feat: add BLE auth metadata auto-pair policy
+test: validate BLE disconnect preservation
 ```
+
+## Remaining Phase 24 Work
+
+- Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
+- Validate BOOT / IO9 still enters download mode during reset or power-on.
+- Implement and validate real persisted BLE bonding or equivalent saved
+  authorization records.
+- Implement and validate BLE auth metadata write/erase/update behavior,
+  including version/checksum migration and user clearing.
+- Manually accept LED3 hardware visual behavior: pairing/authorization fast
+  blink, advertising/connecting/connected slow blink, 180 second boot BLE
+  status window, and 10 second BOOT / IO9-triggered BLE status window.
 
 ## Phase 25 Notes
 
@@ -99,11 +129,12 @@ Phase 25 should start with documentation and baseline freezing, then split long
 files without behavior changes:
 
 - `tools/ble-watch/Program.cs`: split CLI, BLE profile constants, scanner, GATT
-  client, transfer client, protocol helpers, and models.
-- `firmware/src/tasks/upload.rs`: split pure JSON/HTTP/discovery/time logic from
-  target runtime uploader.
-- `firmware/src/tasks/ble.rs`: split protocol, transfer, pairing, auth,
-  storage bridge, GATT, and target runtime modules.
+  client, transfer client, protocol helpers, models, and WinRT helpers.
+- `firmware/src/tasks/upload.rs`: split pure endpoint/JSON/HTTP/parse/time
+  logic from target runtime uploader.
+- `firmware/src/tasks/ble.rs`: split profile/status/protocol/transfer/ACK /
+  pairing/auth/storage bridge/GATT/runtime modules, keeping original public
+  paths re-exported during the move.
 - Later candidates: `firmware/src/storage/spool.rs` and
   `firmware/src/tasks/storage.rs`.
 

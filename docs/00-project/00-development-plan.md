@@ -1267,6 +1267,10 @@ Classic SPP, a transparent UART, or a Nordic UART Service style serial stream.
 The firmware must expose a project-specific structured GATT service for
 measurement transfer.
 
+Phase 24 completion also requires human-visible BLE operation feedback on
+LED3. Phase 24P adds the compile/unit-tested LED3 BLE status boundary, but
+hardware visual acceptance of the blue LED patterns remains open.
+
 ## Phase 24A: BLE Compile Integration Boundary
 
 Phase 24A is the first implementation slice. It proves that the BLE code path
@@ -1937,6 +1941,82 @@ Phase 24O commit message:
 feat: add BLE auth metadata auto-pair policy
 ```
 
+## Phase 24P: BLE Disconnect Preservation And LED Status Boundary
+
+Phase 24P records the BLE hardware-validation slice that validated post-ACK
+oldest-record advancement and adds the current LED status boundary. It accepts
+post-ACK oldest-record advancement and
+disconnect-before-Complete/ACK preservation on the live board, but it still
+does not accept full Phase 24 completion because live Wi-Fi/BLE ACK race
+behavior, BOOT download-mode preservation, persistent authorization records,
+BLE auth metadata writes/erases/updates, and LED3 visual behavior still need
+validation.
+
+Phase 24P scope:
+
+- Keep the Windows central validation tool at `tools/ble-watch`.
+- Add `scan-drain-then-disconnect-preserves-record` so disconnect preservation
+  can be checked after draining enough records to avoid full-spool drop-oldest
+  interference.
+- Validate `scan-ack-then-peek-next` advances the oldest pending record after
+  a BLE ACK.
+- Validate disconnect before `CompleteRecord` or `AckRecord` preserves the same
+  oldest pending record across reconnect after the drain precondition.
+- Correct current LED hardware facts: LED1 is the green power indicator tied to
+  3.3 V and is not MCU-controlled; LED2 is the red active-low LED on IO0;
+  LED3 is the blue active-low LED on IO1.
+- Keep LED2 as the heartbeat indicator and allow a short boot/reset fast-flash
+  before the steady heartbeat.
+- Use LED3 as the normal firmware status LED and overlay time-bounded BLE
+  status indications: pairing/authorization window fast blink; advertising,
+  connecting, or connected slow blink; boot BLE status window of 180 seconds;
+  BOOT / IO9 or pairing-trigger BLE status window of at least 10 seconds, with
+  fast blink continuing for the full pairing/authorization window.
+- Keep current BLE authorization RAM-only. Pairing/bonding records are not
+  persisted yet; future work must define real bonding or equivalent persistent
+  authorization records, record contents, write/erase/update rules,
+  version/checksum migration behavior, and user-controlled clearing.
+- Do not flash new firmware as part of this slice unless explicitly needed.
+
+Phase 24P verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-ack-then-peek-next 30 sleep-env-esp32c3 128
+'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\home\dreamonex\sleep-environment-monitor\tools\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-drain-then-disconnect-preserves-record 30 sleep-env-esp32c3 128 25 40 8
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24P flash notes:
+
+- The BLE ACK and drain validations may exercise the measurement spool through
+  `storage_task` in `0x003c0000..0x00400000`.
+- No firmware image needs to be flashed for this slice unless later validation
+  explicitly requires it.
+- The BLE auth metadata sector `0x003bf000..0x003c0000` remains read-only in
+  current firmware and is not deliberately written or erased by this slice.
+
+Observed Phase 24P hardware results:
+
+- `scan-ack-then-peek-next` ACKed sequence `108009` and then observed oldest
+  sequence `108010`.
+- `scan-drain-then-disconnect-preserves-record` drained sequences
+  `109090..109129`, then disconnected before `CompleteRecord`/`AckRecord` on
+  sequence `109130` and reconnected to observe the same sequence `109130`.
+
+Phase 24P commit message:
+
+```text
+test: validate BLE disconnect preservation
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -1952,6 +2032,11 @@ feat: add BLE auth metadata auto-pair policy
   metadata instead of treating JSON or CSV as serial text.
 - Add a `ble_task` boundary that owns BLE advertising, pairing, connection
   state, GATT transfer, and BLE-side acknowledgement handling.
+- Add LED3 as the observable BLE status indicator for BLE-related operations.
+  At minimum, an open pairing or authorization window must fast-blink LED3, and
+  BLE advertising, connecting, or connection establishment must slow-blink LED3.
+  The final pattern table must remain documented and testable as pure status
+  mapping logic.
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
   acknowledge operations.
 - Document the current Phase 24 effective pairing/authorization state as
@@ -1969,6 +2054,12 @@ feat: add BLE auth metadata auto-pair policy
 - Use BOOT / IO9 only as a runtime input for a future pairing or authorization
   gesture.
 - Preserve BOOT / IO9 download-mode behavior during reset or power-on.
+- Bound BLE ownership of LED3 so status is visible without turning LED3 into a
+  permanent ambiguous indicator: after boot, LED3 must represent BLE status for
+  the first 180 seconds; after any BOOT / IO9 press or BLE pairing trigger,
+  LED3 must represent BLE status for at least the next 10 seconds. If the
+  trigger opens a longer pairing or authorization window, the pairing-window
+  LED3 feedback continues for the full open window.
 - Update [../10-firmware/05-ble.md](../10-firmware/05-ble.md) as implementation
   details become concrete.
 
@@ -1986,6 +2077,8 @@ Add hardware-independent tests for:
 - BLE enable/disable config selection.
 - BOOT / IO9 pairing gesture state logic.
 - BLE authorization metadata header parsing and auto-pair policy.
+- LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
+  timing as hardware-independent logic.
 
 ## Manual Integration Checks
 
@@ -2006,6 +2099,14 @@ Add hardware-independent tests for:
 - Confirm missing, empty, version-mismatched, or checksum-mismatched BLE
   authorization metadata opens the temporary authorization window on boot when
   the config switch is enabled.
+- Confirm LED3 gives observable feedback for BLE operations: pairing or
+  authorization window open fast-blinks, and BLE advertising, connecting, or
+  connection establishment slow-blinks.
+- Confirm LED3 represents BLE status for the first 180 seconds after boot when
+  BLE is enabled.
+- Confirm pressing BOOT / IO9 or triggering a pairing/authorization entry makes
+  LED3 represent BLE status for at least the next 10 seconds, and for the full
+  pairing/authorization window when that window remains open longer.
 
 ## Done When
 
@@ -2018,6 +2119,10 @@ Add hardware-independent tests for:
   final security design defines persistent bonding or an equivalent saved
   authorization record.
 - BOOT / IO9 pairing entry is validated without breaking download mode.
+- LED3 provides documented, observable BLE feedback for pairing/authorization,
+  advertising, connecting, and connection establishment, including the 180
+  second post-boot BLE status window and the 10 second BOOT / IO9-triggered BLE
+  status window.
 - Hardware-independent tests cover BLE protocol framing and ACK policy.
 
 ## Git Commit Message

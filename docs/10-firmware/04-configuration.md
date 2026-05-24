@@ -18,7 +18,7 @@ Phase 21 was behavior-preserving. Phase 22 extended this module with the JSON RE
 | Sampling policy | environment sample period, microphone window size, microphone sample interval |
 | Hardware tuning | I2C bus frequency, ADC attenuation, ADC retry count/delay |
 | Storage tuning | measurement payload size, persistent spool record capacity, request channel capacity |
-| Logging and status | sample log intervals, storage metrics interval, LED heartbeat and blink timing |
+| Logging and status | sample log intervals, storage metrics interval, LED heartbeat, boot flash, status blink, and BLE indication timing |
 
 These values are currently compile-time constants. The important boundary is
 that firmware tasks depend on named configuration rather than local hardcoding,
@@ -97,6 +97,10 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   upload or storage task logic.
 - Keep BOOT / IO9 pairing-window timing in config and keep the pin input-only
   with no internal pull resistor.
+- Keep LED policy timing in config: red LED2 boot/reset fast flash, red LED2
+  heartbeat, blue LED3 normal status blink cadence, blue LED3 180 second
+  post-boot BLE status window, and blue LED3 10 second BOOT / IO9-triggered
+  BLE status window.
 - Keep the BLE authorization record-set version, record-set compatibility
   checksum, and auto-pair-on-auth-record-reset switch in config. A version
   mismatch, compatibility-checksum mismatch, missing header, invalid header, or

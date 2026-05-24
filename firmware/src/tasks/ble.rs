@@ -753,13 +753,14 @@ const fn saturating_u64_to_u32(value: u64) -> u32 {
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use crate::tasks::{
     FirmwareStatusSnapshotMutex, NetworkUploadStatusMutex, StorageRequestChannel,
-    StorageResponseSignal,
+    StorageResponseSignal, TaskSignal,
     storage::{StorageClient, StorageCommand, StorageResponse},
 };
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use crate::{
     drivers::flash::RomBleAuthFlash,
     storage::ble_auth::{AUTH_HEADER_LEN, inspect_auth_header, should_auto_open_pairing_window},
+    util::status::{BleLedPairingStatus, BleLedRuntimeState},
 };
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use defmt::{error, info, warn};
@@ -836,6 +837,7 @@ struct GattRuntime<'server> {
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
     firmware_status: &'static FirmwareStatusSnapshotMutex,
+    led_runtime_state: &'static TaskSignal<BleLedRuntimeState>,
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -908,6 +910,7 @@ pub async fn ble_task(
     storage_responses: &'static StorageResponseSignal,
     network_upload_status: &'static NetworkUploadStatusMutex,
     firmware_status: &'static FirmwareStatusSnapshotMutex,
+    led_runtime_state: &'static TaskSignal<BleLedRuntimeState>,
 ) {
     info!(
         "ble controller initialized name={=str} protocol_version={=u8}",
@@ -936,20 +939,17 @@ pub async fn ble_task(
         0,
     ));
 
-    match select(
-        runner.run(),
-        gatt_advertise_loop(
-            &mut peripheral,
-            &gatt.server,
-            gatt.handles,
-            storage_requests,
-            storage_responses,
-            network_upload_status,
-            firmware_status,
-        ),
-    )
-    .await
-    {
+    let runtime = GattRuntime {
+        server: &gatt.server,
+        handles: gatt.handles,
+        storage_requests,
+        storage_responses,
+        network_upload_status,
+        firmware_status,
+        led_runtime_state,
+    };
+
+    match select(runner.run(), gatt_advertise_loop(&mut peripheral, runtime)).await {
         Either::First(Ok(())) => warn!("ble host runner stopped"),
         Either::First(Err(error)) => error!("ble host runner failed error={:?}", error),
         Either::Second(()) => warn!("ble GATT loop stopped"),
@@ -962,7 +962,10 @@ pub async fn ble_task(
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 #[embassy_executor::task]
-pub async fn ble_pairing_task(boot_button: Input<'static>) {
+pub async fn ble_pairing_task(
+    boot_button: Input<'static>,
+    led_pairing_status: &'static TaskSignal<BleLedPairingStatus>,
+) {
     let mut pairing_gesture = BlePairingGesture::new(
         crate::config::ble::PAIRING_HOLD_MILLIS,
         crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
@@ -972,6 +975,7 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
         publish_pairing_snapshot(
             &pairing_gesture,
             BootButtonState::from_active_low(boot_button.is_low()),
+            led_pairing_status,
         )
         .await;
         log_pairing_event(pairing_event, &pairing_gesture);
@@ -983,7 +987,7 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
             boot_button_state,
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         );
-        publish_pairing_snapshot(&pairing_gesture, boot_button_state).await;
+        publish_pairing_snapshot(&pairing_gesture, boot_button_state, led_pairing_status).await;
         log_pairing_event(pairing_event, &pairing_gesture);
 
         Timer::after(Duration::from_millis(
@@ -997,7 +1001,12 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
 async fn publish_pairing_snapshot(
     pairing_gesture: &BlePairingGesture,
     boot_button_state: BootButtonState,
+    led_pairing_status: &'static TaskSignal<BleLedPairingStatus>,
 ) {
+    led_pairing_status.signal(BleLedPairingStatus {
+        window_open: pairing_gesture.state().is_open(),
+        button_pressed: boot_button_state.is_pressed(),
+    });
     {
         let mut state = BLE_BOOT_BUTTON_STATE.lock().await;
         *state = boot_button_state;
@@ -1153,8 +1162,10 @@ async fn set_gatt_status(
     handles: GattHandles,
     network_upload_status: &'static NetworkUploadStatusMutex,
     firmware_status: &'static FirmwareStatusSnapshotMutex,
+    led_runtime_state: &'static TaskSignal<BleLedRuntimeState>,
     runtime_state: BleRuntimeState,
 ) {
+    led_runtime_state.signal(ble_led_runtime_state_from_runtime(runtime_state));
     let network_upload_status = { *network_upload_status.lock().await };
     let firmware_status = { *firmware_status.lock().await };
     let boot_button_state = { *BLE_BOOT_BUTTON_STATE.lock().await };
@@ -1174,14 +1185,20 @@ async fn set_gatt_status(
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+const fn ble_led_runtime_state_from_runtime(runtime_state: BleRuntimeState) -> BleLedRuntimeState {
+    match runtime_state {
+        BleRuntimeState::Disabled => BleLedRuntimeState::Disabled,
+        BleRuntimeState::ControllerReady | BleRuntimeState::HostPending => BleLedRuntimeState::Idle,
+        BleRuntimeState::Advertising => BleLedRuntimeState::Advertising,
+        BleRuntimeState::Connected => BleLedRuntimeState::Connected,
+        BleRuntimeState::Error => BleLedRuntimeState::Error,
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 async fn gatt_advertise_loop(
     peripheral: &mut Peripheral<'_, BleController, DefaultPacketPool>,
-    server: &GattServer<'static>,
-    handles: GattHandles,
-    storage_requests: &'static StorageRequestChannel,
-    storage_responses: &'static StorageResponseSignal,
-    network_upload_status: &'static NetworkUploadStatusMutex,
-    firmware_status: &'static FirmwareStatusSnapshotMutex,
+    runtime: GattRuntime<'_>,
 ) {
     let mut adv_data = [0_u8; 31];
     let adv_len = match AdStructure::encode_slice(
@@ -1214,10 +1231,11 @@ async fn gatt_advertise_loop(
 
     loop {
         set_gatt_status(
-            server,
-            handles,
-            network_upload_status,
-            firmware_status,
+            runtime.server,
+            runtime.handles,
+            runtime.network_upload_status,
+            runtime.firmware_status,
+            runtime.led_runtime_state,
             BleRuntimeState::Advertising,
         )
         .await;
@@ -1240,10 +1258,11 @@ async fn gatt_advertise_loop(
             Ok(acceptor) => acceptor,
             Err(error) => {
                 set_gatt_status(
-                    server,
-                    handles,
-                    network_upload_status,
-                    firmware_status,
+                    runtime.server,
+                    runtime.handles,
+                    runtime.network_upload_status,
+                    runtime.firmware_status,
+                    runtime.led_runtime_state,
                     BleRuntimeState::Error,
                 )
                 .await;
@@ -1260,14 +1279,15 @@ async fn gatt_advertise_loop(
                 continue;
             }
         };
-        let connection = match connection.with_attribute_server(server) {
+        let connection = match connection.with_attribute_server(runtime.server) {
             Ok(connection) => connection,
             Err(error) => {
                 set_gatt_status(
-                    server,
-                    handles,
-                    network_upload_status,
-                    firmware_status,
+                    runtime.server,
+                    runtime.handles,
+                    runtime.network_upload_status,
+                    runtime.firmware_status,
+                    runtime.led_runtime_state,
                     BleRuntimeState::Error,
                 )
                 .await;
@@ -1277,52 +1297,34 @@ async fn gatt_advertise_loop(
         };
 
         set_gatt_status(
-            server,
-            handles,
-            network_upload_status,
-            firmware_status,
+            runtime.server,
+            runtime.handles,
+            runtime.network_upload_status,
+            runtime.firmware_status,
+            runtime.led_runtime_state,
             BleRuntimeState::Connected,
         )
         .await;
         info!("ble central connected");
-        run_gatt_connection(
-            connection,
-            server,
-            handles,
-            storage_requests,
-            storage_responses,
-            network_upload_status,
-            firmware_status,
-        )
-        .await;
+        run_gatt_connection(connection, runtime).await;
     }
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 async fn run_gatt_connection(
     connection: GattConnection<'_, '_, DefaultPacketPool>,
-    server: &GattServer<'static>,
-    handles: GattHandles,
-    storage_requests: &'static StorageRequestChannel,
-    storage_responses: &'static StorageResponseSignal,
-    network_upload_status: &'static NetworkUploadStatusMutex,
-    firmware_status: &'static FirmwareStatusSnapshotMutex,
+    runtime: GattRuntime<'_>,
 ) {
     let mut transfer = BleRecordTransferRuntime::new();
-    let runtime = GattRuntime {
-        server,
-        handles,
-        storage_requests,
-        storage_responses,
-        network_upload_status,
-        firmware_status,
-    };
 
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { reason } => {
                 info!("ble central disconnected reason={:?}", reason);
                 transfer.reset_after_disconnect();
+                runtime
+                    .led_runtime_state
+                    .signal(BleLedRuntimeState::Advertising);
                 break;
             }
             GattConnectionEvent::Gatt { event } => {
@@ -1399,6 +1401,7 @@ async fn prepare_status_read(
         runtime.handles,
         runtime.network_upload_status,
         runtime.firmware_status,
+        runtime.led_runtime_state,
         runtime_state,
     )
     .await;

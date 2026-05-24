@@ -61,7 +61,7 @@ SHT40
 OPT3001
 MSM381ACP003 microphone
 I²C pull-up resistors
-status LEDs
+LED indicators
 extension headers
 ```
 
@@ -110,8 +110,9 @@ The USBLC6-2SC6 should be placed close to the USB-C connector.
 | I²C SDA | IO4 | Shared by SHT40, OPT3001, and I²C expansion header |
 | I²C SCL | IO5 | Shared by SHT40, OPT3001, and I²C expansion header |
 | Microphone ADC | IO3 / ADC1_CH3 | Analog microphone signal input |
-| LED1 | IO0 | Active-low |
-| LED2 | IO1 | Active-low |
+| LED1 | 3.3 V rail | Green power indicator; not MCU-controlled |
+| LED2 | IO0 | Red LED; active-low; MCU-controlled |
+| LED3 | IO1 | Blue LED; active-low; MCU-controlled |
 | UART RX | IO20 | Debug header |
 | UART TX | IO21 | Debug header |
 | BOOT | IO9 | Active-low boot mode button |
@@ -321,23 +322,28 @@ The microphone output is an analog signal with DC bias. The measured signal shou
 
 ## LEDs
 
-Two status LEDs are connected as active-low outputs.
+The board has one power LED and two MCU-controlled active-low LEDs.
 
 ```text
 3.3V → resistor → LED anode
 LED cathode → GPIO
 ```
 
-| LED | GPIO | Logic |
-|---|---:|---|
-| LED1 | IO0 | LOW = on, HIGH = off |
-| LED2 | IO1 | LOW = on, HIGH = off |
+| LED | Color | Connection | Logic |
+|---|---|---:|---|
+| LED1 | Green | 3.3 V rail | Power indicator; not firmware-controlled |
+| LED2 | Red | IO0 | LOW = on, HIGH = off |
+| LED3 | Blue | IO1 | LOW = on, HIGH = off |
 
 Recommended resistor value:
 
 ```text
 2.2kΩ to 4.7kΩ
 ```
+
+Current firmware uses LED2 as the red heartbeat indicator and LED3 as the blue
+status/BLE indicator. LED1 is tied directly to the 3.3 V rail and cannot be
+controlled by firmware.
 
 ---
 

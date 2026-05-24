@@ -59,6 +59,7 @@ use sleep_environment_monitor::{
         EnvSample, ErrorFlags, FirmwareStatusSnapshot, MicSample, NetworkState,
         NetworkUploadStatus, UploadResult,
     },
+    util::status::{BleLedPairingStatus, BleLedRuntimeState},
 };
 
 #[cfg(target_arch = "riscv32")]
@@ -71,6 +72,10 @@ static NETWORK_STATE_SIGNAL: Signal<CriticalSectionRawMutex, NetworkState> = Sig
 static UPLOAD_RESULT_SIGNAL: Signal<CriticalSectionRawMutex, UploadResult> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static ERROR_FLAGS_SIGNAL: Signal<CriticalSectionRawMutex, ErrorFlags> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static BLE_LED_RUNTIME_STATE: Signal<CriticalSectionRawMutex, BleLedRuntimeState> = Signal::new();
+#[cfg(target_arch = "riscv32")]
+static BLE_LED_PAIRING_STATUS: Signal<CriticalSectionRawMutex, BleLedPairingStatus> = Signal::new();
 #[cfg(target_arch = "riscv32")]
 static NETWORK_UPLOAD_STATUS: NetworkUploadStatusMutex = NetworkUploadStatusMutex::new(
     NetworkUploadStatus::new(NetworkState::Disconnected, UploadResult::Idle),
@@ -176,17 +181,19 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
 
-    let led1 = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
-    spawn_task(&spawner, heartbeat_task(led1), "heartbeat");
+    let led2_red = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
+    spawn_task(&spawner, heartbeat_task(led2_red), "heartbeat");
 
-    let led2 = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
+    let led3_blue = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
     spawn_task(
         &spawner,
         status_task(
-            led2,
+            led3_blue,
             &ERROR_FLAGS_SIGNAL,
             &NETWORK_STATE_SIGNAL,
             &UPLOAD_RESULT_SIGNAL,
+            &BLE_LED_RUNTIME_STATE,
+            &BLE_LED_PAIRING_STATUS,
         ),
         "status",
     );
@@ -254,7 +261,11 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     let boot_button = Input::new(peripherals.GPIO9, InputConfig::default());
     #[cfg(feature = "ble-upload")]
-    if !spawn_task(&spawner, ble_pairing_task(boot_button), "ble-pairing") {
+    if !spawn_task(
+        &spawner,
+        ble_pairing_task(boot_button, &BLE_LED_PAIRING_STATUS),
+        "ble-pairing",
+    ) {
         warn!("BLE pairing task spawn failed; BOOT/IO9 pairing window disabled");
     }
     #[cfg(feature = "ble-upload")]
@@ -268,6 +279,7 @@ async fn main(spawner: Spawner) -> ! {
                     &BLE_STORAGE_RESPONSES,
                     &NETWORK_UPLOAD_STATUS,
                     &FIRMWARE_STATUS,
+                    &BLE_LED_RUNTIME_STATE,
                 ),
                 "ble",
             ) {

@@ -294,9 +294,9 @@ ErrorFlags
 LED names should include polarity in comments:
 
 ```rust
-// Active-low LED
-pub const PIN_LED1: u8 = 0;
-pub const PIN_LED2: u8 = 1;
+// Active-low MCU-controlled LEDs. LED1 is a green power indicator tied to 3.3 V.
+pub const PIN_LED2: u8 = 0;
+pub const PIN_LED3: u8 = 1;
 ```
 
 ---

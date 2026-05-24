@@ -39,6 +39,11 @@ Common commands:
 # confirm the same sequence is still oldest.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-disconnect-preserves-record 30 sleep-env-esp32c3 128
 
+# Drain records with ACK first, then read one fragment, disconnect before
+# CompleteRecord/ACK, reconnect, and confirm the same sequence is still oldest.
+# This can erase/write the firmware measurement spool region.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-drain-then-disconnect-preserves-record 30 sleep-env-esp32c3 128 25 40 8
+
 # ACK one record, then reconnect and confirm the oldest sequence advanced.
 # This can erase/write the firmware measurement spool region.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-ack-then-peek-next 30 sleep-env-esp32c3 128
@@ -50,6 +55,9 @@ BOOT / IO9 pairing window is open, then requests metadata and fragments.
 `scan-transfer-record-notify` also subscribes to fragment notifications and
 requires each requested fragment notification to match the subsequently read
 fragment.
+`scan-drain-then-disconnect-preserves-record` drains records first so the
+disconnect-preservation check is not confused by full-spool drop-oldest
+behavior.
 
 Manual transfer flow:
 
@@ -66,6 +74,9 @@ state to `Released/pressed_ms=0` before another manual run. When the tool sees
 that expired-held state, it prints `PAIRING_HELD_AFTER_EXPIRED` and exits
 instead of waiting for the full pairing timeout.
 
-For `ack` mode, declare the flash range before running hardware validation:
-the firmware may write or erase the measurement spool region
-`0x003c0000..0x00400000` through `storage_task`.
+For `ack`, `scan-ack-then-peek-next`, or
+`scan-drain-then-disconnect-preserves-record` mode, declare the flash range
+before running hardware validation: the firmware may write or erase the
+measurement spool region `0x003c0000..0x00400000` through `storage_task`.
+These commands do not deliberately write the BLE auth metadata sector
+`0x003bf000..0x003c0000`.

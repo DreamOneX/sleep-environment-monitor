@@ -15,12 +15,24 @@ use crate::{
     config,
     tasks::TaskSignal,
     types::{ErrorFlags, UploadResult},
-    util::status::{LedPattern, status_error_flags, status_to_leds},
+    util::status::{
+        BleLedPairingStatus, BleLedRuntimeState, LedPattern, ble_status_to_led,
+        initial_ble_indication_until_millis, status_error_flags, status_to_leds,
+        update_ble_indication_until_millis,
+    },
 };
 
 #[cfg(target_arch = "riscv32")]
 #[embassy_executor::task]
 pub async fn heartbeat_task(mut led: Output<'static>) {
+    for _ in 0..config::led::BOOT_FLASH_CYCLES {
+        led.set_low();
+        Timer::after(Duration::from_millis(config::led::BOOT_FLASH_ON_MILLIS)).await;
+
+        led.set_high();
+        Timer::after(Duration::from_millis(config::led::BOOT_FLASH_OFF_MILLIS)).await;
+    }
+
     loop {
         led.set_low();
         Timer::after(Duration::from_millis(config::led::HEARTBEAT_ON_MILLIS)).await;
@@ -37,10 +49,19 @@ pub async fn status_task(
     error_flags: &'static TaskSignal<ErrorFlags>,
     network_state: &'static TaskSignal<NetworkState>,
     upload_result: &'static TaskSignal<UploadResult>,
+    ble_runtime_state: &'static TaskSignal<BleLedRuntimeState>,
+    ble_pairing_status: &'static TaskSignal<BleLedPairingStatus>,
 ) {
     let mut latest_flags = ErrorFlags::NONE;
     let mut latest_network = NetworkState::Disconnected;
     let mut latest_upload = UploadResult::Idle;
+    let mut latest_ble_runtime = BleLedRuntimeState::Disabled;
+    let mut latest_ble_pairing = BleLedPairingStatus::default();
+    let mut elapsed_millis = 0_u64;
+    let mut ble_indication_until_millis = initial_ble_indication_until_millis(
+        config::ble::ENABLED,
+        config::led::BLE_BOOT_STATUS_WINDOW_SECS,
+    );
     let mut tick = 0_u32;
 
     loop {
@@ -53,13 +74,34 @@ pub async fn status_task(
         if let Some(result) = upload_result.try_take() {
             latest_upload = result;
         }
+        if let Some(runtime_state) = ble_runtime_state.try_take() {
+            latest_ble_runtime = runtime_state;
+        }
+        if let Some(pairing_status) = ble_pairing_status.try_take() {
+            ble_indication_until_millis = update_ble_indication_until_millis(
+                ble_indication_until_millis,
+                elapsed_millis,
+                pairing_status,
+                config::led::BLE_TRIGGER_STATUS_WINDOW_SECS,
+            );
+            latest_ble_pairing = pairing_status;
+        }
 
         let display_flags = status_error_flags(latest_flags, latest_upload);
         let leds = status_to_leds(display_flags, network_is_ready(latest_network));
-        drive_active_low_led(&mut led, leds.led2, tick);
+        let ble_indication_active =
+            elapsed_millis < ble_indication_until_millis || latest_ble_pairing.window_open;
+        let pattern = ble_status_to_led(
+            latest_ble_runtime,
+            latest_ble_pairing,
+            ble_indication_active,
+        )
+        .unwrap_or(leds.blue_led3);
+        drive_active_low_led(&mut led, pattern, tick);
 
         tick = tick.wrapping_add(1);
         Timer::after(Duration::from_millis(config::led::STATUS_TICK_MILLIS)).await;
+        elapsed_millis = elapsed_millis.saturating_add(config::led::STATUS_TICK_MILLIS);
     }
 }
 

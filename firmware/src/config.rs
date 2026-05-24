@@ -258,6 +258,11 @@ pub mod aggregator {
 }
 
 pub mod led {
+    pub const BOOT_FLASH_CYCLES: u8 = 15;
+    pub const BOOT_FLASH_ON_MILLIS: u64 = 100;
+    pub const BOOT_FLASH_OFF_MILLIS: u64 = 100;
+    pub const BLE_BOOT_STATUS_WINDOW_SECS: u64 = 180;
+    pub const BLE_TRIGGER_STATUS_WINDOW_SECS: u64 = 10;
     pub const HEARTBEAT_ON_MILLIS: u64 = 100;
     pub const HEARTBEAT_OFF_MILLIS: u64 = 900;
     pub const STATUS_TICK_MILLIS: u64 = 100;

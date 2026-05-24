@@ -7,7 +7,7 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24S is implemented in the current working tree. Phase 24 is not complete
+Phase 24T is implemented in the current working tree. Phase 24 is not complete
 yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
@@ -61,6 +61,20 @@ faults in the blue LED3 policy:
 - BLE LED wording is aligned to the implemented runtime states:
   pairing/authorization fast blink and advertising-or-connected slow blink.
 
+Phase 24T hardware-validated the BLE auth metadata reset policy:
+
+- The existing BLE auth metadata sector was backed up from
+  `0x003bf000..0x003c0000` to `/tmp/ble-auth-before-phase24t.bin`.
+- Only `0x003bf000..0x003c0000` was deliberately written or erased with
+  `cargo espflash write-bin` and `cargo espflash erase-region`.
+- Missing/erased metadata, bad header magic, empty current-version records,
+  records-version mismatch, compatibility-checksum mismatch, and header
+  checksum mismatch all auto-opened the temporary authorization window on boot.
+- After the final reset window closed, `scan-read-metadata-now ... expect-reject
+  no-pair` confirmed an unpaired central was rejected at protected metadata
+  control write.
+- This did not validate the runtime 8 second BOOT / IO9 clear gesture itself.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -70,9 +84,11 @@ Important flash ranges:
 - App firmware region: approximately `0x00010000..0x003bf000`.
 - BLE auth metadata sector: `0x003bf000..0x003c0000`. Phase 24R deliberately
   exercised a write to this sector through `PairingComplete` and restored one
-  saved record after reboot. The runtime clear erase path is implemented but
-  was not observed on hardware because BOOT / IO9 stayed reported as released
-  during the clear-gesture watch runs.
+  saved record after reboot. Phase 24T deliberately erased or overwrote this
+  same sector to validate reset/invalid metadata auto-pair behavior. The
+  runtime clear erase path is implemented but was not observed on hardware
+  because BOOT / IO9 stayed reported as released during the clear-gesture watch
+  runs.
 - Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
   exercise normal spool writes/erases through `storage_task` in this range.
   During the long Phase 24R runtime, the storage task continued appending and
@@ -104,8 +120,9 @@ exercised.
 - `firmware/src/bin/main.rs` obtains a BLE security seed from TRNG before
   reusing ADC1 for the microphone path.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
-  saved-bond restore evidence, Phase 24S LED status/config boundary, current
-  LED mapping, and the remaining Phase 24 validation gaps.
+  saved-bond restore evidence, Phase 24S LED status/config boundary, Phase 24T
+  auth metadata reset evidence, current LED mapping, and the remaining Phase 24
+  validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window and the Windows saved-bond restore path. Windows Settings may show the
@@ -114,8 +131,8 @@ holding a GATT session; that passive Settings label is not a Phase 24
 acceptance signal. If Windows still reports paired while firmware rejects
 protected access after an auth reset/clear, use `scan-unpair` before
 re-pairing. Phone/gateway interoperability, runtime saved-auth clearing,
-rejection after clearing, version/checksum reset, record replacement, and LED3
-visual behavior remain unvalidated.
+rejection after the runtime clear gesture, record replacement, and LED3 visual
+behavior remain unvalidated.
 
 ## Subagents
 
@@ -169,7 +186,7 @@ Observed result:
 Milestone commit message:
 
 ```text
-fix: make Wi-Fi-unready LED status configurable
+test: validate BLE auth metadata reset policy
 ```
 
 ## Remaining Phase 24 Work
@@ -177,10 +194,10 @@ fix: make Wi-Fi-unready LED status configurable
 - Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
 - Validate phone/gateway interoperability beyond the Windows central.
-- Validate rejected unauthorized/unencrypted access after saved-auth clearing.
-- Validate BLE auth metadata erase/update behavior, version/checksum reset
-  behavior, automatic pairing-window opening after auth-record reset, record
-  replacement, and user clearing.
+- Validate runtime BOOT / IO9 saved-auth clearing and rejected protected access
+  after that runtime clear gesture.
+- Validate BLE auth record replacement/update behavior when another bond is
+  stored or an existing peer is updated.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
   blink, advertising-or-connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.

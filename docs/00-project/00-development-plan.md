@@ -1971,8 +1971,8 @@ Phase 24P scope:
 - Keep LED2 as the heartbeat indicator and allow a short boot/reset fast-flash
   before the steady heartbeat.
 - Use LED3 as the normal firmware status LED and overlay time-bounded BLE
-  status indications: pairing/authorization window fast blink; advertising,
-  connecting, or connected slow blink; boot BLE status window of 180 seconds;
+  status indications: pairing/authorization window fast blink; advertising or
+  connected slow blink; boot BLE status window of 180 seconds;
   BOOT / IO9 or pairing-trigger BLE status window of at least 10 seconds, with
   fast blink continuing for the full pairing/authorization window.
 - Keep Phase 24P authorization RAM-only. Later Phase 24 work may add saved
@@ -2200,6 +2200,62 @@ Phase 24S commit message:
 fix: make Wi-Fi-unready LED status configurable
 ```
 
+## Phase 24T: BLE Auth Metadata Reset Hardware Validation
+
+Phase 24T validates the BLE authorization metadata reset policy on hardware.
+It deliberately corrupts or erases only the reserved BLE auth metadata sector
+and confirms that the firmware auto-opens the temporary authorization window on
+the next boot.
+
+Phase 24T scope:
+
+- Back up the existing BLE auth metadata sector before destructive validation.
+- Exercise only `0x003bf000..0x003c0000`, the 4 KiB BLE auth metadata sector.
+- Do not flash a new firmware image.
+- Do not exercise BLE ACK/drain or measurement spool writes in
+  `0x003c0000..0x00400000`.
+- Validate automatic pairing-window opening after these auth metadata states:
+  missing/erased sector, invalid header magic, empty current-version record
+  set, records-version mismatch, compatibility-checksum mismatch, and header
+  checksum mismatch.
+- After a reset/invalid-auth pairing window closes, validate that an unpaired
+  central cannot access protected metadata with `scan-read-metadata-now ...
+  expect-reject no-pair`.
+- Keep runtime BOOT / IO9 8 second clear-gesture validation separate; Phase 24T
+  validates the metadata reset policy, not the user gesture.
+
+Phase 24T verification:
+
+```bash
+cargo espflash read-flash --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 0x1000 /tmp/ble-auth-before-phase24t.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/badmagic-zero.bin
+cargo espflash erase-region --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 0x1000
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/empty-current.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/version-mismatch.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/compat-mismatch.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/header-checksum-mismatch.bin
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
+git diff --check
+```
+
+Phase 24T flash notes:
+
+- `cargo espflash read-flash` backed up `0x003bf000..0x003c0000`.
+- `cargo espflash write-bin` and `cargo espflash erase-region` deliberately
+  wrote or erased only `0x003bf000..0x003c0000`.
+- The measurement spool `0x003c0000..0x00400000` was not deliberately
+  exercised by this validation slice.
+- After Phase 24T, the board may be left with invalid BLE auth metadata and no
+  Windows-side pairing record; rebooting should auto-open the temporary
+  authorization window so a new pairing can be created.
+
+Phase 24T commit message:
+
+```text
+test: validate BLE auth metadata reset policy
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2223,11 +2279,9 @@ fix: make Wi-Fi-unready LED status configurable
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
   acknowledge operations.
 - Document the current Phase 24 authorization state precisely: the temporary
-  BOOT / IO9 authorization window is hardware-validated; saved authorization
-  records have a compile-validated target path but are not yet accepted as a
-  hardware-validated pairing persistence feature. Future work must validate
-  write/erase/update rules, version or checksum migration behavior, automatic
-  pairing-window opening after auth-record reset, and user-controlled clearing.
+  BOOT / IO9 authorization window, Windows saved-bond restore path, and auth
+  metadata reset auto-pair policy are hardware-validated. Future work must
+  still validate user-controlled clearing and record replacement/update rules.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but

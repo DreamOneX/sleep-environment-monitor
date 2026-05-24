@@ -243,9 +243,25 @@ it on the current Windows central:
   with `scan-read-metadata-now ... expect-success no-pair`.
 - The same hardware run did not validate the 8 second clear gesture, LED3
   visual behavior, BOOT download-mode preservation, live Wi-Fi/BLE ACK race
-  behavior, rejection after clearing, or version/checksum reset behavior.
+  behavior, rejection after runtime clearing, or auth record replacement.
 
-Phase 24A through 24R do not change the measurement spool flash format or
+Phase 24T validates the auth metadata reset policy on hardware:
+
+- Only the BLE auth metadata sector `0x003bf000..0x003c0000` was deliberately
+  written or erased.
+- Missing/erased metadata, invalid header magic, an empty current-version
+  record set, records-version mismatch, compatibility-checksum mismatch, and
+  header checksum mismatch all opened the temporary authorization window on
+  boot.
+- After the final reset-pattern authorization window closed,
+  `scan-read-metadata-now ... expect-reject no-pair` confirmed that an
+  unpaired central could not access protected metadata.
+- This validation did not exercise BLE ACK/drain or the measurement spool
+  `0x003c0000..0x00400000`.
+- This validation did not validate the runtime 8 second BOOT / IO9 clear
+  gesture itself.
+
+Phase 24A through 24T do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -261,14 +277,15 @@ interference. Phase 24Q compile-validates saved authorization records. Phase 24R
 hardware-validates the first saved-bond path on Windows: pairing stores one
 bond record in the BLE auth sector, reboot restore reports one valid restored
 record, and `no-pair` encrypted metadata access succeeds through the saved
-bond. Full BLE upload bring-up remains future Phase 24 work because live
-Wi-Fi/BLE ACK race behavior, BOOT download-mode preservation, LED3 hardware
-visual behavior, runtime auth-record clearing, rejection after clearing,
-record replacement, and version/checksum reset behavior are still unvalidated.
-Future work must validate those remaining flash write/erase/update paths and
-automatic pairing-window opening after record reset. LED3 BLE operation
-feedback now has a compile/unit-tested firmware boundary, but the actual blue
-LED patterns have not been visually accepted on hardware yet.
+bond. Phase 24T hardware-validates auth metadata reset auto-pair behavior and
+unpaired protected-metadata rejection after a reset/invalid-auth window closes.
+Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
+ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
+behavior, runtime auth-record clearing, rejection after the runtime clear
+gesture, and record replacement are still unvalidated. Future work must
+validate those remaining flash update paths. LED3 BLE operation feedback now
+has a compile/unit-tested firmware boundary, but the actual blue LED patterns
+have not been visually accepted on hardware yet.
 
 ## Goals
 
@@ -426,15 +443,15 @@ rules:
 - Unpaired and unauthorized centrals cannot read measurement records.
 - Pairing state and any authorization material are handled explicitly.
 - Current hardware-validated Phase 24 authorization is the volatile BOOT / IO9
-  window plus the Phase 24R Windows saved-bond restore path. The saved-bond
-  path stores records in `0x003bf000..0x003c0000`, including
-  version/checksum reset policy and auto-opening the authorization window when
-  the record set is missing, empty, invalid, version-mismatched, or
-  compatibility-checksum-mismatched. Phase 24R also adds the runtime
-  user-clearing gesture for saved records. Future work must validate
-  write/erase/update rules beyond the observed first bond write,
-  version/checksum migration behavior, rejection after clearing, and the clear
-  gesture on hardware.
+  window, the Phase 24R Windows saved-bond restore path, and the Phase 24T
+  auth metadata reset policy. The saved-bond path stores records in
+  `0x003bf000..0x003c0000`; missing, empty, invalid,
+  records-version-mismatched, compatibility-checksum-mismatched, and
+  header-checksum-mismatched auth metadata auto-opens the authorization window
+  on boot. Phase 24R also adds the runtime user-clearing gesture for saved
+  records. Future work must validate record replacement/update behavior,
+  rejection after the runtime clear gesture, and the clear gesture itself on
+  hardware.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 
@@ -456,7 +473,6 @@ Phase 24 has hardware-independent tests for:
   timing.
 
 Remaining hardware checks should confirm live Wi-Fi/BLE coexistence races,
-BLE auth metadata erase/update behavior beyond the observed first bond write,
-LED3 BLE status indication timing and patterns, automatic pairing-window
-opening after auth-record reset, user clearing, rejection after clearing, and
-that BOOT still enters download mode during reset or power-on.
+BLE auth record replacement/update behavior, LED3 BLE status indication timing
+and patterns, runtime user clearing, rejection after the runtime clear gesture,
+and that BOOT still enters download mode during reset or power-on.

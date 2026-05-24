@@ -2783,9 +2783,90 @@ Remaining Phase 24 validation:
 - Runtime 8 second BOOT / IO9 saved-auth clearing remains unvalidated on
   hardware.
 - BOOT / IO9 download-mode preservation remains unvalidated.
-- Unauthorized or unencrypted protected-characteristic rejection after saved
-  authorization clearing remains unvalidated.
-- BLE auth metadata version/checksum reset, record replacement/update, and
-  phone/gateway interoperability remain unvalidated.
+- Protected-characteristic rejection after the runtime saved-auth clear gesture
+  remains unvalidated because that gesture itself remains unvalidated.
+- BLE auth record replacement/update and phone/gateway interoperability remain
+  unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+
+## Milestone 48: Phase 24T BLE Auth Metadata Reset Hardware Validation
+
+Phase 24T hardware validation:
+
+- Backed up the current BLE auth metadata sector
+  `0x003bf000..0x003c0000` to `/tmp/ble-auth-before-phase24t.bin`.
+- Deliberately wrote or erased only the BLE auth metadata sector
+  `0x003bf000..0x003c0000` using `cargo espflash write-bin` and
+  `cargo espflash erase-region`.
+- Confirmed auto-opening of the temporary BLE authorization window after
+  missing/erased metadata, invalid header magic, an empty current-version record
+  set, records-version mismatch, compatibility-checksum mismatch, and header
+  checksum mismatch.
+- Removed the stale Windows-side pairing record with `scan-unpair` after the
+  first invalid-auth run exposed stale central pairing state.
+- Confirmed that after the temporary authorization window closed, an unpaired
+  central using `scan-read-metadata-now ... expect-reject no-pair` could not
+  access protected metadata.
+
+Validation commands run from the repository root:
+
+```bash
+cargo espflash read-flash --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 0x1000 /tmp/ble-auth-before-phase24t.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/badmagic-zero.bin
+cargo espflash erase-region --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 0x1000
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/empty-current.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/version-mismatch.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/compat-mismatch.bin
+cargo espflash write-bin --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after hard-reset --non-interactive 0x003bf000 /tmp/phase24-auth-patterns/header-checksum-mismatch.bin
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
+```
+
+Observed validation results:
+
+- `badmagic-zero.bin`: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=44100 pressed_ms=0`.
+- Missing/erased sector: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=26850 pressed_ms=0`.
+- `empty-current.bin`: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=33950 pressed_ms=0`.
+- `version-mismatch.bin`: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=34550 pressed_ms=0`.
+- `compat-mismatch.bin`: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=34550 pressed_ms=0`.
+- `header-checksum-mismatch.bin`: status read succeeded with
+  `pairing=Open boot_button=Released remaining_ms=31800 pressed_ms=0`.
+- After waiting for the final temporary authorization window to close, status
+  read showed `pairing=Closed boot_button=Released remaining_ms=0
+  pressed_ms=0`.
+- `scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair` reported
+  `METADATA_NOW_RESULT success=True metadata_success=False rejected=True
+  phase=control_write`.
+
+Flash and hardware notes:
+
+- The only deliberate flash-write/erase range was the BLE auth metadata sector
+  `0x003bf000..0x003c0000`.
+- The measurement spool range `0x003c0000..0x00400000` was not deliberately
+  exercised through BLE ACK/drain in this milestone.
+- No new firmware image was flashed in this milestone.
+- After this milestone, the board may be left with invalid BLE auth metadata
+  and no Windows-side pairing record. Rebooting should auto-open the temporary
+  authorization window so a new pairing can be created.
+- A non-flashing `probe-rs reset --chip esp32c3` cleared a stale runtime status
+  where BOOT / IO9 had been reported as pressed for about 43 minutes; after the
+  reset, `scan-read-status` reported `boot_button=Released pressed_ms=0`.
+
+Remaining Phase 24 validation:
+
+- Runtime 8 second BOOT / IO9 saved-auth clearing remains unvalidated on
+  hardware.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Protected-characteristic rejection after the runtime saved-auth clear gesture
+  remains unvalidated because that gesture itself remains unvalidated.
+- BLE auth record replacement/update and phone/gateway interoperability remain
+  unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
 - Live Wi-Fi/BLE ACK race behavior remains unvalidated.

@@ -713,12 +713,15 @@ responsibilities:
 Future runtime responsibilities:
 
 - Validate the remaining BLE pairing/security and authorization-record paths on
-  hardware, including rejected access after clearing, record replacement,
-  version/checksum reset behavior, and user-controlled clearing. Phase 24R has
+  hardware, including runtime user-controlled clearing, rejected access after
+  that runtime clear gesture, and record replacement/update. Phase 24R has
   already validated the first Windows saved-bond write and reboot-restore path.
+  Phase 24T has already validated auth metadata reset auto-pair behavior and
+  unpaired protected-metadata rejection after a reset/invalid-auth window
+  closes.
 - Validate remaining live Wi-Fi/BLE ACK race behavior, BOOT download-mode
-  preservation, BLE auth metadata erase/update behavior beyond the first saved
-  bond write, and LED3 hardware visual behavior.
+  preservation, BLE auth record replacement/update behavior beyond the first
+  saved bond write, and LED3 hardware visual behavior.
 - Never write the measurement spool directly; use `storage_task` for all
   measurement append/peek/ACK behavior. BLE auth-sector writes are limited to
   the reserved `0x003bf000..0x003c0000` authorization record sector.
@@ -753,11 +756,15 @@ compile-validates the TrouBLE security/bond-record persistence path and adds
 authorization record load/store tests. Phase 24R hardware-validates Windows
 Custom ConfirmOnly pairing, BLE auth-sector write after `PairingComplete`,
 startup restore of one saved authorization record after reboot, and encrypted
-`no-pair` metadata access through the saved bond.
-Live Wi-Fi/BLE ACK race behavior, BLE auth metadata erase/update behavior after
-the first bond write, rejection after saved-auth clearing, version/checksum
-reset behavior, LED3 BLE indication hardware behavior, and BOOT download-mode
-preservation still need future hardware/runtime validation.
+`no-pair` metadata access through the saved bond. Phase 24T hardware-validates
+auth metadata reset auto-pair behavior for missing, invalid, empty,
+records-version-mismatched, compatibility-checksum-mismatched, and
+header-checksum-mismatched metadata, and confirms unpaired protected-metadata
+rejection after a reset/invalid-auth window closes.
+Live Wi-Fi/BLE ACK race behavior, runtime saved-auth clearing, rejection after
+the runtime clear gesture, BLE auth record replacement/update behavior, LED3
+BLE indication hardware behavior, and BOOT download-mode preservation still
+need future hardware/runtime validation.
 
 ---
 

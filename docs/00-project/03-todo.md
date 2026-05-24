@@ -8,9 +8,8 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24S is implemented. Phase 24R remains the latest hardware validation
-milestone, and the current hardware evidence confirms the Windows saved-bond
-path:
+Phase 24T is implemented. The current hardware evidence confirms the Windows
+saved-bond path and BLE auth metadata reset policy:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -18,6 +17,13 @@ path:
 - Reboot restored one saved authorization record.
 - Encrypted metadata access succeeded with
   `scan-read-metadata-now ... expect-success no-pair`.
+- Missing/erased BLE auth metadata, invalid header magic, empty current-version
+  records, records-version mismatch, compatibility-checksum mismatch, and
+  header checksum mismatch all opened the temporary authorization window on
+  boot.
+- After a reset/invalid-auth pairing window closed,
+  `scan-read-metadata-now ... expect-reject no-pair` confirmed an unpaired
+  central could not access protected metadata.
 
 Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
 network faults:
@@ -58,11 +64,6 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
   not BLE pairing or BLE record clearing.
 - [ ] Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime. Unit tests
   cover stale BLE ACK protection, but a real coexistence run is still needed.
-- [ ] Validate unauthorized or unencrypted protected-characteristic rejection
-  after saved authorization records are cleared.
-- [ ] Validate BLE auth metadata version/checksum reset on hardware, including
-  automatic pairing-window opening after missing, invalid, empty,
-  version-mismatched, or compatibility-checksum-mismatched auth records.
 - [ ] Validate phone or gateway interoperability beyond the current Windows BLE
   central validation tool.
 - [ ] Validate BLE auth record replacement/update behavior when another bond is
@@ -104,8 +105,9 @@ equivalent moves unless explicitly documented otherwise.
   being exercised. Current important ranges are:
   `0x003bf000..0x003c0000` for BLE auth metadata and
   `0x003c0000..0x00400000` for the measurement spool.
-- [ ] Continue hardware validation for BLE auth erase/update/reset paths beyond
-  the first observed bond write.
+- [ ] Continue hardware validation for BLE auth runtime clear and record
+  replacement/update paths beyond the first observed bond write and Phase 24T
+  reset-pattern validation.
 - [ ] Recheck BOOT / IO9 electrical and UX behavior before treating it as a
   deployed user-facing pairing or clearing control.
 - [ ] Validate mobile phone and gateway behavior once a real central app or

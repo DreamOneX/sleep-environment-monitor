@@ -46,7 +46,7 @@ use defmt::{info, warn};
 #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use embassy_time::{Duration, Timer};
 #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
-use esp_radio::wifi::{Config, WifiController, sta::StationConfig};
+use esp_radio::wifi::{AuthenticationMethod, Config, WifiController, sta::StationConfig};
 
 #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use crate::{
@@ -162,12 +162,22 @@ pub async fn wifi_task(
 fn station_config() -> StationConfig {
     let station_config = StationConfig::default()
         .with_ssid(config::wifi::SSID)
-        .with_auth_method(config::wifi::authentication_method());
+        .with_auth_method(authentication_method(config::wifi::AUTH_MODE));
 
     if config::wifi::PASSWORD.is_empty() {
         station_config
     } else {
         station_config.with_password(config::wifi::PASSWORD.into())
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
+fn authentication_method(auth_mode: config::wifi::AuthMode) -> AuthenticationMethod {
+    match auth_mode {
+        config::wifi::AuthMode::Open => AuthenticationMethod::None,
+        config::wifi::AuthMode::WpaPersonal => AuthenticationMethod::Wpa,
+        config::wifi::AuthMode::Wpa2Personal => AuthenticationMethod::Wpa2Personal,
+        config::wifi::AuthMode::WpaWpa2Personal => AuthenticationMethod::WpaWpa2Personal,
     }
 }
 

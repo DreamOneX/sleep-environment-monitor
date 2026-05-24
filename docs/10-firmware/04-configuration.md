@@ -2,7 +2,7 @@
 
 This document defines the firmware configuration boundary for `firmware/src/config.rs`.
 
-Phase 21 was behavior-preserving. Phase 22 extends this module with the JSON REST API paths, discovery/time settings, and common Wi-Fi credential modes. Phase 24 should extend it with independent BLE enablement and BLE upload policy.
+Phase 21 was behavior-preserving. Phase 22 extended this module with the JSON REST API paths, discovery/time settings, and common Wi-Fi credential modes. Phase 24 adds independent BLE enablement, BLE upload policy, and the BLE authorization metadata startup policy.
 
 ## Config Owns
 
@@ -10,8 +10,8 @@ Phase 21 was behavior-preserving. Phase 22 extends this module with the JSON RES
 
 | Category | Examples |
 |---|---|
-| Wi-Fi | SSID, authentication mode, credential defaults, credential validation |
-| BLE | BLE feature enablement, advertising name, pairing-window timing, GATT transfer sizing, ACK policy tuning |
+| Wi-Fi | SSID, authentication mode, credential defaults, byte-length validation, 64-byte hex PSK validation |
+| BLE | BLE feature enablement, advertising name, pairing-window timing, GATT transfer sizing, ACK policy tuning, authorization metadata version, auto-pair-on-auth-reset policy |
 | REST upload | fallback host/IP, port, JSON upload path, time path, discovery path, user-agent |
 | Network timing | upload retry delay, TCP/read timeouts, discovery retry, time-sync retry, empty-spool poll interval |
 | Network resources | stack resource count, socket buffers, request/response buffers |
@@ -40,6 +40,20 @@ Keep these values near the hardware or protocol code that defines them:
 
 Board facts may be referenced by config validation, but they should not be duplicated as deployment config.
 
+## Current Wi-Fi Credential Rules
+
+`config::wifi` keeps the current bring-up default as SSID `FZU`, empty
+password, and open authentication. That is a local development default, not a
+deployment credential model.
+
+Credential validation uses IEEE byte limits rather than character counts:
+
+- SSIDs must be non-empty and at most 32 bytes.
+- Open networks must not provide a password.
+- WPA/WPA2 personal passwords must be 8 to 64 bytes.
+- A 64-byte WPA/WPA2 personal password is treated as a raw PSK and must be
+  hexadecimal.
+
 ## Phase 21 Checklist
 
 Move or centralize the currently hardcoded values in these groups:
@@ -66,9 +80,9 @@ cargo clippy --target riscv32imc-unknown-none-elf
 
 No hardware flash validation is required unless Phase 21 changes the flash range or write behavior. It should not.
 
-## Phase 24 BLE Checklist
+## Phase 24 BLE Configuration
 
-When BLE upload is implemented, keep configuration ownership explicit:
+The Phase 24 BLE upload path keeps configuration ownership explicit:
 
 - `wifi-upload` is the default firmware feature and keeps the current REST
   upload behavior enabled unless the build explicitly uses
@@ -76,12 +90,18 @@ When BLE upload is implemented, keep configuration ownership explicit:
 - `ble-upload` enables the BLE upload boundary independently from Wi-Fi.
 - `radio-coex` is the explicit BLE+Wi-Fi coexistence feature; it selects both
   `wifi-upload` and `ble-upload` plus `esp-radio/coex`.
-- Keep BLE upload disabled by default until the BLE stack and pairing behavior
-  are validated on hardware.
-- Add BLE advertising and pairing-window settings without embedding them inside
+- BLE upload remains disabled by default unless the build enables
+  `ble-upload`.
+- BLE advertising and pairing-window settings live in config without being
+  embedded inside
   upload or storage task logic.
 - Keep BOOT / IO9 pairing-window timing in config and keep the pin input-only
   with no internal pull resistor.
+- Keep the BLE authorization record-set version, record-set compatibility
+  checksum, and auto-pair-on-auth-record-reset switch in config. A version
+  mismatch, compatibility-checksum mismatch, missing header, invalid header, or
+  empty record set may open the temporary authorization window on boot when the
+  switch is enabled.
 - Add GATT fragment-size and transfer-timeout policy values.
 - Keep project GATT protocol constants in the BLE protocol module, not in
   `config.rs`.

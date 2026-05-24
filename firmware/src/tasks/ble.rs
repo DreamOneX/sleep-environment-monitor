@@ -634,6 +634,14 @@ impl BlePairingGesture {
         self.pressed_millis
     }
 
+    pub fn open_window(&mut self) -> BlePairingEvent {
+        self.state = BlePairingState::Open {
+            remaining_millis: self.window_millis,
+        };
+        self.opened_for_current_press = true;
+        BlePairingEvent::WindowOpened
+    }
+
     pub fn update(
         &mut self,
         button_state: BootButtonState,
@@ -644,11 +652,7 @@ impl BlePairingGesture {
         if button_state.is_pressed() {
             self.pressed_millis = self.pressed_millis.saturating_add(elapsed_millis);
             if !self.opened_for_current_press && self.pressed_millis >= self.hold_millis {
-                self.state = BlePairingState::Open {
-                    remaining_millis: self.window_millis,
-                };
-                self.opened_for_current_press = true;
-                return BlePairingEvent::WindowOpened;
+                return self.open_window();
             }
         } else {
             self.pressed_millis = 0;
@@ -751,6 +755,11 @@ use crate::tasks::{
     FirmwareStatusSnapshotMutex, NetworkUploadStatusMutex, StorageRequestChannel,
     StorageResponseSignal,
     storage::{StorageClient, StorageCommand, StorageResponse},
+};
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use crate::{
+    drivers::flash::RomBleAuthFlash,
+    storage::ble_auth::{AUTH_HEADER_LEN, inspect_auth_header, should_auto_open_pairing_window},
 };
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
 use defmt::{error, info, warn};
@@ -958,6 +967,15 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
         crate::config::ble::PAIRING_HOLD_MILLIS,
         crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
     );
+    if should_auto_open_pairing_window_on_boot() {
+        let pairing_event = pairing_gesture.open_window();
+        publish_pairing_snapshot(
+            &pairing_gesture,
+            BootButtonState::from_active_low(boot_button.is_low()),
+        )
+        .await;
+        log_pairing_event(pairing_event, &pairing_gesture);
+    }
 
     loop {
         let boot_button_state = BootButtonState::from_active_low(boot_button.is_low());
@@ -965,33 +983,77 @@ pub async fn ble_pairing_task(boot_button: Input<'static>) {
             boot_button_state,
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         );
-        {
-            let mut state = BLE_BOOT_BUTTON_STATE.lock().await;
-            *state = boot_button_state;
-        }
-        {
-            let mut pressed_millis = BLE_BOOT_PRESSED_MILLIS.lock().await;
-            *pressed_millis = saturating_u64_to_u32(pairing_gesture.pressed_millis());
-        }
-        {
-            let mut state = BLE_PAIRING_STATE.lock().await;
-            *state = pairing_gesture.state();
-        }
-
-        match pairing_event {
-            BlePairingEvent::WindowOpened => info!(
-                "ble pairing window opened remaining_ms={=u64}",
-                pairing_gesture.state().remaining_millis()
-            ),
-            BlePairingEvent::WindowExpired => info!("ble pairing window expired"),
-            BlePairingEvent::None => {}
-        }
+        publish_pairing_snapshot(&pairing_gesture, boot_button_state).await;
+        log_pairing_event(pairing_event, &pairing_gesture);
 
         Timer::after(Duration::from_millis(
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
         ))
         .await;
     }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+async fn publish_pairing_snapshot(
+    pairing_gesture: &BlePairingGesture,
+    boot_button_state: BootButtonState,
+) {
+    {
+        let mut state = BLE_BOOT_BUTTON_STATE.lock().await;
+        *state = boot_button_state;
+    }
+    {
+        let mut pressed_millis = BLE_BOOT_PRESSED_MILLIS.lock().await;
+        *pressed_millis = saturating_u64_to_u32(pairing_gesture.pressed_millis());
+    }
+    {
+        let mut state = BLE_PAIRING_STATE.lock().await;
+        *state = pairing_gesture.state();
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn log_pairing_event(pairing_event: BlePairingEvent, pairing_gesture: &BlePairingGesture) {
+    match pairing_event {
+        BlePairingEvent::WindowOpened => info!(
+            "ble pairing window opened remaining_ms={=u64}",
+            pairing_gesture.state().remaining_millis()
+        ),
+        BlePairingEvent::WindowExpired => info!("ble pairing window expired"),
+        BlePairingEvent::None => {}
+    }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn should_auto_open_pairing_window_on_boot() -> bool {
+    let flash = match RomBleAuthFlash::new() {
+        Ok(flash) => flash,
+        Err(error) => {
+            warn!("ble auth flash init failed error={:?}", error);
+            return false;
+        }
+    };
+    let mut header = [0_u8; AUTH_HEADER_LEN];
+    if let Err(error) = flash.read(0, &mut header) {
+        warn!("ble auth header read failed error={:?}", error);
+        return false;
+    }
+
+    let status = inspect_auth_header(
+        &header,
+        crate::config::ble::AUTH_RECORDS_VERSION,
+        crate::config::ble::AUTH_RECORDS_CHECKSUM,
+    );
+    let should_open =
+        should_auto_open_pairing_window(crate::config::ble::AUTO_PAIR_ON_AUTH_RECORD_RESET, status);
+    info!(
+        "ble auth records status={:?} auto_pair={=bool} offset=0x{:08x} len={=usize}",
+        status,
+        should_open,
+        flash.absolute_offset(),
+        flash.len()
+    );
+    should_open
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -2097,6 +2159,23 @@ mod tests {
             BlePairingState::Open {
                 remaining_millis: 60_000
             }
+        );
+    }
+
+    #[test]
+    fn pairing_gesture_can_open_window_without_button_press() {
+        let mut gesture = BlePairingGesture::new(2_000, 60_000);
+
+        assert_eq!(gesture.open_window(), BlePairingEvent::WindowOpened);
+        assert_eq!(
+            gesture.state(),
+            BlePairingState::Open {
+                remaining_millis: 60_000
+            }
+        );
+        assert_eq!(
+            gesture.update(BootButtonState::Pressed, 2_000),
+            BlePairingEvent::None
         );
     }
 

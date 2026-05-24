@@ -59,16 +59,20 @@ ESP32-C3-WROOM-02-N4
 
 The module includes 4 MB internal SPI flash. Firmware uses a dedicated flash storage region for persisted measurement spooling and must not write into bootloader, partition table, app image, or RF/calibration data regions.
 
-Flash spool layout:
+Flash layout:
 
 ```text
 total flash:            0x0000_0000..0x0040_0000  4 MiB
 system reserved:        0x0000_0000..0x0001_0000  bootloader / partition / RF data area
-application reserved:   0x0001_0000..0x003c_0000  firmware image growth area
+application reserved:   0x0001_0000..0x003b_f000  firmware image growth area
+BLE auth metadata:      0x003b_f000..0x003c_0000  4 KiB, 4 KiB sector aligned
 measurement spool:      0x003c_0000..0x0040_0000  256 KiB, 4 KiB sector aligned
 ```
 
-The firmware validates this layout at runtime before enabling flash writes. A zero-sized spool, sector-unaligned range, out-of-bounds range, or overlap with protected regions is treated as a configuration error.
+The firmware validates this layout at runtime before enabling flash access. A
+zero-sized BLE auth or spool region, sector-unaligned range, out-of-bounds
+range, overlap with protected regions, or BLE-auth/spool overlap is treated as
+a configuration error.
 
 ## Pin Mapping
 
@@ -101,51 +105,65 @@ The firmware validates this layout at runtime before enabling flash writes. A ze
 ```text
 Cargo.toml
 firmware/
+├── src
+│   ├── bin
+│   │   └── main.rs
+│   ├── drivers
+│   │   ├── mod.rs
+│   │   ├── flash.rs
+│   │   ├── mic.rs
+│   │   ├── opt3001.rs
+│   │   └── sht40.rs
+│   ├── storage
+│   │   ├── mod.rs
+│   │   ├── ble_auth.rs
+│   │   ├── flash_model.rs
+│   │   └── spool.rs
+│   ├── tasks
+│   │   ├── mod.rs
+│   │   ├── aggregator.rs
+│   │   ├── ble.rs
+│   │   ├── led.rs
+│   │   ├── mic.rs
+│   │   ├── net.rs
+│   │   ├── sensor.rs
+│   │   ├── storage.rs
+│   │   ├── upload.rs
+│   │   └── wifi.rs
+│   ├── util
+│   │   ├── mod.rs
+│   │   ├── logging.rs
+│   │   ├── queue.rs
+│   │   └── status.rs
+│   ├── board.rs
+│   ├── config.rs
+│   ├── lib.rs
+│   └── types.rs
 ├── Cargo.toml
 ├── build.rs
-├── README.md
-└── src
-    ├── bin
-    │   └── main.rs
-    ├── lib.rs
-    ├── board.rs
-    ├── types.rs
-    ├── drivers
-    │   ├── mod.rs
-    │   ├── sht40.rs
-    │   ├── opt3001.rs
-    │   ├── mic.rs
-    │   └── flash.rs
-    ├── storage
-    │   ├── mod.rs
-    │   ├── flash_model.rs
-    │   └── spool.rs
-    ├── tasks
-    │   ├── mod.rs
-    │   ├── sensor.rs
-    │   ├── mic.rs
-    │   ├── aggregator.rs
-    │   ├── storage.rs
-    │   ├── net.rs
-    │   ├── wifi.rs
-    │   ├── upload.rs
-    │   ├── ble.rs
-    │   └── led.rs
-    └── util
-        ├── mod.rs
-        ├── logging.rs
-        ├── queue.rs
-        └── status.rs
+└── README.md
 server/
 ├── README.md
 └── post_receiver.py
 docs/
-├── README.md
 ├── 00-project/
 ├── 10-firmware/
 ├── 20-server/
-└── 30-integration/
+├── 30-integration/
+└── README.md
 ```
+
+High-level firmware groups:
+
+- `bin/`: target executable entry point.
+- `drivers/`: hardware adapters and protocol/conversion logic.
+- `storage/`: flash-backed spool and BLE authorization metadata models.
+- `tasks/`: Embassy runtime task boundaries.
+- `util/`: shared hardware-independent helpers.
+- `board.rs`: physical board constants.
+- `config.rs`: deployment and behavior policy constants.
+- `lib.rs`: firmware library module root.
+- `types.rs`: shared data types.
 
 The root `Cargo.toml` is a workspace manifest. The firmware package remains named `sleep-environment-monitor`, and root-level Cargo commands target `firmware` by default.
 
@@ -174,6 +192,9 @@ pub const I2C_ADDR_OPT3001: u8 = 0x45;
 pub const FLASH_TOTAL_SIZE_BYTES: u32 = 4 * 1024 * 1024;
 pub const FLASH_SECTOR_SIZE_BYTES: u32 = 4096;
 
+pub const FLASH_BLE_AUTH_REGION_OFFSET: u32 = 0x003b_f000;
+pub const FLASH_BLE_AUTH_REGION_SIZE: u32 = 0x0000_1000;
+
 pub const FLASH_SPOOL_REGION_OFFSET: u32 = 0x003c_0000;
 pub const FLASH_SPOOL_REGION_SIZE: u32 = 0x0004_0000;
 
@@ -182,10 +203,11 @@ pub const FLASH_SYSTEM_RESERVED_SIZE: u32 = 0x0001_0000;
 
 pub const FLASH_APP_RESERVED_OFFSET: u32 = 0x0001_0000;
 pub const FLASH_APP_RESERVED_SIZE: u32 =
-    FLASH_SPOOL_REGION_OFFSET - FLASH_APP_RESERVED_OFFSET;
+    FLASH_BLE_AUTH_REGION_OFFSET - FLASH_APP_RESERVED_OFFSET;
 ```
 
-Flash spool constants must pass `drivers::flash::validate_default_flash_spool_region()` before flash writes are enabled.
+Flash constants must pass `drivers::flash::validate_default_flash_spool_region()`
+before spool writes or BLE auth metadata reads are enabled.
 
 ---
 
@@ -213,8 +235,38 @@ Firmware configuration module for deployment and behavior policy values.
 The boundary is:
 
 - `board.rs` keeps physical board facts such as pins, I2C addresses, and flash layout.
-- `config.rs` owns Wi-Fi defaults, REST fallback endpoint details, timing policy, buffer sizes, logging intervals, and other deployment knobs.
+- `config.rs` owns Wi-Fi, BLE, REST upload, API endpoint, time sync, sensor,
+  microphone, storage, runtime, network, aggregation, and LED policy values.
 - Drivers keep protocol constants and conversion math.
+
+Current `config.rs` groups:
+
+- `runtime`: heap size and main idle sleep policy.
+- `network`: network stack sizing and DHCP configuration.
+- `ble`: BLE feature enablement, advertising name, fragment and HCI buffer
+  sizes, polling intervals, pairing hold/window timing, authorization metadata
+  record-set version/checksum, and
+  `AUTO_PAIR_ON_AUTH_RECORD_RESET`.
+- `wifi`: Wi-Fi feature enablement, SSID/password/auth-mode defaults,
+  reconnect backoff, credential validation, SSID 32-byte limit, WPA password
+  8-to-64-byte limits, open-network empty-password rule, and the rule that a
+  64-byte WPA password must be a hex PSK.
+- `upload`: device ID, JSON schema version, REST fallback host/IP/port, API
+  paths, discovery, NTP/time sync, retry, timeout, buffer, and success-log
+  policy.
+- `sensor`: I2C bus speed, sample period, SHT40 wait, and sensor log cadence.
+- `mic`: microphone sample window, retry, delay, log cadence, and target ADC
+  attenuation.
+- `storage`: measurement payload, persistent spool, command queue, and metrics
+  log sizing.
+- `aggregator`: measurement aggregation log cadence.
+- `led`: heartbeat and status blink timing.
+
+`AUTO_PAIR_ON_AUTH_RECORD_RESET` only allows Phase 24O startup logic to open a
+RAM-only authorization window when the read-only BLE authorization metadata
+header is absent, invalid, empty, version-incompatible, or checksum-mismatched.
+It does not write or erase flash and does not persist real bonding, pairing
+keys, allowlists, or authorization records.
 
 See [04-configuration.md](04-configuration.md).
 
@@ -269,6 +321,8 @@ ESP32-C3 internal SPI flash adapter.
 Responsibilities:
 
 - Expose a bounded storage region for the measurement spool.
+- Expose a bounded read-only BLE authorization metadata region for Phase 24
+  boot-time pairing policy checks.
 - Implement the project `FlashStorage` interface over the ESP32-C3 ROM SPI flash functions on the embedded target.
 - Refuse out-of-range access.
 - Require sector-aligned erase operations and 4-byte-aligned ROM read/write operations.
@@ -282,6 +336,26 @@ The smoke test erases, verifies, writes, reads back, and erases again only the f
 ```
 
 Default firmware builds must not enable `flash-smoke`, so normal boot does not erase the spool test sector.
+
+---
+
+## `storage/ble_auth.rs`
+
+Hardware-independent BLE authorization metadata header logic.
+
+Responsibilities:
+
+- Define the future BLE authorization records header magic, format version,
+  record-set version, record count, records checksum, and header checksum.
+- Treat erased flash, invalid header data, empty record sets, record-set version
+  mismatch, or checksum mismatch as requiring a new pairing/authorization
+  window when the config switch allows it.
+- Keep this metadata separate from the measurement spool format and JSON
+  payload shape.
+
+Phase 24 currently reads this header only. It does not write or erase the BLE
+authorization metadata sector, and it does not persist bonded peers, pairing
+keys, allowlists, or authorization records yet.
 
 ---
 
@@ -476,7 +550,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A/24B/24C/24D/24E/24F/24G/24H/24I/24J/24K/24L
+Current Phase 24A through Phase 24O
 responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
@@ -530,6 +604,10 @@ responsibilities:
 - Support ACK-mode BLE storage drain through the existing
   sequence-checked `StorageCommand::Ack { client: StorageClient::Ble, sequence }`
   path when the BLE ACK policy permits it.
+- In `ble-upload` target builds, read the BLE authorization metadata header at
+  startup and use the config-gated policy to open the RAM-only authorization
+  window when the header is absent, invalid, empty, version-incompatible, or
+  checksum-mismatched.
 
 Future runtime responsibilities:
 
@@ -547,26 +625,29 @@ Future runtime responsibilities:
   reconnect, or REST upload.
 
 BLE protocol framing, fragment ordering, sequence-checked ACK policy,
-disconnect reset, and BOOT / IO9 pairing-window gesture logic have
-hardware-independent Phase 24A/24B/24C tests. The Phase 24D GATT skeleton,
+disconnect reset, BOOT / IO9 pairing-window gesture logic, BLE authorization
+metadata header parsing, and auto-pair policy decisions have
+hardware-independent Phase 24A/24B/24C/24O tests. The Phase 24D GATT skeleton,
 Phase 24E authorized read-only record path, Phase 24F runtime BLE ACK wiring,
 Phase 24G independent radio feature matrix, Phase 24H BLE status runtime
-snapshot, Phase 24I advertising payload sizing, and Phase 24J central-side
-status and closed-window authorization behavior compile or run against the
-ESP32-C3 target. Phase 24K adds central-readable pairing diagnostics to the
-status frame. Phase 24I hardware validation confirms that the BLE+Wi-Fi
-firmware reaches the board-side advertising loop. Phase 24J central validation
-confirms discovery, connection, structured status reads, and closed-window
-measurement access rejection. Phase 24K central validation confirms BOOT / IO9
-active-low runtime input, long-press pairing-window entry, and the expected
-no-retrigger behavior until release. Phase 24L central validation confirms
-full BLE record transfer, CRC validation, `CompleteRecord`, and ACK-mode BLE
-storage drain while Wi-Fi upload is unavailable. Phase 24M central validation
-confirms fragment notifications matching requested fragment reads. Phase 24N
-adds storage-level unit coverage that a stale BLE ACK after Wi-Fi ACK does not
-remove the next oldest record. Live Wi-Fi/BLE ACK race behavior, disconnect
-preservation during live transfer, post-ACK oldest-record advancement, and
-BOOT download-mode preservation still need future hardware/runtime validation.
+snapshot, Phase 24I advertising payload sizing, Phase 24J central-side status
+and closed-window authorization behavior, and Phase 24O startup auth-header
+read policy compile against the ESP32-C3 target. Phase 24K adds
+central-readable pairing diagnostics to the status frame. Phase 24I hardware
+validation confirms that the BLE+Wi-Fi firmware reaches the board-side
+advertising loop. Phase 24J central validation confirms discovery, connection,
+structured status reads, and closed-window measurement access rejection. Phase
+24K central validation confirms BOOT / IO9 active-low runtime input,
+long-press pairing-window entry, and the expected no-retrigger behavior until
+release. Phase 24L central validation confirms full BLE record transfer, CRC
+validation, `CompleteRecord`, and ACK-mode BLE storage drain while Wi-Fi upload
+is unavailable. Phase 24M central validation confirms fragment notifications
+matching requested fragment reads. Phase 24N adds storage-level unit coverage
+that a stale BLE ACK after Wi-Fi ACK does not remove the next oldest record.
+Live Wi-Fi/BLE ACK race behavior, disconnect preservation during live transfer,
+post-ACK oldest-record advancement, BLE auth metadata write/erase behavior,
+persisted bonding or authorization records, and BOOT download-mode preservation
+still need future hardware/runtime validation.
 
 ---
 
@@ -676,6 +757,7 @@ select_timestamp
 BLE frame encode / decode
 BLE fragment ordering
 BLE ACK policy with Wi-Fi available / unavailable
+BLE authorization metadata header parsing and auto-pair policy
 Wi-Fi state transition
 Wi-Fi backoff calculation
 Spool record encode / decode

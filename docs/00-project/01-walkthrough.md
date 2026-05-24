@@ -2359,3 +2359,73 @@ Notes:
 - BOOT / IO9 download-mode preservation remains unvalidated.
 - Phase 24 still has remaining hardware validation work and should not be
   treated as fully complete.
+
+## Milestone 43: Phase 24O BLE Auth Metadata Auto-Pair Policy
+
+Phase 24O implementation:
+
+- Reserved the BLE authorization metadata sector
+  `0x003bf000..0x003c0000` immediately before the measurement spool.
+- Kept the measurement spool at `0x003c0000..0x00400000` and did not change the
+  spool record format or measurement JSON payload shape.
+- Added `storage::ble_auth` for the future BLE authorization metadata header:
+  magic, format version, header length, authorization-record-set version,
+  record count, record-set checksum, and header checksum.
+- Added hardware-independent tests for erased/missing metadata, empty current
+  headers, version mismatch, record-set checksum mismatch, header checksum
+  mismatch, valid headers, and the config switch disabling auto-open.
+- Added config constants for BLE authorization record version/checksum and the
+  auto-pair-on-auth-record-reset switch.
+- In `ble-upload` target builds, startup reads the auth metadata header and can
+  open the RAM-only BOOT / IO9 authorization window when policy requires it.
+- Kept Wi-Fi upload code included in BLE+coexistence builds.
+- Moved the Wi-Fi ESP radio authentication adapter to the Wi-Fi use site and
+  tightened Wi-Fi credential validation around byte limits and 64-byte hex
+  PSKs.
+- Updated Phase 24 documentation, architecture/config notes, and handoff notes.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Observed validation results:
+
+- `cargo test --lib` passed with `168 passed; 0 failed`.
+- The normal ESP32-C3 target build passed.
+- The BLE+Wi-Fi coexistence ESP32-C3 target build passed.
+- Host clippy, normal target clippy, and BLE+coex target clippy all passed.
+- `git diff --check` passed.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- No hardware BLE central, pairing, GATT read/write/notify, or transfer
+  validation was run for this milestone.
+- No deliberate BLE auth metadata sector write or erase was exercised. The
+  Phase 24O target code reads only the header in
+  `0x003bf000..0x003c0000`.
+- No deliberate measurement-spool write/erase or BLE ACK hardware validation
+  was exercised in this milestone. The measurement spool range remains
+  `0x003c0000..0x00400000`.
+- Phase 24O does not persist real BLE bonded peers, pairing keys, allowlists,
+  authorization records, or user-controlled clearing. The current effective
+  authorization state remains RAM-only.
+
+Remaining Phase 24 validation:
+
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+- Disconnect preservation during live transfer remains unvalidated.
+- Post-ACK oldest-record advancement remains unvalidated.
+- BLE auth metadata write/erase/update behavior remains future work.
+- Real persisted BLE bonding or equivalent authorization records remain future
+  work.
+- BOOT / IO9 download-mode preservation remains unvalidated.

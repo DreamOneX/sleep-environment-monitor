@@ -21,6 +21,9 @@ pub mod ble {
     pub const PAIRING_BUTTON_POLL_MILLIS: u64 = 50;
     pub const PAIRING_HOLD_MILLIS: u64 = 2_000;
     pub const PAIRING_WINDOW_SECS: u64 = 60;
+    pub const AUTH_RECORDS_VERSION: u32 = 1;
+    pub const AUTH_RECORDS_CHECKSUM: u32 = 0;
+    pub const AUTO_PAIR_ON_AUTH_RECORD_RESET: bool = cfg!(feature = "ble-upload");
 }
 
 pub mod wifi {
@@ -43,7 +46,12 @@ pub mod wifi {
         OpenNetworkWithPassword,
         PasswordTooLong,
         PasswordTooShort,
+        PasswordHexRequired,
     }
+
+    pub const SSID_MAX_BYTES: usize = 32;
+    pub const PASSWORD_MIN_BYTES: usize = 8;
+    pub const PASSWORD_MAX_BYTES: usize = 64;
 
     pub const SSID: &str = "FZU";
     pub const PASSWORD: &str = "";
@@ -58,7 +66,7 @@ pub mod wifi {
         if ssid.is_empty() {
             return Err(WifiConfigError::EmptySsid);
         }
-        if ssid.len() > 32 {
+        if ssid.len() > SSID_MAX_BYTES {
             return Err(WifiConfigError::SsidTooLong);
         }
         match auth_mode {
@@ -68,11 +76,14 @@ pub mod wifi {
                 }
             }
             AuthMode::WpaPersonal | AuthMode::Wpa2Personal | AuthMode::WpaWpa2Personal => {
-                if password.len() < 8 {
+                if password.len() < PASSWORD_MIN_BYTES {
                     return Err(WifiConfigError::PasswordTooShort);
                 }
-                if password.len() > 64 {
+                if password.len() > PASSWORD_MAX_BYTES {
                     return Err(WifiConfigError::PasswordTooLong);
+                }
+                if password.len() == PASSWORD_MAX_BYTES && !is_hex_password(password) {
+                    return Err(WifiConfigError::PasswordHexRequired);
                 }
             }
         }
@@ -80,14 +91,18 @@ pub mod wifi {
         Ok(())
     }
 
-    #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
-    pub fn authentication_method() -> esp_radio::wifi::AuthenticationMethod {
-        match AUTH_MODE {
-            AuthMode::Open => esp_radio::wifi::AuthenticationMethod::None,
-            AuthMode::WpaPersonal => esp_radio::wifi::AuthenticationMethod::Wpa,
-            AuthMode::Wpa2Personal => esp_radio::wifi::AuthenticationMethod::Wpa2Personal,
-            AuthMode::WpaWpa2Personal => esp_radio::wifi::AuthenticationMethod::WpaWpa2Personal,
+    pub const fn is_hex_password(password: &str) -> bool {
+        let bytes = password.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if !byte.is_ascii_hexdigit() {
+                return false;
+            }
+            index += 1;
         }
+
+        true
     }
 }
 
@@ -178,13 +193,61 @@ mod tests {
     }
 
     #[test]
-    fn wpa2_requires_reasonable_password_length() {
+    fn wifi_rejects_bad_ssid_lengths() {
+        assert_eq!(
+            wifi::validate_credentials("", "", AuthMode::Open),
+            Err(WifiConfigError::EmptySsid)
+        );
+        assert_eq!(
+            wifi::validate_credentials("123456789012345678901234567890123", "", AuthMode::Open),
+            Err(WifiConfigError::SsidTooLong)
+        );
+    }
+
+    #[test]
+    fn wpa_modes_require_password_byte_bounds() {
         assert_eq!(
             wifi::validate_credentials("FZU", "short", AuthMode::Wpa2Personal),
             Err(WifiConfigError::PasswordTooShort)
         );
         assert_eq!(
+            wifi::validate_credentials(
+                "FZU",
+                "12345678901234567890123456789012345678901234567890123456789012345",
+                AuthMode::Wpa2Personal
+            ),
+            Err(WifiConfigError::PasswordTooLong)
+        );
+        assert_eq!(
             wifi::validate_credentials("FZU", "12345678", AuthMode::Wpa2Personal),
+            Ok(())
+        );
+        assert_eq!(
+            wifi::validate_credentials("FZU", "12345678", AuthMode::WpaPersonal),
+            Ok(())
+        );
+        assert_eq!(
+            wifi::validate_credentials("FZU", "12345678", AuthMode::WpaWpa2Personal),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn sixty_four_byte_password_must_be_hex_psk() {
+        assert_eq!(
+            wifi::validate_credentials(
+                "FZU",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaZ",
+                AuthMode::Wpa2Personal
+            ),
+            Err(WifiConfigError::PasswordHexRequired)
+        );
+        assert_eq!(
+            wifi::validate_credentials(
+                "FZU",
+                "0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789ABCDEF",
+                AuthMode::Wpa2Personal
+            ),
             Ok(())
         );
     }

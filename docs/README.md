@@ -19,6 +19,7 @@ This directory contains the tracked project documentation.
 
 - [00-project/00-development-plan.md](00-project/00-development-plan.md): phase plan, acceptance criteria, and expected commit messages.
 - [00-project/01-walkthrough.md](00-project/01-walkthrough.md): completed milestones, validation commands, and observed results.
+- [00-project/02-handoff.md](00-project/02-handoff.md): current handoff state, caveats, and next-step notes.
 
 ## Firmware
 
@@ -27,7 +28,7 @@ This directory contains the tracked project documentation.
 - [10-firmware/02-conventions.md](10-firmware/02-conventions.md): firmware Rust toolchain, formatting, linting, testing, and embedded build conventions.
 - [10-firmware/03-network.md](10-firmware/03-network.md): firmware network responsibilities, REST upload, discovery, time sync, and BLE upload boundary.
 - [10-firmware/04-configuration.md](10-firmware/04-configuration.md): firmware configuration boundary and deployment knobs.
-- [10-firmware/05-ble.md](10-firmware/05-ble.md): planned BLE upload channel, GATT protocol boundary, pairing entry, and Wi-Fi coexistence rules.
+- [10-firmware/05-ble.md](10-firmware/05-ble.md): BLE upload channel status, GATT protocol boundary, authorization policy, and Wi-Fi coexistence rules.
 
 ## Server
 

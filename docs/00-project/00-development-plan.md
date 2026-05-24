@@ -1702,9 +1702,9 @@ Phase 24J scope:
 Phase 24J verification:
 
 ```bash
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-read-status 30 sleep-env-esp32c3
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-closed-window 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-closed-window 30 sleep-env-esp32c3
 git diff --check
 ```
 
@@ -1748,10 +1748,10 @@ Phase 24K verification:
 cargo fmt
 cargo test --lib
 cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
-'/mnt/c/Program Files/dotnet/dotnet.exe' build '\\wsl.localhost\archlinux\tmp\ble-watch\ble-watch.csproj'
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
 cargo espflash save-image --chip esp32c3 --flash-size 4mb --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --merge /tmp/phase24-ble-status-pressed-image.bin
 cargo espflash flash --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --non-interactive --flash-size 4mb
-'/mnt/c/Program Files/dotnet/dotnet.exe' '\\wsl.localhost\archlinux\tmp\ble-watch\bin\Debug\net10.0-windows10.0.19041.0\ble-watch.dll' scan-watch-status 30 sleep-env-esp32c3 60
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 60
 cargo build --target riscv32imc-unknown-none-elf
 cargo clippy --all-targets
 cargo clippy --target riscv32imc-unknown-none-elf
@@ -1885,6 +1885,58 @@ Phase 24N commit message:
 test: guard Wi-Fi BLE ACK race
 ```
 
+## Phase 24O: BLE Authorization Metadata Auto-Pair Policy
+
+Phase 24O adds a compile-validated flash metadata boundary for future BLE
+authorization records and uses it to decide whether startup should open the
+temporary authorization window. It still does not accept full BLE upload
+completion because real persisted bonding/authorization records, live
+disconnect preservation, post-ACK oldest-record advancement, live Wi-Fi/BLE ACK
+race behavior, and BOOT download-mode preservation still need validation.
+
+Phase 24O scope:
+
+- Reserve `0x003bf000..0x003c0000` as a 4 KiB BLE authorization metadata
+  sector immediately before the measurement spool.
+- Keep the measurement spool at `0x003c0000..0x00400000` and keep its record
+  format and measurement JSON payload shape unchanged.
+- Add a hardware-independent BLE authorization header with magic, header
+  format version, authorization-record-set version, record count,
+  record-set checksum, and header checksum.
+- Add a config-gated auto-pair policy:
+  - missing/erased metadata opens the temporary authorization window;
+  - a valid header with zero records opens the window;
+  - an authorization-record-set version mismatch opens the window even if the
+    header reports existing records;
+  - a checksum mismatch opens the window even if the header reports existing
+    records;
+  - a valid current-version header with one or more records keeps the window
+    closed.
+- In `ble-upload` target builds, read the metadata header at boot and open the
+  RAM-only BOOT / IO9 authorization window when the policy requires it.
+- Do not write, erase, or persist BLE authorization metadata in this slice.
+- Do not implement real BLE bonding, pairing-key storage, peer allowlists, or
+  user-controlled clearing in this slice; document those as future work.
+
+Phase 24O verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24O commit message:
+
+```text
+feat: add BLE auth metadata auto-pair policy
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -1902,10 +1954,12 @@ test: guard Wi-Fi BLE ACK race
   state, GATT transfer, and BLE-side acknowledgement handling.
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
   acknowledge operations.
-- Document the current Phase 24 pairing/authorization state as RAM-only and
-  add future work for real BLE bonding or an equivalent persistent
-  authorization record. That future work must define storage location, update
-  rules, and user-controlled clearing.
+- Document the current Phase 24 effective pairing/authorization state as
+  RAM-only. The BLE authorization metadata sector exists only as a future
+  record-set header and startup policy boundary until real BLE bonding or an
+  equivalent persistent authorization record is implemented. Future work must
+  define record contents, write/erase/update rules, version or checksum
+  migration behavior, and user-controlled clearing.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
@@ -1931,6 +1985,7 @@ Add hardware-independent tests for:
   oldest pending record.
 - BLE enable/disable config selection.
 - BOOT / IO9 pairing gesture state logic.
+- BLE authorization metadata header parsing and auto-pair policy.
 
 ## Manual Integration Checks
 
@@ -1948,6 +2003,9 @@ Add hardware-independent tests for:
 - Confirm BOOT / IO9 can be read as a runtime input without configuring it as an
   output or changing the hardware pull-up behavior.
 - Confirm holding BOOT during reset or power-on still enters download mode.
+- Confirm missing, empty, version-mismatched, or checksum-mismatched BLE
+  authorization metadata opens the temporary authorization window on boot when
+  the config switch is enabled.
 
 ## Done When
 
@@ -2014,4 +2072,5 @@ All must be automated and hardware-free.
 [ ] BLE / Wi-Fi duplicate ACK prevention
 [ ] BLE enable / disable config selection
 [ ] BOOT / IO9 pairing gesture state logic
+[ ] BLE authorization metadata header parsing and auto-pair policy
 ```

@@ -13,6 +13,9 @@ It collects bedroom environmental data including:
 
 This document only describes the hardware. It does not define firmware framework, software architecture, or upload tools.
 
+The tracked hardware design files, exported schematic/PCB views, and
+fabrication files are stored under [../../hardware/](../../hardware/).
+
 ---
 
 ## Main Components
@@ -136,28 +139,27 @@ EN is active-low. Pulling EN low resets the ESP32-C3.
 ### BOOT / IO9
 
 ```text
-3.3V → 10kΩ → IO9
 IO9 → BOOT button → GND
+IO9 → capacitor → GND
 ```
 
-IO9 is active-low for boot mode selection.
+IO9 is active-low for boot mode selection. During ESP32-C3 boot/strap
+sampling, IO9 has the chip's weak internal pull-up. The current board does not
+add a discrete IO9 pull-up resistor, and that boot-stage weak pull-up must not
+be assumed to remain configured after firmware starts running.
 
-Important hardware note:
-
-```text
-No debounce capacitor should be placed on IO9.
-```
-
-A capacitor on IO9 can delay the BOOT pin rising during power-up and may cause unreliable startup.
+The current board has a capacitor from IO9 to GND in parallel with the BOOT
+button. This can delay the BOOT pin rising during reset or power-up, so BOOT /
+IO9 download-mode preservation and runtime release detection must be validated
+on the actual board.
 
 BLE feature builds read BOOT / IO9 only as a runtime input after the firmware
-has booted. The Phase 24C firmware boundary configures IO9 as input-only with
-no internal pull resistor and uses an active-low long-press state machine for a
-future pairing window. Firmware must not configure IO9 as an output, must not
-enable a pull-down that fights the board's 10k pull-up, and must not require any
-hardware debounce capacitor. Holding BOOT during reset or power-on must continue
-to select download mode; this still requires hardware validation before the
-pairing gesture is treated as user-facing behavior.
+has booted. Runtime firmware configures IO9 as input-only with the MCU internal
+pull-up enabled and uses an active-low long-press state machine for the BLE
+authorization window and saved-auth clear gesture. Firmware must not configure
+IO9 as an output or enable a pull-down. Holding BOOT during reset or power-on
+must continue to select download mode; this still requires hardware validation
+before the pairing gesture is treated as user-facing behavior.
 
 ### IO8
 
@@ -389,7 +391,8 @@ OPT3001 INT is not connected.
 LEDs are active-low.
 The microphone signal is an analog biased signal and requires DC removal in processing.
 The microphone path is not calibrated for absolute dB SPL.
-IO9 must not have a debounce capacitor.
+IO9 has no discrete board pull-up; firmware must enable the MCU internal pull-up when reading IO9 at runtime.
+IO9 has a capacitor to GND in parallel with the BOOT button; validate download-mode and runtime release behavior on hardware.
 IO9 must not be driven as an output for BLE pairing or any other runtime feature.
 IO8 is pulled high and should not be externally pulled low during boot.
 ```

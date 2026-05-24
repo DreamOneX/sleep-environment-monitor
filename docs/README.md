@@ -5,6 +5,7 @@ This directory contains the tracked project documentation.
 ## Repository Layout
 
 - [../firmware/](../firmware/): ESP32-C3 firmware package.
+- [../hardware/](../hardware/): board hardware design files, exported reference views, and fabrication files.
 - [../server/](../server/): measurement ingestion server workspace.
 - [../tools/](../tools/): local validation and integration tools.
 - [../Cargo.toml](../Cargo.toml): root Cargo workspace with `firmware` as the default member.
@@ -45,6 +46,10 @@ This directory contains the tracked project documentation.
 ## Tools
 
 - [../tools/ble-watch/](../tools/ble-watch/): Windows BLE central validation tool for Phase 24 hardware checks.
+
+## Hardware Files
+
+- [../hardware/](../hardware/): EasyEDA project archive, schematic/PCB exports, and fabrication files for the board.
 
 ## Maintenance
 

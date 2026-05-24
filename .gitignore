@@ -35,4 +35,7 @@ __pycache__/
 # Ignore .DS_Store file in mac
 **/.DS_Store
 
+# Windows alternate data stream markers copied into WSL/Linux filesystems
+*:Zone.Identifier
+
 environment.md

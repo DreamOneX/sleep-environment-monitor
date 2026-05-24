@@ -24,7 +24,7 @@ use esp_hal::analog::adc::{Adc, AdcConfig};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::clock::CpuClock;
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-use esp_hal::gpio::{Input, InputConfig};
+use esp_hal::gpio::{Input, InputConfig, Pull};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::gpio::{Level, Output, OutputConfig};
 #[cfg(target_arch = "riscv32")]
@@ -287,7 +287,10 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     let ble_auth_workspace = ble_auth_workspace();
     #[cfg(feature = "ble-upload")]
-    let boot_button = Input::new(peripherals.GPIO9, InputConfig::default());
+    let boot_button = Input::new(
+        peripherals.GPIO9,
+        InputConfig::default().with_pull(Pull::Up),
+    );
     #[cfg(feature = "ble-upload")]
     if !spawn_task(
         &spawner,

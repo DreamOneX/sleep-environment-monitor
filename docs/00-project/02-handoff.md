@@ -2,6 +2,9 @@
 
 Last updated: 2026-05-25.
 
+When future work changes task status, records a new acceptance result, or finds
+a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
+
 ## Current State
 
 Phase 24R is implemented and partially hardware-validated in the current

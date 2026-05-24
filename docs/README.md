@@ -20,6 +20,7 @@ This directory contains the tracked project documentation.
 - [00-project/00-development-plan.md](00-project/00-development-plan.md): phase plan, acceptance criteria, and expected commit messages.
 - [00-project/01-walkthrough.md](00-project/01-walkthrough.md): completed milestones, validation commands, and observed results.
 - [00-project/02-handoff.md](00-project/02-handoff.md): current handoff state, caveats, and next-step notes.
+- [00-project/03-todo.md](00-project/03-todo.md): current task ledger for Phase 24 acceptance, Phase 25 maintenance, and future risks.
 
 ## Firmware
 
@@ -49,6 +50,7 @@ This directory contains the tracked project documentation.
 
 - Keep phase scope and future work in `00-project/00-development-plan.md`.
 - Append completed work and validation evidence to `00-project/01-walkthrough.md`.
+- Keep task status changes, acceptance results, and newly discovered risks in `00-project/03-todo.md`.
 - Keep implementation structure and data-flow decisions in `10-firmware/00-architecture.md`.
 - Keep firmware build and style expectations in `10-firmware/02-conventions.md`.
 - Keep hardware facts in `10-firmware/01-hardware.md`.

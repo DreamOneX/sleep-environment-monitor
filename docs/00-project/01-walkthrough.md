@@ -3237,3 +3237,73 @@ Remaining Phase 24 validation:
 - Live Wi-Fi/BLE ACK race behavior remains unvalidated.
 - BLE+Wi-Fi runtime reported Wi-Fi init error `257`; this must be resolved or
   explicitly accepted before Phase 24 is closed.
+
+## Milestone 55: Phase 24 BLE+Wi-Fi Coexistence Heap Startup Fix
+
+This milestone resolves the Phase 24Z BLE+Wi-Fi controller startup blocker.
+The BLE+Wi-Fi feature build now adds a second 64 KiB internal heap region in
+addition to the reclaimed heap, matching the `esp-generate` Wi-Fi+BLE template
+guidance that coexistence needs more RAM. Wi-Fi initialization failure logging
+also preserves the concrete `WifiError` enum for future diagnosis.
+
+Before flashing, the declared flash range was the application image only:
+approximately `0x00010000..0x003bf000`. The BLE auth metadata sector
+`0x003bf000..0x003c0000` was not deliberately written or erased. The BLE
+status read did not perform BLE ACK. Normal firmware storage was running during
+the test, so measurement spool appends/drop-oldest behavior may continue to
+write the measurement spool range `0x003c0000..0x00400000`.
+
+Validation commands and tools run:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo run --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+```
+
+Observed validation results:
+
+- `cargo test --lib` reported `191 passed; 0 failed`.
+- Default non-BLE target build and clippy passed.
+- BLE+Wi-Fi target build and clippy passed with `ble-upload,radio-coex`.
+- `cargo run --target riscv32imc-unknown-none-elf --features
+  ble-upload,radio-coex` flashed and started the BLE+Wi-Fi firmware.
+- RTT logs showed `wifi connecting ssid=FZU auth=Open`, `wifi connected
+  ssid=FZU`, an IPv4 configuration, `ble advertising
+  name=sleep-env-esp32c3 protocol_version=1`, and BLE central
+  connect/disconnect events.
+- The previous Phase 24Z `Wi-Fi controller initialization failed; network and
+  uploader disabled` error did not appear in this run.
+- `scan-read-status 30 sleep-env-esp32c3` succeeded and decoded
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32
+  error_flags=0x00000000`.
+- This proves BLE GATT status and IP-ready Wi-Fi status coexist in the same
+  runtime image. It does not accept the live Wi-Fi/BLE ACK race item because
+  no BLE ACK/drain command was run in this milestone.
+
+Flash and hardware notes:
+
+- This milestone resolves the BLE+Wi-Fi runtime Wi-Fi init error `257` as a
+  Phase 24 startup blocker.
+- The board was left running the BLE+Wi-Fi firmware with the extra coexistence
+  heap.
+- BLE auth metadata was missing or cleared at boot, so the temporary
+  authorization window opened and later expired. The status read after expiry
+  reported `pairing=Closed boot_button=Released remaining_ms=0 pressed_ms=0`.
+- Time sync and upload still reported runtime failures in this environment
+  (`TimeFailed`, `ConnectReset`, or discovery failure). That is separate from
+  Wi-Fi controller startup and must not be counted as a successful REST upload.
+
+Remaining Phase 24 validation:
+
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Real BLE auth record replacement/update and phone/gateway interoperability
+  remain unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.

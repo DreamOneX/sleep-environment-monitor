@@ -92,6 +92,11 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   `wifi-upload` and `ble-upload` plus `esp-radio/coex`.
 - BLE upload remains disabled by default unless the build enables
   `ble-upload`.
+- `config::runtime::BLE_WIFI_HEAP_SIZE_BYTES` adds an extra internal heap
+  region only when `wifi-upload` and `ble-upload` are both enabled. The
+  ESP32-C3 BLE+Wi-Fi coexistence runtime needs this additional allocation
+  headroom; without it, Phase 24Z observed Wi-Fi controller initialization
+  failing with ESP error `257`.
 - BLE advertising and pairing-window settings live in config without being
   embedded inside
   upload or storage task logic.

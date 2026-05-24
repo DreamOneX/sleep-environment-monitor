@@ -170,6 +170,8 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO17;
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: config::runtime::HEAP_SIZE_BYTES);
+    #[cfg(all(feature = "wifi-upload", feature = "ble-upload"))]
+    esp_alloc::heap_allocator!(size: config::runtime::BLE_WIFI_HEAP_SIZE_BYTES);
 
     #[cfg(feature = "ble-upload")]
     let ble_security_seed = {
@@ -414,8 +416,11 @@ async fn start_wifi_upload(wifi: esp_hal::peripherals::WIFI<'static>, spawner: &
                 update_network_upload_status(UploadResult::Failed).await;
             }
         }
-        Err(_) => {
-            warn!("Wi-Fi controller initialization failed; network and uploader disabled");
+        Err(error) => {
+            warn!(
+                "Wi-Fi controller initialization failed; network and uploader disabled error={:?}",
+                error
+            );
             NETWORK_STATE_SIGNAL.signal(NetworkState::Disconnected);
             UPLOAD_RESULT_SIGNAL.signal(UploadResult::Failed);
             update_network_upload_status(UploadResult::Failed).await;

@@ -365,7 +365,8 @@ The boundary is:
 
 Current `config.rs` groups:
 
-- `runtime`: heap size and main idle sleep policy.
+- `runtime`: base heap size, BLE+Wi-Fi coexistence heap size, and main idle
+  sleep policy.
 - `network`: network stack sizing and DHCP configuration.
 - `ble`: BLE feature enablement, advertising name, fragment and HCI buffer
   sizes, polling intervals, pairing hold/window timing, authorization record

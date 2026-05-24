@@ -8,12 +8,14 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24Z is implemented. The current hardware evidence confirms the Windows
-saved-bond path, BLE auth metadata reset policy, and runtime saved-auth clear
-effect. Pure auth-record upsert policy coverage is also in place, and firmware
-logs BOOT / IO9 initial and transition samples. The Windows `ble-watch` tool
-has been hardened against stale WinRT/GATT cache failures and emits clear
-runtime clear/release diagnostics:
+Phase 24Z and the follow-up BLE+Wi-Fi coexistence heap fix are implemented.
+The current hardware evidence confirms the Windows saved-bond path, BLE auth
+metadata reset policy, runtime saved-auth clear effect, and BLE+Wi-Fi startup
+without the previous Wi-Fi controller initialization error `257`. Pure
+auth-record upsert policy coverage is also in place, and firmware logs BOOT /
+IO9 initial and transition samples. The Windows `ble-watch` tool has been
+hardened against stale WinRT/GATT cache failures and emits clear runtime
+clear/release diagnostics:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -46,6 +48,12 @@ runtime clear/release diagnostics:
   phase fact and must not be assumed at runtime, and the BOOT button has an
   IO9-to-GND capacitor in parallel. BLE feature builds now configure the
   runtime GPIO9 internal pull-up explicitly when reading BOOT / IO9.
+- BLE+Wi-Fi feature builds now add an extra internal heap region. A hardware
+  `cargo run --target riscv32imc-unknown-none-elf --features
+  ble-upload,radio-coex` run showed `wifi connecting`, `wifi connected`, an
+  IPv4 config, BLE advertising, and a `ble-watch scan-read-status` result of
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32`, resolving
+  the Phase 24Z Wi-Fi init error `257` as a startup blocker.
 
 Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
 network faults:
@@ -130,9 +138,6 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
   bond is stored or an existing peer is updated. Phase 24X covers the pure
   upsert policy and target compile path, but not a runtime second-bond or
   existing-peer update.
-- [ ] Resolve or explicitly accept the BLE+Wi-Fi runtime Wi-Fi init failure
-  observed in Phase 24Z: `Wi-Fi controller initialization failed; network and
-  uploader disabled` with ESP Wi-Fi init error `257`.
 
 ## Phase 25 Refactor And Maintenance
 

@@ -191,6 +191,27 @@ Phase 24Z retested BOOT / IO9 with the explicit runtime GPIO9 pull-up firmware:
   a remaining Wi-Fi/BLE runtime coexistence issue to resolve or explicitly
   accept before Phase 24 closes.
 
+The follow-up BLE+Wi-Fi coexistence heap fix resolves the Phase 24Z Wi-Fi
+controller initialization failure as a startup blocker:
+
+- BLE+Wi-Fi feature builds now add a second internal heap region of 64 KiB in
+  addition to the reclaimed heap. This follows the `esp-generate` Wi-Fi+BLE
+  template pattern that notes coexistence needs more RAM.
+- The Wi-Fi initialization failure log now preserves the concrete `WifiError`
+  enum for future diagnosis.
+- A hardware `cargo run --target riscv32imc-unknown-none-elf --features
+  ble-upload,radio-coex` flashed the app image after declaring the app-image
+  range as approximately `0x00010000..0x003bf000`.
+- RTT logs showed `wifi connecting`, `wifi connected`, IPv4 configuration,
+  BLE advertising, and BLE central connect/disconnect events. The previous
+  `Wi-Fi controller initialization failed ... error=257` log did not appear.
+- `ble-watch scan-read-status 30 sleep-env-esp32c3` succeeded and decoded
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32`, proving
+  the BLE GATT status path and IP-ready Wi-Fi status were present in the same
+  BLE+Wi-Fi runtime.
+- Live Wi-Fi/BLE ACK race behavior is still not accepted; this only resolves
+  the controller startup failure that previously blocked that run.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -249,8 +270,9 @@ exercised.
   auth metadata reset evidence, Phase 24U Windows GATT recovery tooling,
   Phase 24V runtime clear-effect evidence, Phase 24W clear-gesture diagnostic
   tooling, Phase 24X auth-record upsert policy coverage, Phase 24Y BOOT / IO9
-  transition diagnostics, Phase 24Z runtime IO9 pull-up retest evidence,
-  current LED mapping, and the remaining Phase 24 validation gaps.
+  transition diagnostics, Phase 24Z runtime IO9 pull-up retest evidence, the
+  BLE+Wi-Fi coexistence heap startup fix, current LED mapping, and the
+  remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window, the Windows saved-bond restore path, the auth metadata reset policy,
@@ -476,8 +498,6 @@ test: add BOOT IO9 release diagnostics
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
   blink, advertising-or-connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.
-- Resolve or explicitly accept the BLE+Wi-Fi runtime Wi-Fi init error `257`
-  observed during the Phase 24Z BLE+Wi-Fi hardware run.
 
 ## Phase 25 Notes
 

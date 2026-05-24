@@ -1,5 +1,6 @@
 pub mod runtime {
     pub const HEAP_SIZE_BYTES: usize = 66_320;
+    pub const BLE_WIFI_HEAP_SIZE_BYTES: usize = 64 * 1024;
     pub const MAIN_IDLE_SLEEP_SECS: u64 = 60;
 }
 

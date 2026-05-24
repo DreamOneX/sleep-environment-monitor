@@ -339,14 +339,17 @@ after the runtime clear hold. Phase 24X compile-validates the pure saved-auth
 upsert policy used by the target persistence path. Phase 24Y adds firmware
 transition logs for the BOOT / IO9 release retest. Phase 24Z validates the
 runtime clear gesture and final release-after-hold diagnostics with the
-explicit runtime GPIO9 internal pull-up firmware.
+explicit runtime GPIO9 internal pull-up firmware. The next Phase 24 slice adds
+extra BLE+Wi-Fi coexistence heap and validates that the previous Wi-Fi
+controller initialization error `257` no longer occurs in the BLE+Wi-Fi
+runtime.
 Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
 ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
-behavior, real record replacement/update, phone/gateway interoperability, and
-the BLE+Wi-Fi runtime Wi-Fi init error `257` are still unvalidated or
-unresolved. Future work must validate those remaining paths. LED3 BLE operation
-feedback now has a compile/unit-tested firmware boundary, but the actual blue
-LED patterns have not been visually accepted on hardware yet.
+behavior, real record replacement/update, and phone/gateway interoperability
+are still unvalidated or unresolved. Future work must validate those remaining
+paths. LED3 BLE operation feedback now has a compile/unit-tested firmware
+boundary, but the actual blue LED patterns have not been visually accepted on
+hardware yet.
 
 ## Goals
 
@@ -544,6 +547,5 @@ Phase 24 has hardware-independent tests for:
 
 Remaining hardware checks should confirm live Wi-Fi/BLE coexistence races,
 real BLE auth record replacement/update behavior, LED3 BLE status indication
-timing and patterns, phone/gateway interoperability, the BLE+Wi-Fi runtime
-Wi-Fi init error `257`, and that BOOT still enters download mode during reset
-or power-on.
+timing and patterns, phone/gateway interoperability, and that BOOT still enters
+download mode during reset or power-on.

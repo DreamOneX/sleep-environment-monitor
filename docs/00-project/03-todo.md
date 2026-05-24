@@ -8,8 +8,9 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24T is implemented. The current hardware evidence confirms the Windows
-saved-bond path and BLE auth metadata reset policy:
+Phase 24U is implemented. The current hardware evidence confirms the Windows
+saved-bond path and BLE auth metadata reset policy, and the Windows
+`ble-watch` tool has been hardened against stale WinRT/GATT cache failures:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -37,6 +38,19 @@ network faults:
   path and does not include BLE advertising, BLE connection, or BLE
   authorization state.
 
+Phase 24U keeps firmware behavior unchanged but improves the Windows central
+validation tool:
+
+- GATT service and characteristic lookup retry with Uncached lookup and Cached
+  fallback.
+- Status reads retry with Uncached values only for runtime decisions.
+- `scan-read-status` can recreate WinRT device/GATT objects after repeated
+  status-read failures.
+- `scan-watch-clear-gesture` can reconnect after transient status-read
+  failures.
+- `scan-unpair` was used to recover Windows stale pairing/cache state; the
+  Windows central is currently unpaired.
+
 Phase 24 is still open because several runtime, visual, interoperability, and
 reset/erase paths have not been accepted on hardware.
 
@@ -53,6 +67,10 @@ Current runtime clear-gesture state:
   no-pair` succeeded, so the saved auth record is still usable. The latest
   clear-gesture result means "no operator press observed", not a firmware clear
   failure.
+- Phase 24U then used `scan-unpair` to recover Windows stale GATT state. The
+  Windows central is now unpaired, so the next clear-gesture validation must
+  first rebuild or otherwise confirm a saved-bond auth record before proving
+  that the 8 second BOOT / IO9 gesture clears it.
 
 Windows Settings showing the board as paired but not connected is expected
 when `ble-watch` or another central application is not holding a GATT session.

@@ -2256,6 +2256,53 @@ Phase 24T commit message:
 test: validate BLE auth metadata reset policy
 ```
 
+## Phase 24U: BLE Watch Windows GATT Recovery Tooling
+
+Phase 24U hardens the Windows BLE central validation tool after repeated
+WinRT/GATT stale-cache failures blocked further Phase 24 hardware validation.
+It does not change firmware behavior and does not accept any remaining BLE
+runtime behavior.
+
+Phase 24U scope:
+
+- Add retry and cached-fallback handling for Windows GATT service and
+  characteristic lookup in `tools/ble-watch`.
+- Add retry for status-characteristic reads without using cached status values
+  for runtime decisions.
+- Recreate the Windows `BluetoothLEDevice` / GATT object for
+  `scan-read-status` when status reads still fail after retry.
+- Reconnect inside `scan-watch-clear-gesture` after a status read failure so a
+  transient stale GATT object does not end the delay-safe clear-gesture watch.
+- Keep BLE protocol bytes, UUIDs, firmware code, flash ranges, and storage ACK
+  behavior unchanged.
+- Do not count this as runtime clear-gesture, LED, BOOT download-mode,
+  phone/gateway, record replacement, or live Wi-Fi/BLE ACK-race acceptance.
+
+Phase 24U verification:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+git diff --check
+```
+
+Phase 24U hardware and flash notes:
+
+- No firmware image is flashed.
+- No firmware flash sector is deliberately written or erased by this tooling
+  change.
+- `scan-unpair` changes only the Windows-side central pairing record.
+- The final observed central state after recovery is Windows unpaired. The
+  runtime clear-gesture validation must rebuild a saved-bond auth record before
+  it can prove that the 8 second BOOT / IO9 gesture clears that record.
+
+Phase 24U commit message:
+
+```text
+test: harden BLE watch GATT recovery
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from

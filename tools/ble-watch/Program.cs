@@ -334,61 +334,57 @@ static async Task<int> ReadStatusAsync(
     Guid serviceUuid,
     Guid statusUuid)
 {
-    Console.WriteLine(
-        $"CONNECT address={FormatAddress(address)} address_type={addressType} service={serviceUuid} status={statusUuid}");
-    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
-    if (device is null)
+    const int maxConnectionAttempts = 3;
+
+    for (var attempt = 1; attempt <= maxConnectionAttempts; attempt++)
     {
-        Console.WriteLine("DEVICE_NOT_FOUND");
-        return 2;
+        var opened = await OpenStatusConnectionAsync(
+            address,
+            addressType,
+            serviceUuid,
+            statusUuid,
+            "READ_STATUS",
+            attempt,
+            printPairing: true,
+            dumpGattWhenServiceMissing: true);
+        if (opened.Connection is null)
+        {
+            if (attempt < maxConnectionAttempts)
+            {
+                Console.WriteLine(
+                    $"READ_STATUS_RECONNECT reason=open_failed failure_code={opened.FailureCode} next_attempt={attempt + 1}");
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+                continue;
+            }
+
+            return opened.FailureCode;
+        }
+
+        using var connection = opened.Connection;
+        Console.WriteLine($"CHARACTERISTIC props={connection.Status.CharacteristicProperties}");
+
+        var readResult = await ReadStatusValueWithRetryAsync(connection.Status, "READ");
+        if (readResult.Status != GattCommunicationStatus.Success)
+        {
+            if (attempt < maxConnectionAttempts)
+            {
+                Console.WriteLine(
+                    $"READ_STATUS_RECONNECT reason=read_failed status={readResult.Status} next_attempt={attempt + 1}");
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt));
+                continue;
+            }
+
+            return 7;
+        }
+
+        var bytes = BufferToBytes(readResult.Value);
+        Console.WriteLine($"STATUS_BYTES len={bytes.Length} hex={Convert.ToHexString(bytes)}");
+        PrintStatusDecoded(bytes);
+
+        return 0;
     }
 
-    Console.WriteLine($"DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
-    PrintPairingState(device, "READ_STATUS");
-
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
-    if (servicesResult.Status != GattCommunicationStatus.Success)
-    {
-        return 3;
-    }
-    if (servicesResult.Services.Count == 0)
-    {
-        Console.WriteLine("SERVICE_NOT_FOUND");
-        await DumpGattAsync(device);
-        return 4;
-    }
-
-    using var service = servicesResult.Services[0];
-    var characteristicsResult =
-        await service.GetCharacteristicsForUuidAsync(statusUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"CHARACTERISTICS status={characteristicsResult.Status} count={characteristicsResult.Characteristics.Count} protocol_error=0x{characteristicsResult.ProtocolError:x}");
-    if (characteristicsResult.Status != GattCommunicationStatus.Success)
-    {
-        return 5;
-    }
-    if (characteristicsResult.Characteristics.Count == 0)
-    {
-        Console.WriteLine("STATUS_CHARACTERISTIC_NOT_FOUND");
-        return 6;
-    }
-
-    var characteristic = characteristicsResult.Characteristics[0];
-    Console.WriteLine($"CHARACTERISTIC props={characteristic.CharacteristicProperties}");
-
-    var readResult = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
-    Console.WriteLine($"READ status={readResult.Status} protocol_error=0x{readResult.ProtocolError:x}");
-    if (readResult.Status != GattCommunicationStatus.Success)
-    {
-        return 7;
-    }
-
-    var bytes = BufferToBytes(readResult.Value);
-    Console.WriteLine($"STATUS_BYTES len={bytes.Length} hex={Convert.ToHexString(bytes)}");
-    PrintStatusDecoded(bytes);
-
-    return 0;
+    return 7;
 }
 
 static async Task<int> ScanThenWatchStatusAsync(
@@ -492,42 +488,28 @@ static async Task<int> WatchStatusAsync(
     Guid serviceUuid,
     Guid statusUuid)
 {
-    Console.WriteLine(
-        $"WATCH_CONNECT address={FormatAddress(address)} address_type={addressType} seconds={watchSeconds}");
-    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
-    if (device is null)
-    {
-        Console.WriteLine("DEVICE_NOT_FOUND");
-        return 2;
-    }
-
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
-    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
-    {
-        return 3;
-    }
-
-    using var service = servicesResult.Services[0];
-    var characteristicsResult =
-        await service.GetCharacteristicsForUuidAsync(statusUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"CHARACTERISTICS status={characteristicsResult.Status} count={characteristicsResult.Characteristics.Count} protocol_error=0x{characteristicsResult.ProtocolError:x}");
-    if (characteristicsResult.Status != GattCommunicationStatus.Success ||
-        characteristicsResult.Characteristics.Count == 0)
-    {
-        return 4;
-    }
-
-    var characteristic = characteristicsResult.Characteristics[0];
     var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(watchSeconds);
     var index = 0;
+    var connectionAttempt = 1;
+    var opened = await OpenStatusConnectionAsync(
+        address,
+        addressType,
+        serviceUuid,
+        statusUuid,
+        "WATCH",
+        connectionAttempt,
+        printPairing: false,
+        dumpGattWhenServiceMissing: false);
+    if (opened.Connection is null)
+    {
+        return opened.FailureCode;
+    }
+
+    using var connection = opened.Connection;
     while (DateTimeOffset.UtcNow < deadline)
     {
         index++;
-        var readResult = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
-        Console.WriteLine(
-            $"WATCH_READ index={index} status={readResult.Status} protocol_error=0x{readResult.ProtocolError:x}");
+        var readResult = await ReadStatusValueWithRetryAsync(connection.Status, $"WATCH_READ index={index}");
         if (readResult.Status != GattCommunicationStatus.Success)
         {
             return 5;
@@ -554,26 +536,6 @@ static async Task<int> WatchClearGestureAsync(
         $"CLEAR_GESTURE_CONNECT address={FormatAddress(address)} address_type={addressType} seconds={watchSeconds} hold_ms={holdMillis}");
     Console.WriteLine(
         "CLEAR_GESTURE_OPERATOR action=release_boot_io9_until_released_then_hold_9_to_10_seconds_then_release");
-    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
-    if (device is null)
-    {
-        Console.WriteLine("CLEAR_GESTURE_DEVICE_NOT_FOUND");
-        return 2;
-    }
-
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
-    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
-    {
-        return 3;
-    }
-
-    using var service = servicesResult.Services[0];
-    var status = await GetCharacteristicAsync(service, statusUuid, "status");
-    if (status is null)
-    {
-        return 4;
-    }
 
     var observedReleased = false;
     var observedPressedAfterRelease = false;
@@ -584,69 +546,111 @@ static async Task<int> WatchClearGestureAsync(
     StatusSnapshot? latest = null;
     var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(watchSeconds);
     var index = 0;
-    while (DateTimeOffset.UtcNow < deadline)
+    var connectionAttempt = 1;
+    var opened = await OpenStatusConnectionAsync(
+        address,
+        addressType,
+        serviceUuid,
+        statusUuid,
+        "CLEAR_GESTURE",
+        connectionAttempt,
+        printPairing: false,
+        dumpGattWhenServiceMissing: false);
+    if (opened.Connection is null)
     {
-        index++;
-        var maybeSnapshot = await ReadStatusSnapshotAsync(status, $"CLEAR_GESTURE_{index}");
-        if (maybeSnapshot is null)
-        {
-            return 5;
-        }
-        var snapshot = maybeSnapshot.Value;
-        latest = snapshot;
-        var bootReleased = snapshot.BootButton == 0;
-        var bootPressed = snapshot.BootButton == 1;
-        var pressedMs = snapshot.BootPressedMs ?? 0;
-        var pairingOpen = snapshot.Pairing == 1;
-        var pairingRemainingMs = snapshot.PairingRemainingMs ?? 0;
+        return opened.FailureCode;
+    }
 
-        if (bootReleased)
+    var connection = opened.Connection;
+    try
+    {
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            if (!observedReleased)
+            index++;
+            var maybeSnapshot = await ReadStatusSnapshotAsync(connection.Status, $"CLEAR_GESTURE_{index}");
+            if (maybeSnapshot is null)
             {
-                Console.WriteLine($"CLEAR_GESTURE_RELEASED index={index}");
+                connection.Dispose();
+                connectionAttempt++;
+                Console.WriteLine(
+                    $"CLEAR_GESTURE_RECONNECT reason=status_read_failed next_attempt={connectionAttempt}");
+                var reopened = await OpenStatusConnectionAsync(
+                    address,
+                    addressType,
+                    serviceUuid,
+                    statusUuid,
+                    "CLEAR_GESTURE",
+                    connectionAttempt,
+                    printPairing: false,
+                    dumpGattWhenServiceMissing: false);
+                if (reopened.Connection is null)
+                {
+                    return 5;
+                }
+                connection = reopened.Connection;
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+                continue;
             }
-            observedReleased = true;
-            if (observedHoldThreshold)
+            var snapshot = maybeSnapshot.Value;
+            latest = snapshot;
+            var bootReleased = snapshot.BootButton == 0;
+            var bootPressed = snapshot.BootButton == 1;
+            var pressedMs = snapshot.BootPressedMs ?? 0;
+            var pairingOpen = snapshot.Pairing == 1;
+            var pairingRemainingMs = snapshot.PairingRemainingMs ?? 0;
+
+            if (bootReleased)
             {
-                observedReleasedAfterHold = true;
+                if (!observedReleased)
+                {
+                    Console.WriteLine($"CLEAR_GESTURE_RELEASED index={index}");
+                }
+                observedReleased = true;
+                if (observedHoldThreshold)
+                {
+                    observedReleasedAfterHold = true;
+                }
             }
-        }
-        if (observedReleased && bootPressed)
-        {
-            if (!observedPressedAfterRelease)
+            if (observedReleased && bootPressed)
             {
-                Console.WriteLine($"CLEAR_GESTURE_PRESSED_AFTER_RELEASE index={index}");
+                if (!observedPressedAfterRelease)
+                {
+                    Console.WriteLine($"CLEAR_GESTURE_PRESSED_AFTER_RELEASE index={index}");
+                }
+                observedPressedAfterRelease = true;
             }
-            observedPressedAfterRelease = true;
-        }
-        if (observedPressedAfterRelease && pressedMs >= holdMillis)
-        {
-            if (!observedHoldThreshold)
+            if (observedPressedAfterRelease && pressedMs >= holdMillis)
+            {
+                if (!observedHoldThreshold)
+                {
+                    Console.WriteLine(
+                        $"CLEAR_GESTURE_HOLD_THRESHOLD index={index} pressed_ms={pressedMs}");
+                }
+                observedHoldThreshold = true;
+            }
+            if (observedHoldThreshold && pairingOpen && pairingRemainingMs >= refreshedWindowMinMillis)
+            {
+                if (!observedRefreshedWindow)
+                {
+                    Console.WriteLine(
+                        $"CLEAR_GESTURE_WINDOW_REFRESHED index={index} remaining_ms={pairingRemainingMs} min_ms={refreshedWindowMinMillis}");
+                }
+                observedRefreshedWindow = true;
+            }
+
+            if (observedHoldThreshold && observedRefreshedWindow && observedReleasedAfterHold)
             {
                 Console.WriteLine(
-                    $"CLEAR_GESTURE_HOLD_THRESHOLD index={index} pressed_ms={pressedMs}");
+                    $"CLEAR_GESTURE_RESULT success=True released_before_press={observedReleased} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold}");
+                return 0;
             }
-            observedHoldThreshold = true;
-        }
-        if (observedHoldThreshold && pairingOpen && pairingRemainingMs >= refreshedWindowMinMillis)
-        {
-            if (!observedRefreshedWindow)
-            {
-                Console.WriteLine(
-                    $"CLEAR_GESTURE_WINDOW_REFRESHED index={index} remaining_ms={pairingRemainingMs} min_ms={refreshedWindowMinMillis}");
-            }
-            observedRefreshedWindow = true;
-        }
 
-        if (observedHoldThreshold && observedRefreshedWindow && observedReleasedAfterHold)
-        {
-            Console.WriteLine(
-                $"CLEAR_GESTURE_RESULT success=True released_before_press={observedReleased} hold_threshold={observedHoldThreshold} refreshed_window={observedRefreshedWindow} released_after_hold={observedReleasedAfterHold}");
-            return 0;
+            await Task.Delay(TimeSpan.FromSeconds(1));
         }
-
-        await Task.Delay(TimeSpan.FromSeconds(1));
+    }
+    finally
+    {
+        connection.Dispose();
     }
 
     Console.WriteLine(
@@ -703,8 +707,7 @@ static async Task<int> CheckClosedWindowAsync(
     }
     PrintPairingState(device, "CLOSED_WINDOW");
 
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, "");
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return 3;
@@ -828,9 +831,7 @@ static async Task<int> ReadMetadataNowAsync(
         return 5;
     }
 
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return 3;
@@ -880,12 +881,159 @@ static async Task<GattCharacteristic?> GetCharacteristicAsync(
     Guid uuid,
     string name)
 {
-    var result = await service.GetCharacteristicsForUuidAsync(uuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"CHAR_LOOKUP name={name} uuid={uuid} status={result.Status} count={result.Characteristics.Count} protocol_error=0x{result.ProtocolError:x}");
+    var result = await GetCharacteristicsForUuidWithRetryAsync(
+        service,
+        uuid,
+        $"CHAR_LOOKUP name={name} uuid={uuid}");
     return result.Status == GattCommunicationStatus.Success && result.Characteristics.Count > 0
         ? result.Characteristics[0]
         : null;
+}
+
+static async Task<GattCharacteristicsResult> GetCharacteristicsForUuidWithRetryAsync(
+    GattDeviceService service,
+    Guid uuid,
+    string label)
+{
+    const int maxAttempts = 5;
+    GattCharacteristicsResult? latest = null;
+
+    for (var attempt = 1; ; attempt++)
+    {
+        var uncached = await service.GetCharacteristicsForUuidAsync(
+            uuid,
+            BluetoothCacheMode.Uncached);
+        latest = uncached;
+        Console.WriteLine(
+            $"{label} status={uncached.Status} count={uncached.Characteristics.Count} protocol_error=0x{uncached.ProtocolError:x} attempt={attempt} cache=Uncached");
+
+        if (uncached.Status == GattCommunicationStatus.Success && uncached.Characteristics.Count > 0)
+        {
+            return uncached;
+        }
+
+        var cached = await service.GetCharacteristicsForUuidAsync(
+            uuid,
+            BluetoothCacheMode.Cached);
+        latest = cached;
+        Console.WriteLine(
+            $"{label} status={cached.Status} count={cached.Characteristics.Count} protocol_error=0x{cached.ProtocolError:x} attempt={attempt} cache=Cached");
+
+        if (cached.Status == GattCommunicationStatus.Success && cached.Characteristics.Count > 0)
+        {
+            return cached;
+        }
+
+        if (attempt >= maxAttempts)
+        {
+            return latest;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt));
+    }
+}
+
+static async Task<GattDeviceServicesResult> GetGattServicesForUuidWithRetryAsync(
+    BluetoothLEDevice device,
+    Guid serviceUuid,
+    string label)
+{
+    const int maxAttempts = 5;
+    var outputLabel = string.IsNullOrEmpty(label) ? "SERVICES" : $"{label}_SERVICES";
+    GattDeviceServicesResult? latest = null;
+
+    for (var attempt = 1; ; attempt++)
+    {
+        var uncached = await device.GetGattServicesForUuidAsync(
+            serviceUuid,
+            BluetoothCacheMode.Uncached);
+        latest = uncached;
+        Console.WriteLine(
+            $"{outputLabel} status={uncached.Status} protocol_error=0x{uncached.ProtocolError:x} attempt={attempt} cache=Uncached");
+
+        if (uncached.Status == GattCommunicationStatus.Success && uncached.Services.Count > 0)
+        {
+            return uncached;
+        }
+
+        var cached = await device.GetGattServicesForUuidAsync(
+            serviceUuid,
+            BluetoothCacheMode.Cached);
+        latest = cached;
+        Console.WriteLine(
+            $"{outputLabel} status={cached.Status} protocol_error=0x{cached.ProtocolError:x} attempt={attempt} cache=Cached");
+
+        if (cached.Status == GattCommunicationStatus.Success && cached.Services.Count > 0)
+        {
+            return cached;
+        }
+
+        if (attempt >= maxAttempts)
+        {
+            return latest;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt));
+    }
+}
+
+static async Task<StatusConnectionOpenResult> OpenStatusConnectionAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    Guid serviceUuid,
+    Guid statusUuid,
+    string label,
+    int attempt,
+    bool printPairing,
+    bool dumpGattWhenServiceMissing)
+{
+    var outputLabel = string.IsNullOrEmpty(label) ? "STATUS" : label;
+    Console.WriteLine(
+        $"{outputLabel}_CONNECT attempt={attempt} address={FormatAddress(address)} address_type={addressType} service={serviceUuid} status={statusUuid}");
+
+    var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{outputLabel}_DEVICE_NOT_FOUND attempt={attempt}");
+        return new StatusConnectionOpenResult(null, 2);
+    }
+
+    Console.WriteLine(
+        $"{outputLabel}_DEVICE name={device.Name} connection_status={device.ConnectionStatus} attempt={attempt}");
+    if (printPairing)
+    {
+        PrintPairingState(device, outputLabel);
+    }
+
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, outputLabel);
+    if (servicesResult.Status != GattCommunicationStatus.Success)
+    {
+        device.Dispose();
+        return new StatusConnectionOpenResult(null, 3);
+    }
+    if (servicesResult.Services.Count == 0)
+    {
+        Console.WriteLine($"{outputLabel}_SERVICE_NOT_FOUND attempt={attempt}");
+        if (dumpGattWhenServiceMissing)
+        {
+            await DumpGattAsync(device);
+        }
+        device.Dispose();
+        return new StatusConnectionOpenResult(null, 4);
+    }
+
+    var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    if (status is null)
+    {
+        service.Dispose();
+        device.Dispose();
+        return new StatusConnectionOpenResult(null, 6);
+    }
+
+    return new StatusConnectionOpenResult(
+        new StatusConnection(device, service, status),
+        0);
 }
 
 static async Task<int> ScanThenCheckClosedWindowAsync(
@@ -1265,9 +1413,7 @@ static async Task<DrainRecordsResult?> DrainRecordsBeforeDisconnectAsync(
         return null;
     }
 
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return null;
@@ -1448,8 +1594,7 @@ static async Task<int> TransferRecordAsync(
     }
 
     Console.WriteLine($"DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine($"SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, "");
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return 3;
@@ -1597,9 +1742,7 @@ static async Task<TransferRecordResult?> TransferRecordDetailedAsync(
     }
 
     Console.WriteLine($"{label}_DEVICE name={device.Name} connection_status={device.ConnectionStatus}");
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return null;
@@ -1798,9 +1941,7 @@ static async Task<RecordMetadata?> ReadAuthorizedMetadataOnlyAsync(
         return null;
     }
 
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return null;
@@ -1848,9 +1989,7 @@ static async Task<RecordMetadata?> ReadPartialRecordThenDisconnectAsync(
         return null;
     }
 
-    var servicesResult = await device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode.Uncached);
-    Console.WriteLine(
-        $"{label}_SERVICES status={servicesResult.Status} protocol_error=0x{servicesResult.ProtocolError:x}");
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, label);
     if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
     {
         return null;
@@ -1991,8 +2130,7 @@ static async Task<bool> WaitForPairingOpenAsync(
     while (DateTimeOffset.UtcNow < deadline)
     {
         attempt++;
-        var read = await status.ReadValueAsync(BluetoothCacheMode.Uncached);
-        Console.WriteLine($"PAIRING_WAIT_READ attempt={attempt} status={read.Status} protocol_error=0x{read.ProtocolError:x}");
+        var read = await ReadStatusValueWithRetryAsync(status, $"PAIRING_WAIT_READ attempt={attempt}");
         if (read.Status == GattCommunicationStatus.Success)
         {
             var bytes = BufferToBytes(read.Value);
@@ -2028,8 +2166,7 @@ static async Task<bool> WaitForPairingOpenAsync(
 
 static async Task<StatusSnapshot?> ReadStatusSnapshotAsync(GattCharacteristic status, string label)
 {
-    var read = await status.ReadValueAsync(BluetoothCacheMode.Uncached);
-    Console.WriteLine($"{label}_STATUS_READ status={read.Status} protocol_error=0x{read.ProtocolError:x}");
+    var read = await ReadStatusValueWithRetryAsync(status, $"{label}_STATUS_READ");
     if (read.Status != GattCommunicationStatus.Success)
     {
         return null;
@@ -2039,6 +2176,27 @@ static async Task<StatusSnapshot?> ReadStatusSnapshotAsync(GattCharacteristic st
     Console.WriteLine($"{label}_STATUS_BYTES len={bytes.Length} hex={Convert.ToHexString(bytes)}");
     PrintStatusDecoded(bytes);
     return TryDecodeStatus(bytes, out var snapshot) ? snapshot : null;
+}
+
+static async Task<GattReadResult> ReadStatusValueWithRetryAsync(
+    GattCharacteristic status,
+    string label)
+{
+    const int maxAttempts = 5;
+
+    for (var attempt = 1; ; attempt++)
+    {
+        var read = await status.ReadValueAsync(BluetoothCacheMode.Uncached);
+        Console.WriteLine(
+            $"{label} status={read.Status} protocol_error=0x{read.ProtocolError:x} attempt={attempt}");
+
+        if (read.Status == GattCommunicationStatus.Success || attempt >= maxAttempts)
+        {
+            return read;
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt));
+    }
 }
 
 static async Task<bool> WaitForAuthorizedMetadataRequestAsync(
@@ -2498,6 +2656,24 @@ internal readonly record struct ProtectedReadResult(
     GattCommunicationStatus Status,
     byte? ProtocolError,
     byte[]? Bytes);
+
+internal readonly record struct StatusConnectionOpenResult(
+    StatusConnection? Connection,
+    int FailureCode);
+
+internal sealed class StatusConnection(
+    BluetoothLEDevice device,
+    GattDeviceService service,
+    GattCharacteristic status) : IDisposable
+{
+    public GattCharacteristic Status { get; } = status;
+
+    public void Dispose()
+    {
+        service.Dispose();
+        device.Dispose();
+    }
+}
 
 internal readonly record struct StatusSnapshot(
     byte Version,

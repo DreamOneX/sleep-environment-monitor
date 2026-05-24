@@ -65,7 +65,15 @@ Common commands:
 
 The tool prints Windows-observed UUIDs and raw binary status/metadata/fragment
 frames. It also prints Windows pairing state for commands that connect to the
-device. `scan-transfer-record` first polls the status characteristic until the
+device. GATT service and characteristic lookup retries Uncached reads and then
+uses Cached lookup as a Windows stale-cache recovery fallback; status values
+used for runtime decisions are still read Uncached. `scan-read-status` may
+recreate the WinRT device/GATT objects after repeated status-read failures, and
+`scan-watch-clear-gesture` reconnects after a transient status-read failure
+instead of ending the watch immediately. If Windows keeps returning
+`Unreachable` for GATT status reads, `scan-unpair` can remove the stale
+Windows-side pairing/cache state before re-pairing.
+`scan-transfer-record` first polls the status characteristic until the
 BOOT / IO9 pairing window is open, then requests metadata and fragments.
 `scan-transfer-record-notify` also subscribes to fragment notifications and
 requires each requested fragment notification to match the subsequently read

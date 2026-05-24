@@ -2870,3 +2870,56 @@ Remaining Phase 24 validation:
   unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
 - Live Wi-Fi/BLE ACK race behavior remains unvalidated.
+
+## Milestone 49: Phase 24U BLE Watch Windows GATT Recovery Tooling
+
+Phase 24U hardened the Windows `tools/ble-watch` validation tool after WinRT
+stale GATT objects repeatedly blocked further Phase 24 hardware validation
+with `Unreachable` service, characteristic, or status-read results.
+
+Validation commands run from the repository root:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+git diff --check
+```
+
+Observed validation results:
+
+- Windows GATT service lookup retried with Uncached lookup and Cached fallback.
+- Characteristic lookup retried with Uncached lookup and Cached fallback.
+- Status reads retried with Uncached values only for runtime decisions.
+- `scan-read-status` can recreate the WinRT `BluetoothLEDevice` / GATT objects
+  after repeated status-read failures.
+- `scan-watch-clear-gesture` can reconnect after a transient status-read
+  failure instead of ending the delay-safe clear-gesture watch immediately.
+- `scan-unpair` reported `UNPAIR_RESULT status=Unpaired`, clearing the
+  Windows-side central pairing/cache state enough for a later status read.
+- A following `scan-read-status` succeeded and decoded
+  `runtime=Connected network=Disconnected upload=Failed pending=32
+  error_flags=0x00000000 pairing=Closed boot_button=Released remaining_ms=0
+  pressed_ms=0`.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- No firmware flash sector was deliberately written or erased by this tooling
+  change.
+- `scan-unpair` changed only the Windows-side central pairing record.
+- The final central state after this recovery is Windows unpaired, so runtime
+  clear-gesture validation must first rebuild a saved-bond auth record before
+  it can prove that the 8 second BOOT / IO9 gesture clears that record.
+
+Remaining Phase 24 validation:
+
+- Runtime 8 second BOOT / IO9 saved-auth clearing remains unvalidated on
+  hardware.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Protected-characteristic rejection after the runtime saved-auth clear gesture
+  remains unvalidated because that gesture itself remains unvalidated.
+- BLE auth record replacement/update and phone/gateway interoperability remain
+  unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated.

@@ -774,8 +774,8 @@ use crate::{
     drivers::flash::RomBleAuthFlash,
     storage::ble_auth::{
         AUTH_HEADER_LEN, AUTH_RECORD_LEN, BleAuthAddressKind, BleAuthRecord, BleAuthRecordStatus,
-        BleAuthSecurityLevel, clear_auth_records, load_auth_records,
-        should_auto_open_pairing_window, store_auth_records,
+        BleAuthRecordUpsert, BleAuthSecurityLevel, clear_auth_records, load_auth_records,
+        should_auto_open_pairing_window, store_auth_records, upsert_auth_record,
     },
     util::status::{BleLedPairingStatus, BleLedRuntimeState},
 };
@@ -1085,11 +1085,14 @@ pub async fn ble_pairing_task(
         crate::config::ble::AUTH_CLEAR_HOLD_MILLIS,
         crate::config::ble::PAIRING_WINDOW_SECS.saturating_mul(1_000),
     );
+    let initial_boot_button_state = BootButtonState::from_active_low(boot_button.is_low());
+    let mut last_boot_button_state = initial_boot_button_state;
+    log_boot_button_sample("initial", initial_boot_button_state, &pairing_gesture);
     if should_auto_open_pairing_window_on_boot() {
         let pairing_event = pairing_gesture.open_window();
         publish_pairing_snapshot(
             &pairing_gesture,
-            BootButtonState::from_active_low(boot_button.is_low()),
+            initial_boot_button_state,
             led_pairing_status,
         )
         .await;
@@ -1098,6 +1101,10 @@ pub async fn ble_pairing_task(
 
     loop {
         let boot_button_state = BootButtonState::from_active_low(boot_button.is_low());
+        if boot_button_state != last_boot_button_state {
+            log_boot_button_sample("transition", boot_button_state, &pairing_gesture);
+            last_boot_button_state = boot_button_state;
+        }
         let pairing_event = pairing_gesture.update(
             boot_button_state,
             crate::config::ble::PAIRING_BUTTON_POLL_MILLIS,
@@ -1115,6 +1122,21 @@ pub async fn ble_pairing_task(
         ))
         .await;
     }
+}
+
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+fn log_boot_button_sample(
+    label: &'static str,
+    boot_button_state: BootButtonState,
+    pairing_gesture: &BlePairingGesture,
+) {
+    info!(
+        "ble boot/io9 {=str} state={:?} pressed_ms={=u64} pairing_remaining_ms={=u64}",
+        label,
+        boot_button_state,
+        pairing_gesture.pressed_millis(),
+        pairing_gesture.state().remaining_millis()
+    );
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
@@ -1311,17 +1333,26 @@ async fn persist_ble_bond_information(
         (workspace.records, record_count)
     };
 
-    match find_auth_record_index(&records, store_count, record) {
-        Some(index) => records[index] = record,
-        None if store_count < records.len() => {
-            records[store_count] = record;
-            store_count += 1;
+    let (next_store_count, upsert_result) = upsert_auth_record(&mut records, store_count, record);
+    store_count = next_store_count;
+    match upsert_result {
+        BleAuthRecordUpsert::Updated { index } => {
+            info!("ble auth record updated index={=usize}", index);
         }
-        None => {
-            warn!("ble auth record capacity full; replacing oldest bond record");
-            records[0] = record;
+        BleAuthRecordUpsert::Appended { index } => {
+            info!("ble auth record appended index={=usize}", index);
         }
-    };
+        BleAuthRecordUpsert::ReplacedOldest { index } => {
+            warn!(
+                "ble auth record capacity full; replacing oldest bond record index={=usize}",
+                index
+            );
+        }
+        BleAuthRecordUpsert::NoCapacity => {
+            warn!("ble auth record capacity is zero; bond record not stored");
+            return;
+        }
+    }
 
     let mut scratch = [0_u8; BLE_AUTH_WORKSPACE_LEN];
     match store_auth_records(
@@ -1348,26 +1379,6 @@ async fn persist_ble_bond_information(
         }
         Err(error) => warn!("ble auth bond store failed error={:?}", error),
     }
-}
-
-#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-fn find_auth_record_index(
-    records: &[BleAuthRecord; crate::config::ble::AUTH_RECORD_CAPACITY],
-    record_count: usize,
-    candidate: BleAuthRecord,
-) -> Option<usize> {
-    records[..record_count]
-        .iter()
-        .position(|record| auth_records_match(*record, candidate))
-}
-
-#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-fn auth_records_match(left: BleAuthRecord, right: BleAuthRecord) -> bool {
-    left.identity_address == right.identity_address
-        || match (left.identity_resolving_key, right.identity_resolving_key) {
-            (Some(left_irk), Some(right_irk)) => left_irk == right_irk,
-            _ => false,
-        }
 }
 
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]

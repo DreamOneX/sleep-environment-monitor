@@ -187,9 +187,63 @@ impl Default for BleAuthRecord {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BleAuthRecordUpsert {
+    Updated { index: usize },
+    Appended { index: usize },
+    ReplacedOldest { index: usize },
+    NoCapacity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BleAuthLoadResult {
     pub status: BleAuthRecordStatus,
     pub record_count: usize,
+}
+
+pub fn upsert_auth_record(
+    records: &mut [BleAuthRecord],
+    record_count: usize,
+    candidate: BleAuthRecord,
+) -> (usize, BleAuthRecordUpsert) {
+    let active_count = record_count.min(records.len());
+    if let Some(index) = find_auth_record_index(&records[..active_count], candidate) {
+        records[index] = candidate;
+        return (active_count, BleAuthRecordUpsert::Updated { index });
+    }
+
+    if active_count < records.len() {
+        records[active_count] = candidate;
+        return (
+            active_count + 1,
+            BleAuthRecordUpsert::Appended {
+                index: active_count,
+            },
+        );
+    }
+
+    if records.is_empty() {
+        return (0, BleAuthRecordUpsert::NoCapacity);
+    }
+
+    records[0] = candidate;
+    (
+        active_count,
+        BleAuthRecordUpsert::ReplacedOldest { index: 0 },
+    )
+}
+
+fn find_auth_record_index(records: &[BleAuthRecord], candidate: BleAuthRecord) -> Option<usize> {
+    records
+        .iter()
+        .position(|record| auth_records_match(*record, candidate))
+}
+
+fn auth_records_match(left: BleAuthRecord, right: BleAuthRecord) -> bool {
+    left.identity_address == right.identity_address
+        || match (left.identity_resolving_key, right.identity_resolving_key) {
+            (Some(left_irk), Some(right_irk)) => left_irk == right_irk,
+            _ => false,
+        }
 }
 
 pub fn encode_auth_header(
@@ -763,6 +817,87 @@ mod tests {
             decode_auth_record(&encoded),
             Err(BleAuthRecordStatus::RecordCrcMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn upsert_updates_existing_record_by_identity_address() {
+        let original = record(0x30);
+        let mut replacement = record(0x40);
+        replacement.identity_address = original.identity_address;
+        let mut records = [record(0x20), original, record(0x50)];
+
+        let (count, action) = upsert_auth_record(&mut records, 2, replacement);
+
+        assert_eq!(count, 2);
+        assert_eq!(action, BleAuthRecordUpsert::Updated { index: 1 });
+        assert_eq!(records[0], record(0x20));
+        assert_eq!(records[1], replacement);
+        assert_eq!(records[2], record(0x50));
+    }
+
+    #[test]
+    fn upsert_updates_existing_record_by_identity_resolving_key() {
+        let original = record(0x60);
+        let mut replacement = record(0x70);
+        replacement.identity_resolving_key = original.identity_resolving_key;
+        let mut records = [original, record(0x61)];
+
+        let (count, action) = upsert_auth_record(&mut records, 2, replacement);
+
+        assert_eq!(count, 2);
+        assert_eq!(action, BleAuthRecordUpsert::Updated { index: 0 });
+        assert_eq!(records[0], replacement);
+        assert_eq!(records[1], record(0x61));
+    }
+
+    #[test]
+    fn upsert_appends_new_record_when_capacity_remains() {
+        let mut records = [record(0x80), BleAuthRecord::EMPTY, BleAuthRecord::EMPTY];
+        let candidate = record(0x81);
+
+        let (count, action) = upsert_auth_record(&mut records, 1, candidate);
+
+        assert_eq!(count, 2);
+        assert_eq!(action, BleAuthRecordUpsert::Appended { index: 1 });
+        assert_eq!(records[0], record(0x80));
+        assert_eq!(records[1], candidate);
+        assert_eq!(records[2], BleAuthRecord::EMPTY);
+    }
+
+    #[test]
+    fn upsert_replaces_oldest_record_when_capacity_is_full() {
+        let mut records = [record(0x90), record(0x91)];
+        let candidate = record(0x92);
+
+        let (count, action) = upsert_auth_record(&mut records, 2, candidate);
+
+        assert_eq!(count, 2);
+        assert_eq!(action, BleAuthRecordUpsert::ReplacedOldest { index: 0 });
+        assert_eq!(records[0], candidate);
+        assert_eq!(records[1], record(0x91));
+    }
+
+    #[test]
+    fn upsert_clamps_record_count_to_capacity_before_replacement() {
+        let mut records = [record(0xa0), record(0xa1)];
+        let candidate = record(0xa2);
+
+        let (count, action) = upsert_auth_record(&mut records, usize::MAX, candidate);
+
+        assert_eq!(count, 2);
+        assert_eq!(action, BleAuthRecordUpsert::ReplacedOldest { index: 0 });
+        assert_eq!(records[0], candidate);
+        assert_eq!(records[1], record(0xa1));
+    }
+
+    #[test]
+    fn upsert_reports_no_capacity_for_empty_record_slice() {
+        let mut records = [];
+
+        let (count, action) = upsert_auth_record(&mut records, 0, record(0xb0));
+
+        assert_eq!(count, 0);
+        assert_eq!(action, BleAuthRecordUpsert::NoCapacity);
     }
 
     #[test]

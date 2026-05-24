@@ -1360,13 +1360,18 @@ Phase 24C scope:
 
 - Preserve the default non-BLE firmware path.
 - Read BOOT / IO9 only when building with `--features ble-upload`.
-- Configure BOOT / IO9 as an input with no internal pull resistor.
+- Configure BOOT / IO9 as an input with the MCU internal pull-up explicitly
+  enabled at runtime. The current board has no discrete IO9 pull-up, and the
+  ESP32-C3 boot/strap weak pull-up must not be assumed to remain configured
+  after firmware starts.
 - Add a pure active-low BOOT button model.
 - Add a long-press pairing-window state machine with tests for short press,
   long press, release/retrigger behavior, and timeout.
 - Log pairing-window open/expire events from the BLE task boundary.
 - Do not configure IO9 as an output.
-- Do not add an internal pull-down or require any hardware debounce capacitor.
+- Do not add an internal pull-down. Treat the current IO9-to-GND capacitor in
+  parallel with BOOT as a hardware fact that requires download-mode and runtime
+  release validation on the actual board.
 - Do not implement or validate advertising, GATT security, pairing, bonded
   state, authorization, BLE record transfer, or BLE storage drain on hardware.
 
@@ -2109,7 +2114,8 @@ Phase 24R scope:
   still opens the temporary authorization window; continuing the same hold to
   about 8 seconds clears the saved BLE authorization sector and reopens the
   window.
-- Keep BOOT / IO9 input-only with no internal pull resistor.
+- Keep BOOT / IO9 input-only with the MCU internal pull-up explicitly enabled
+  at runtime.
 - Preserve BOOT / IO9 reset or power-on download-mode behavior. The clear
   gesture is only a runtime gesture after firmware has booted.
 - Preserve measurement spool flash format and measurement JSON payload shape.
@@ -2403,6 +2409,101 @@ Phase 24W commit message:
 test: improve BLE clear gesture diagnostics
 ```
 
+## Phase 24X: BLE Auth Record Upsert Policy Coverage
+
+Phase 24X moves BLE authorization-record replacement policy into
+hardware-independent storage logic and covers it with host tests. It also makes
+the target BLE `PairingComplete` persistence path reuse that pure policy.
+
+This is compile and pure-policy coverage only. It does not hardware-validate a
+second real bond, an existing peer update, phone/gateway behavior, or the
+remaining BOOT / IO9 and LED3 visual acceptance items.
+
+Phase 24X scope:
+
+- Match an existing saved auth record by identity address and update it in
+  place.
+- Match an existing saved auth record by identity resolving key when both
+  records have one and update it in place.
+- Append a new auth record while capacity remains.
+- Replace index `0` as the oldest record when capacity is full.
+- Clamp an out-of-range stored record count to available capacity before
+  applying replacement policy.
+- Treat zero auth-record capacity as `NoCapacity`.
+- Keep the firmware `PairingComplete` persistence path using the same pure
+  policy instead of a target-only duplicate matcher.
+
+Phase 24X verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24X hardware and flash notes:
+
+- No firmware image is flashed.
+- No firmware flash sector is deliberately written or erased.
+- Real auth-record replacement/update remains a hardware acceptance gap until
+  another bond or an existing peer update is observed through the runtime BLE
+  path.
+
+Phase 24X commit message:
+
+```text
+test: cover BLE auth record upsert policy
+```
+
+## Phase 24Y: BOOT / IO9 Release Diagnostic Logging
+
+Phase 24Y adds firmware-side BOOT / IO9 transition logging for the unresolved
+release-diagnostics follow-up. It does not change the pairing or clear-gesture
+state machine and does not accept the hardware release-diagnostics item by
+itself.
+
+Phase 24Y scope:
+
+- Log the initial BOOT / IO9 runtime sample in BLE feature builds.
+- Log each sampled BOOT / IO9 transition between `Pressed` and `Released`.
+- Include current accumulated press milliseconds and pairing-window remaining
+  milliseconds in those logs.
+- Keep the status characteristic behavior unchanged: status reads still report
+  the latest sampled BOOT / IO9 state and accumulated press time.
+- Use the new logs in the next hardware retest to distinguish a GPIO-level
+  low/pressed reading from a BLE status/tooling reporting issue.
+
+Phase 24Y verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24Y hardware and flash notes:
+
+- No firmware image is flashed by this diagnostic slice.
+- No firmware flash sector is deliberately written or erased.
+- The BOOT / IO9 release-diagnostics hardware item remains open until a new
+  hardware run observes the release path with these logs available.
+
+Phase 24Y commit message:
+
+```text
+test: add BOOT IO9 release diagnostics
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2427,10 +2528,11 @@ test: improve BLE clear gesture diagnostics
   acknowledge operations.
 - Document the current Phase 24 authorization state precisely: the temporary
   BOOT / IO9 authorization window, Windows saved-bond restore path, and auth
-  metadata reset auto-pair policy are hardware-validated. Phase 24V also
-  hardware-validates the runtime saved-auth clear effect. Future work must
-  still validate BOOT / IO9 release diagnostics after that clear hold and
-  record replacement/update rules.
+  metadata reset auto-pair policy are hardware-validated. Phase 24Z also
+  hardware-validates the runtime saved-auth clear/release path with the
+  explicit runtime GPIO9 internal pull-up firmware. Phase 24X covers the
+  auth-record upsert policy in pure tests, but future work must still validate
+  real runtime record replacement/update behavior.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
@@ -2469,6 +2571,8 @@ Add hardware-independent tests for:
 - BLE authorization metadata header parsing and auto-pair policy.
 - BLE authorization record encode/load/store/clear behavior and version /
   checksum auto-pair policy.
+- BLE authorization record upsert policy for existing-record update, append,
+  full-capacity replacement, count clamping, and zero-capacity handling.
 - Runtime BOOT / IO9 auth-record clear gesture timing.
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing as hardware-independent logic.

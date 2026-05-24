@@ -31,7 +31,9 @@ Phase 24B adds the hardware-independent transfer and ACK core:
 Phase 24C adds the BOOT / IO9 pairing-window core:
 
 - BOOT / IO9 is read only in `ble-upload` target builds.
-- The pin is configured as an input with the default no-pull configuration.
+- The pin is configured as an input with the MCU internal pull-up explicitly
+  enabled at runtime. The ESP32-C3 boot/strap weak pull-up exists during boot,
+  but runtime firmware must not assume it remains configured.
 - The BLE task monitors an active-low long press and opens a timed pairing
   window in pure state-machine logic.
 - Hardware-independent tests cover active-low interpretation, short press,
@@ -290,7 +292,29 @@ release follow-up:
 - This is tool evidence only; it does not change firmware behavior or close the
   release-diagnostics hardware item without a new hardware run.
 
-Phase 24A through 24W do not change the measurement spool flash format or
+Phase 24X adds hardware-independent auth-record upsert policy coverage:
+
+- A saved auth record with the same identity address is updated in place.
+- A saved auth record with the same identity resolving key is updated in place
+  when both records carry an IRK.
+- A new auth record appends while capacity remains.
+- Full capacity replaces index `0` as the oldest record.
+- Out-of-range stored record counts are clamped to capacity before replacement.
+- Zero-capacity storage is reported as `NoCapacity`.
+- The target `PairingComplete` persistence path reuses this pure policy.
+- This is not hardware validation of another real bond or an existing peer
+  update.
+
+Phase 24Y adds firmware-side BOOT / IO9 release diagnostics:
+
+- The BLE pairing task logs the initial BOOT / IO9 runtime sample.
+- It logs each sampled transition between `Pressed` and `Released`.
+- Those logs include accumulated press milliseconds and pairing-window
+  remaining milliseconds.
+- This prepares the next hardware retest and does not change pairing, clearing,
+  or GATT status semantics.
+
+Phase 24A through 24Y do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -311,14 +335,18 @@ unpaired protected-metadata rejection after a reset/invalid-auth window closes.
 Phase 24V hardware-validates the runtime saved-auth clear effect and rejected
 protected metadata access after that runtime clear watch.
 Phase 24W adds clearer tool diagnostics for the unresolved release observation
-after the runtime clear hold.
+after the runtime clear hold. Phase 24X compile-validates the pure saved-auth
+upsert policy used by the target persistence path. Phase 24Y adds firmware
+transition logs for the BOOT / IO9 release retest. Phase 24Z validates the
+runtime clear gesture and final release-after-hold diagnostics with the
+explicit runtime GPIO9 internal pull-up firmware.
 Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
 ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
-behavior, BOOT / IO9 release diagnostics after the runtime clear hold, and
-record replacement are still unvalidated. Future work must validate those
-remaining paths. LED3 BLE operation feedback now has a compile/unit-tested
-firmware boundary, but the actual blue LED patterns have not been visually
-accepted on hardware yet.
+behavior, real record replacement/update, phone/gateway interoperability, and
+the BLE+Wi-Fi runtime Wi-Fi init error `257` are still unvalidated or
+unresolved. Future work must validate those remaining paths. LED3 BLE operation
+feedback now has a compile/unit-tested firmware boundary, but the actual blue
+LED patterns have not been visually accepted on hardware yet.
 
 ## Goals
 
@@ -418,8 +446,11 @@ authorization entry is the BOOT / IO9 button, used only as a runtime input.
 Constraints:
 
 - Do not configure IO9 as an output.
-- Do not enable an internal pull-down that fights the board's default pull-up.
-- Do not require any hardware capacitor or debounce capacitor on IO9.
+- Do not enable an internal pull-down.
+- Keep the runtime GPIO9 input pull-up explicitly enabled when BLE feature
+  builds read BOOT / IO9.
+- Treat the current IO9-to-GND capacitor in parallel with BOOT as a hardware
+  fact that requires download-mode and runtime release validation on the board.
 - Preserve the existing boot behavior where holding BOOT during reset or power
   on enters download mode.
 - Continue validating download-mode preservation before relying on IO9 for
@@ -483,9 +514,11 @@ rules:
   records-version-mismatched, compatibility-checksum-mismatched, and
   header-checksum-mismatched auth metadata auto-opens the authorization window
   on boot. The runtime clear path can erase the same sector and reopen the
-  temporary authorization window. Future work must validate record
-  replacement/update behavior and investigate the BOOT / IO9 release-diagnostics
-  mismatch observed after the runtime clear hold.
+  temporary authorization window. Phase 24Z validates that clear path,
+  including final release-after-hold diagnostics, with the explicit runtime
+  GPIO9 internal pull-up firmware. Phase 24X covers the pure saved-auth
+  upsert/replacement policy used by target persistence, but future work must
+  validate real runtime record replacement/update behavior.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 
@@ -503,10 +536,14 @@ Phase 24 has hardware-independent tests for:
 - BOOT / IO9 runtime auth-record clear gesture timing.
 - BLE authorization record encode/load/store/clear behavior and auto-pair
   policy.
+- BLE authorization record upsert policy for same-address update, same-IRK
+  update, append, full-capacity oldest replacement, count clamping, and
+  zero-capacity handling.
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing.
 
 Remaining hardware checks should confirm live Wi-Fi/BLE coexistence races,
-BLE auth record replacement/update behavior, LED3 BLE status indication timing
-and patterns, BOOT / IO9 release diagnostics after the runtime clear hold, and
-that BOOT still enters download mode during reset or power-on.
+real BLE auth record replacement/update behavior, LED3 BLE status indication
+timing and patterns, phone/gateway interoperability, the BLE+Wi-Fi runtime
+Wi-Fi init error `257`, and that BOOT still enters download mode during reset
+or power-on.

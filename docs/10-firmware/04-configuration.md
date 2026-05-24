@@ -96,7 +96,8 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   embedded inside
   upload or storage task logic.
 - Keep BOOT / IO9 pairing-window timing in config and keep the pin input-only
-  with no internal pull resistor. Phase 24R also keeps the runtime BLE
+  with the MCU internal pull-up explicitly enabled at runtime. Phase 24R also
+  keeps the runtime BLE
   auth-record clear hold duration in config: about 8 seconds of BOOT / IO9 hold
   after firmware boot clears saved BLE authorization records.
 - Keep LED timing and display-window knobs in config: red LED2 boot/reset fast

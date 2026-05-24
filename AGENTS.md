@@ -21,8 +21,10 @@ Start with [docs/README.md](docs/README.md).
 ## Repository Layout
 
 - [firmware/](firmware/): ESP32-C3 firmware package.
-- [server/](server/): measurement ingestion server workspace.
+- [hardware/](hardware/): board hardware design files, exports, and fabrication files.
 - [docs/](docs/): tracked project documentation.
+- [server/](server/): measurement ingestion server workspace.
+- [tools/](tools/): local validation and integration tools.
 
 ## Working Rules
 

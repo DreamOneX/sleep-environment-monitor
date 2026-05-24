@@ -234,9 +234,43 @@ firmware/
 ├── Cargo.toml
 ├── build.rs
 └── README.md
+hardware/
+├── easyeda/
+│   └── sleep-monitor.epro
+├── exports/
+│   ├── sleep-monitor-pcb.pdf
+│   ├── sleep-monitor-pcb.png
+│   ├── sleep-monitor-schematic.pdf
+│   └── sleep-monitor-schematic.svg
+├── fabrication/
+│   ├── assembly/
+│   │   ├── sleep-monitor-bom.xlsx
+│   │   └── sleep-monitor-pick-and-place.xlsx
+│   └── gerber-drill/
+│       ├── board-outline.GKO
+│       ├── bottom-copper.GBL
+│       ├── bottom-paste.GBP
+│       ├── bottom-silkscreen.GBO
+│       ├── bottom-solder-mask.GBS
+│       ├── document.GDL
+│       ├── drill-drawing.GDD
+│       ├── non-plated-through-holes.DRL
+│       ├── plated-through-holes.DRL
+│       ├── plated-vias.DRL
+│       ├── top-copper.GTL
+│       ├── top-paste.GTP
+│       ├── top-silkscreen.GTO
+│       └── top-solder-mask.GTS
+└── README.md
 server/
 ├── README.md
 └── post_receiver.py
+tools/
+└── ble-watch/
+    ├── .gitignore
+    ├── Program.cs
+    ├── README.md
+    └── ble-watch.csproj
 Cargo.toml
 ```
 
@@ -647,7 +681,10 @@ responsibilities:
 - Keep BLE and Wi-Fi storage responses routed as separate clients.
 - Monitor BOOT / IO9 as an active-low input in BLE feature builds and maintain
   a pure pairing-window gesture state machine.
-- Keep BOOT / IO9 configured as input-only with no internal pull resistor.
+- Keep BOOT / IO9 configured as input-only with the MCU internal pull-up
+  explicitly enabled at runtime. The board has no discrete IO9 pull-up, and
+  the ESP32-C3 boot/strap weak pull-up must not be assumed to remain configured
+  after firmware starts.
 - Own `esp_radio::ble::controller::BleConnector` and a TrouBLE peripheral host
   when the firmware is built with `--features ble-upload`.
 - Advertise a project-specific GATT service skeleton with status, record

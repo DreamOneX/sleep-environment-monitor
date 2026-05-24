@@ -7,7 +7,7 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24W is implemented in the current working tree. Phase 24 is not complete
+Phase 24Z is implemented in the current working tree. Phase 24 is not complete
 yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
@@ -130,6 +130,67 @@ clear retest:
 - The new diagnostic output does not change firmware behavior and does not
   accept the BOOT / IO9 release item by itself.
 
+Phase 24X added pure BLE auth-record upsert policy coverage and reused it from
+the target persistence path:
+
+- `storage::ble_auth::upsert_auth_record` updates an existing record by
+  identity address or matching IRK, appends while capacity remains, replaces
+  index `0` when full, clamps overlarge stored record counts, and reports
+  `NoCapacity` for empty storage.
+- `firmware/src/tasks/ble.rs` now calls that pure policy when persisting a
+  `PairingComplete` bond record.
+- This is compile and host-test coverage only. Real runtime auth-record
+  replacement/update still needs hardware validation with another bond or an
+  existing peer update.
+
+Phase 24Y added firmware-side BOOT / IO9 transition logging for the next
+release-diagnostics retest:
+
+- The BLE pairing task logs the initial BOOT / IO9 runtime sample.
+- It logs each sampled transition between `Pressed` and `Released`.
+- Each log includes accumulated press milliseconds and pairing-window remaining
+  milliseconds.
+- This does not change pairing-window or saved-auth clear behavior and does not
+  accept the release-diagnostics item without a new hardware run.
+
+A 2026-05-25 hardware review corrected the BOOT / IO9 electrical assumptions:
+
+- The board has no discrete IO9 pull-up resistor.
+- ESP32-C3 boot/strap sampling provides a weak IO9 pull-up during boot, but
+  runtime firmware must not assume that pull-up remains configured.
+- The BOOT button pulls IO9 to GND and has an IO9-to-GND capacitor in parallel.
+- BLE feature builds now configure GPIO9 as input-only with the MCU internal
+  pull-up explicitly enabled at runtime.
+- The IO9-to-GND capacitor and previous no-pull runtime configuration may
+  explain the earlier `Pressed`-after-release status observation. Retest
+  release diagnostics with the explicit runtime pull-up firmware before drawing
+  conclusions about BLE status/tooling.
+
+Phase 24Z retested BOOT / IO9 with the explicit runtime GPIO9 pull-up firmware:
+
+- The BLE+Wi-Fi app image was flashed after declaring the app-image range as
+  approximately `0x00010000..0x003bf000`.
+- The runtime clear gesture deliberately erased the BLE auth metadata sector
+  `0x003bf000..0x003c0000`.
+- `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` observed release
+  before press, press-after-release, `CLEAR_GESTURE_HOLD_THRESHOLD
+  pressed_ms=8100`, refreshed authorization window `remaining_ms=59900`, final
+  release after hold, and `CLEAR_GESTURE_RESULT success=True`.
+- Firmware RTT logs matched the central output with
+  `ble boot/io9 transition state=Pressed`, `ble auth records clear requested
+  pressed_ms=8000`, `ble auth records cleared offset=0x003bf000 len=4096`, and
+  `ble boot/io9 transition state=Released`.
+- After the refreshed authorization window expired,
+  `scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair` reported
+  `METADATA_NOW_RESULT success=True metadata_success=False rejected=True
+  phase=control_write`.
+- The BOOT / IO9 runtime clear/release diagnostic item is now hardware
+  accepted for the explicit runtime pull-up firmware.
+- The same BLE+Wi-Fi runtime reported `Wi-Fi controller initialization failed;
+  network and uploader disabled` with ESP Wi-Fi init error `257`; this is now
+  a remaining Wi-Fi/BLE runtime coexistence issue to resolve or explicitly
+  accept before Phase 24 closes.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -143,6 +204,8 @@ Important flash ranges:
   same sector to validate reset/invalid metadata auto-pair behavior. Phase 24V
   validated the runtime clear effect through hold-threshold/window-refresh
   evidence and rejected protected metadata access after the clear watch.
+  Phase 24Z validated final BOOT / IO9 release-after-hold diagnostics and again
+  cleared this sector through the runtime gesture.
 - Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
   exercise normal spool writes/erases through `storage_task` in this range.
   During the long Phase 24R runtime, the storage task continued appending and
@@ -174,28 +237,34 @@ exercised.
   to the LED3 status task, and wires BLE runtime/pairing signals into LED3.
 - `firmware/src/tasks/ble.rs` publishes BLE runtime and pairing status for the
   LED overlay, owns the BLE security compile path, and stores/loads BLE auth
-  records through the reserved auth sector. It also clears the saved auth
-  sector on the 8 second runtime BOOT / IO9 gesture.
+  records through the reserved auth sector using the shared pure upsert policy.
+  It also clears the saved auth sector on the 8 second runtime BOOT / IO9
+  gesture and logs BOOT / IO9 initial/transition samples for release
+  diagnostics. GPIO9 is configured input-only with the MCU internal pull-up
+  explicitly enabled in BLE feature builds.
 - `firmware/src/bin/main.rs` obtains a BLE security seed from TRNG before
   reusing ADC1 for the microphone path.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
   saved-bond restore evidence, Phase 24S LED status/config boundary, Phase 24T
   auth metadata reset evidence, Phase 24U Windows GATT recovery tooling,
   Phase 24V runtime clear-effect evidence, Phase 24W clear-gesture diagnostic
-  tooling, current LED mapping, and the remaining Phase 24 validation gaps.
+  tooling, Phase 24X auth-record upsert policy coverage, Phase 24Y BOOT / IO9
+  transition diagnostics, Phase 24Z runtime IO9 pull-up retest evidence,
+  current LED mapping, and the remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window, the Windows saved-bond restore path, the auth metadata reset policy,
-and the Phase 24V runtime clear effect. The latest board state is Windows
-unpaired with firmware auth metadata cleared or missing; after reset the
-temporary authorization window opened. The next saved-bond or replacement test
-must re-pair first. Windows Settings may show the custom GATT peripheral as
-paired but not connected when `ble-watch` is not holding a GATT session; that
-passive Settings label is not a Phase 24 acceptance signal. If Windows still
-reports paired while firmware rejects protected access after an auth reset or
-clear, use `scan-unpair` before re-pairing. Phone/gateway interoperability,
-BOOT / IO9 release diagnostics after the clear hold, record replacement, and
-LED3 visual behavior remain unvalidated.
+and the Phase 24Z runtime clear/release path. The latest board state has
+firmware auth metadata cleared or missing, and protected metadata access is
+rejected when the temporary authorization window is closed. The next saved-bond
+or replacement test must re-pair first. Windows Settings may show the custom
+GATT peripheral as paired but not connected when `ble-watch` is not holding a
+GATT session; that passive Settings label is not a Phase 24 acceptance signal.
+If Windows still reports paired while firmware rejects protected access after
+an auth reset or clear, use `scan-unpair` before re-pairing. Phone/gateway
+interoperability, real record replacement, LED3 visual behavior, BOOT
+download-mode preservation, and the BLE+Wi-Fi Wi-Fi init error remain
+unvalidated or unresolved.
 
 Manual hardware tests that need operator timing, such as BOOT / IO9 presses,
 must first notify the operator through PowerShell
@@ -338,19 +407,77 @@ Milestone commit message:
 test: improve BLE clear gesture diagnostics
 ```
 
+Phase 24X pure logic and target compile verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Observed result:
+
+- `cargo test --lib`: `191 passed; 0 failed`.
+- BLE auth-record upsert pure tests covered same identity-address update, same
+  IRK update, append, oldest replacement at index `0`, count clamping, and
+  zero-capacity handling.
+- Default non-BLE target build and default target clippy passed.
+- `cargo clippy --all-targets` passed.
+- BLE+Wi-Fi target build and clippy passed with `ble-upload,radio-coex`.
+- `git diff --check` passed.
+- No firmware image was flashed and no firmware flash sector was deliberately
+  written or erased.
+
+Milestone commit message:
+
+```text
+test: cover BLE auth record upsert policy
+```
+
+Phase 24Y diagnostic compile verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+```
+
+Observed result:
+
+- `cargo test --lib`: `191 passed; 0 failed`.
+- Default non-BLE target build and default target clippy passed.
+- `cargo clippy --all-targets` passed.
+- BLE+Wi-Fi target build and clippy passed with `ble-upload,radio-coex`.
+- No firmware image was flashed and no firmware flash sector was deliberately
+  written or erased.
+
+Milestone commit message:
+
+```text
+test: add BOOT IO9 release diagnostics
+```
+
 ## Remaining Phase 24 Work
 
 - Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
 - Validate phone/gateway interoperability beyond the Windows central.
-- Investigate and retest BOOT / IO9 release diagnostics after the runtime
-  8 second clear hold. Phase 24V validated the clear effect, but the status
-  stream kept reporting `Pressed` after operator release until reset.
-- Validate BLE auth record replacement/update behavior when another bond is
-  stored or an existing peer is updated.
+- Validate real BLE auth record replacement/update behavior when another bond
+  is stored or an existing peer is updated.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
   blink, advertising-or-connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.
+- Resolve or explicitly accept the BLE+Wi-Fi runtime Wi-Fi init error `257`
+  observed during the Phase 24Z BLE+Wi-Fi hardware run.
 
 ## Phase 25 Notes
 

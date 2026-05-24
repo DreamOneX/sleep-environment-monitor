@@ -118,6 +118,13 @@ Runtime BLE auth clearing flow:
 
 Delay-safe clear validation flow:
 
+Before using this flow for Phase 24Y release diagnostics, flash firmware that
+includes the Phase 24Y BOOT / IO9 transition logs and state the app-image flash
+range first: approximately `0x00010000..0x003bf000`. Capture RTT/defmt logs
+with the `scan-watch-clear-gesture` output. For manual timing, send a
+PowerShell `New-BurntToastNotification` first and wait for the operator to
+reply in chat that the notification was received and they are ready.
+
 1. Start `scan-watch-clear-gesture`.
 2. During the watch window, release BOOT / IO9 until the tool can observe
    `CLEAR_GESTURE_RELEASED`.

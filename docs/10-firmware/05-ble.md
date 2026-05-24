@@ -318,6 +318,14 @@ Phase 24X adds hardware-independent auth-record upsert policy coverage:
 - This is not hardware validation of another real bond or an existing peer
   update.
 
+`tools/ble-watch` now includes `scan-unpair-then-pair-metadata` to prepare that
+remaining validation. The command removes the Windows-side pairing record,
+waits for the BOOT / IO9 authorization window, reconnects so the new link can
+be bondable, pairs again, and reads protected metadata. It is not an acceptance
+signal by itself; real auth-record update/replacement validation still requires
+firmware RTT logs showing `ble auth record updated`, `ble auth record appended`,
+or the replacement warning, followed by `ble auth bond stored`.
+
 Phase 24Y adds firmware-side BOOT / IO9 release diagnostics:
 
 - The BLE pairing task logs the initial BOOT / IO9 runtime sample.

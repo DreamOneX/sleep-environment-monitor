@@ -70,6 +70,26 @@ if (args.Length > 0 && string.Equals(args[0], "scan-unpair", StringComparison.Or
         projectUuidWindows);
 }
 
+if (args.Length > 0 && string.Equals(args[0], "scan-unpair-then-pair-metadata", StringComparison.OrdinalIgnoreCase))
+{
+    var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
+        ? parsedScanSeconds
+        : 30;
+    var scanTargetName = args.Length > 2 ? args[2] : "sleep-env-esp32c3";
+    var waitWindowSeconds = args.Length > 3 && int.TryParse(args[3], out var parsedWaitWindowSeconds)
+        ? parsedWaitWindowSeconds
+        : 90;
+    return await ScanThenUnpairThenPairMetadataAsync(
+        scanSeconds,
+        scanTargetName,
+        waitWindowSeconds,
+        projectUuid,
+        projectUuidWindows,
+        statusUuidWindows,
+        metadataUuidWindows,
+        controlUuidWindows);
+}
+
 if (args.Length > 0 && string.Equals(args[0], "scan-watch-clear-gesture", StringComparison.OrdinalIgnoreCase))
 {
     var scanSeconds = args.Length > 1 && int.TryParse(args[1], out var parsedScanSeconds)
@@ -459,12 +479,17 @@ static async Task<int> UnpairAsync(
         return 2;
     }
 
-    PrintPairingState(device, label);
+    return await TryUnpairDeviceAsync(device, label) ? 0 : 3;
+}
+
+static async Task<bool> TryUnpairDeviceAsync(BluetoothLEDevice device, string label)
+{
     var pairing = device.DeviceInformation.Pairing;
+    PrintPairingState(device, label);
     if (!pairing.IsPaired)
     {
         Console.WriteLine($"{label}_RESULT success=True already_unpaired=True");
-        return 0;
+        return true;
     }
 
     try
@@ -472,13 +497,159 @@ static async Task<int> UnpairAsync(
         var result = await pairing.UnpairAsync();
         Console.WriteLine($"{label}_RESULT status={result.Status}");
         PrintPairingState(device, $"{label}_AFTER");
-        return result.Status == DeviceUnpairingResultStatus.Unpaired ? 0 : 3;
+        return result.Status is DeviceUnpairingResultStatus.Unpaired
+            or DeviceUnpairingResultStatus.AlreadyUnpaired;
     }
     catch (Exception error)
     {
         Console.WriteLine($"{label}_ERROR type={error.GetType().Name} message={error.Message}");
-        return 4;
+        return false;
     }
+}
+
+static async Task<int> ScanThenUnpairThenPairMetadataAsync(
+    int seconds,
+    string targetName,
+    int waitWindowSeconds,
+    Guid advertisementUuid,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid controlUuid)
+{
+    if (waitWindowSeconds <= 0)
+    {
+        Console.Error.WriteLine(
+            "usage: scan-unpair-then-pair-metadata [scan-seconds] [name] [wait-window-seconds]");
+        return 64;
+    }
+
+    var found = await ScanForTargetAsync(seconds, targetName, advertisementUuid, serviceUuid);
+    if (found is null)
+    {
+        return 2;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300));
+    return await UnpairThenPairMetadataAsync(
+        found.Address,
+        found.AddressType,
+        waitWindowSeconds,
+        serviceUuid,
+        statusUuid,
+        metadataUuid,
+        controlUuid);
+}
+
+static async Task<int> UnpairThenPairMetadataAsync(
+    ulong address,
+    BluetoothAddressType addressType,
+    int waitWindowSeconds,
+    Guid serviceUuid,
+    Guid statusUuid,
+    Guid metadataUuid,
+    Guid controlUuid)
+{
+    const string label = "UNPAIR_PAIR_METADATA";
+    Console.WriteLine(
+        $"{label}_CONNECT address={FormatAddress(address)} address_type={addressType} wait_window_seconds={waitWindowSeconds}");
+
+    using (var unpairDevice = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType))
+    {
+        if (unpairDevice is null)
+        {
+            Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+            return 2;
+        }
+
+        if (!await TryUnpairDeviceAsync(unpairDevice, label))
+        {
+            Console.WriteLine($"{label}_RESULT success=False phase=unpair");
+            return 3;
+        }
+    }
+
+    Console.WriteLine(
+        $"{label}_RTT_REQUIREMENT expected_firmware_log=\"ble auth record updated/appended/capacity full\" note=\"central-side success alone does not validate auth-record replacement\"");
+
+    await Task.Delay(TimeSpan.FromMilliseconds(500));
+    {
+        using var windowDevice = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+        if (windowDevice is null)
+        {
+            Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+            return 2;
+        }
+
+        var prePairServices = await GetGattServicesForUuidWithRetryAsync(
+            windowDevice,
+            serviceUuid,
+            $"{label}_PRE_PAIR");
+        if (prePairServices.Status != GattCommunicationStatus.Success || prePairServices.Services.Count == 0)
+        {
+            Console.WriteLine($"{label}_RESULT success=False phase=pre_pair_services");
+            return 4;
+        }
+
+        using var prePairService = prePairServices.Services[0];
+        var prePairStatus = await GetCharacteristicAsync(prePairService, statusUuid, "status");
+        if (prePairStatus is null)
+        {
+            Console.WriteLine($"{label}_RESULT success=False phase=pre_pair_status");
+            return 5;
+        }
+
+        _ = await ReadStatusSnapshotAsync(prePairStatus, $"{label}_BEFORE_WINDOW");
+        if (!await WaitForPairingOpenAsync(prePairStatus, TimeSpan.FromSeconds(waitWindowSeconds)))
+        {
+            Console.WriteLine($"{label}_RESULT success=False phase=pairing_window");
+            return 6;
+        }
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(500));
+    using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address, addressType);
+    if (device is null)
+    {
+        Console.WriteLine($"{label}_DEVICE_NOT_FOUND");
+        return 2;
+    }
+
+    if (!await EnsurePairedAsync(device, label))
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=pair");
+        return 7;
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(500));
+    var servicesResult = await GetGattServicesForUuidWithRetryAsync(device, serviceUuid, $"{label}_AFTER_PAIR");
+    if (servicesResult.Status != GattCommunicationStatus.Success || servicesResult.Services.Count == 0)
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=after_pair_services");
+        return 8;
+    }
+
+    using var service = servicesResult.Services[0];
+    var status = await GetCharacteristicAsync(service, statusUuid, "status");
+    var metadata = await GetCharacteristicAsync(service, metadataUuid, "metadata");
+    var control = await GetCharacteristicAsync(service, controlUuid, "control");
+    if (status is null || metadata is null || control is null)
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=after_pair_characteristics");
+        return 9;
+    }
+
+    _ = await ReadStatusSnapshotAsync(status, $"{label}_AFTER_PAIR");
+    var recordMetadata = await RequestAndReadMetadataAsync(metadata, control, label);
+    if (recordMetadata is null)
+    {
+        Console.WriteLine($"{label}_RESULT success=False phase=metadata");
+        return 10;
+    }
+
+    Console.WriteLine(
+        $"{label}_SUMMARY success=True sequence={recordMetadata.Value.Sequence} payload_len={recordMetadata.Value.PayloadLength} rtt_required=True");
+    return 0;
 }
 
 static async Task<int> ScanThenWatchClearGestureAsync(

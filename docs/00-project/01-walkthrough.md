@@ -3234,9 +3234,6 @@ Remaining Phase 24 validation:
 - Real BLE auth record replacement/update and phone/gateway interoperability
   remain unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
-- Live Wi-Fi/BLE ACK race behavior remains unvalidated.
-- BLE+Wi-Fi runtime reported Wi-Fi init error `257`; this must be resolved or
-  explicitly accepted before Phase 24 is closed.
 
 ## Milestone 55: Phase 24 BLE+Wi-Fi Coexistence Heap Startup Fix
 
@@ -3378,4 +3375,54 @@ Remaining Phase 24 validation:
 - BOOT / IO9 download-mode preservation remains unvalidated.
 - Real BLE auth record replacement/update and phone/gateway interoperability
   remain unvalidated.
+- LED3 BLE hardware visual behavior remains unvalidated.
+
+## Milestone 57: Phase 24 Auth-Record Re-Pair Validation Tooling
+
+This milestone prepares the remaining real BLE auth record update/replacement
+validation by adding a single `ble-watch` flow for the existing Windows central.
+The new command removes the Windows-side pairing record, waits for the
+firmware BOOT / IO9 authorization window, reconnects so the firmware can mark
+the new link bondable, performs Windows Custom ConfirmOnly pairing, and reads
+protected metadata.
+
+This is tooling only. It does not accept the firmware auth-record
+replacement/update item by itself because the acceptance signal must include
+firmware RTT logs from `persist_ble_bond_information`, such as
+`ble auth record updated`, `ble auth record appended`, or
+`ble auth record capacity full; replacing oldest bond record`, followed by
+`ble auth bond stored`.
+
+Validation command added:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair-then-pair-metadata 30 sleep-env-esp32c3 90
+```
+
+Expected manual validation flow:
+
+1. Capture firmware RTT logs.
+2. Run `scan-unpair-then-pair-metadata`.
+3. When the tool prints `PAIRING_WAIT`, hold BOOT / IO9 long enough to open the
+   authorization window.
+4. Accept the run only when the tool reports
+   `UNPAIR_PAIR_METADATA_SUMMARY success=True` and RTT logs show the expected
+   auth-record action plus `ble auth bond stored`.
+
+Flash and hardware notes:
+
+- No firmware image is flashed by this tooling milestone.
+- Running the command during future hardware validation may write the BLE auth
+  metadata sector `0x003bf000..0x003c0000` when pairing completes and the
+  firmware stores the refreshed bond.
+- A true second-bond or full-capacity replacement validation still needs a
+  distinct central device; the Windows re-pair flow only targets the
+  existing-peer update case.
+
+Remaining Phase 24 validation:
+
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Real BLE auth record replacement/update remains unvalidated until the tool is
+  run with firmware RTT evidence.
+- Phone/gateway interoperability remains unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.

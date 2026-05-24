@@ -143,7 +143,10 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
 - [ ] Validate real BLE auth record replacement/update behavior when another
   bond is stored or an existing peer is updated. Phase 24X covers the pure
   upsert policy and target compile path, but not a runtime second-bond or
-  existing-peer update.
+  existing-peer update. `ble-watch scan-unpair-then-pair-metadata` is available
+  for the existing Windows central re-pair/update run; completion still
+  requires matching firmware RTT logs showing the auth-record action and
+  `ble auth bond stored`.
 
 ## Phase 25 Refactor And Maintenance
 

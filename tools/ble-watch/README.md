@@ -35,6 +35,12 @@ Common commands:
 # Remove the board pairing record from Windows before re-pairing.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
 
+# Remove the Windows pairing record, wait for the BOOT / IO9 authorization
+# window, pair again, then read protected metadata. Capture firmware RTT logs
+# during this run; central-side success alone does not validate auth-record
+# update/replacement.
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair-then-pair-metadata 30 sleep-env-esp32c3 90
+
 # Watch the status characteristic while the operator performs the runtime
 # BOOT / IO9 saved-auth clear gesture. This avoids relying on chat timing.
 '/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000
@@ -105,6 +111,15 @@ cleared or rejected the saved BLE authorization record. Windows Settings may
 show this custom GATT peripheral as paired but not connected when no central
 application such as `ble-watch` is holding a GATT session; that state alone is
 expected and is not a firmware connection failure.
+`scan-unpair-then-pair-metadata` removes the Windows-side pairing record,
+opens a status connection to wait for the BOOT / IO9 authorization window,
+disconnects, reconnects so firmware can configure the new link as bondable,
+runs Windows Custom Pairing with ConfirmOnly acceptance, and reads protected
+metadata. Use it with RTT capture when validating real auth-record update or
+replacement behavior. The central command must be paired with firmware logs
+such as `ble auth record updated`, `ble auth record appended`, or
+`ble auth record capacity full; replacing oldest bond record`; the tool output
+alone is not accepted as firmware auth-record replacement/update evidence.
 
 Manual transfer flow:
 
@@ -157,6 +172,22 @@ After the clear gesture succeeds, wait for the temporary authorization window
 to close and run `scan-read-metadata-now ... expect-reject no-pair` to confirm
 the old saved authorization record no longer grants protected GATT access.
 
+Auth-record update/replacement validation flow:
+
+1. Capture firmware RTT/defmt logs while running the command.
+2. Start `scan-unpair-then-pair-metadata`.
+3. Wait for the tool to print `PAIRING_WAIT`.
+4. Hold BOOT / IO9 for at least 3 seconds to open the authorization window,
+   then release it after the tool prints `PAIRING_OPEN`.
+5. Accept the run only if the tool reports
+   `UNPAIR_PAIR_METADATA_SUMMARY success=True` and firmware logs the expected
+   auth-record action plus `ble auth bond stored`.
+
+For an existing-peer update check, the expected firmware auth-record action is
+`ble auth record updated`. For a second-peer or full-capacity replacement check,
+use a distinct central device and expect `ble auth record appended` or
+`ble auth record capacity full; replacing oldest bond record` as appropriate.
+
 The 3 second hold used in older manual transfer instructions is only an
 operator-side suggestion to exceed the firmware's about-2-second authorization
 threshold. It is not a 3 second firmware window. The temporary authorization
@@ -169,3 +200,5 @@ may write or erase the measurement spool region `0x003c0000..0x00400000`
 through `storage_task`.
 Pairing, saved-bond restore validation, and the runtime clear gesture may write
 or erase the BLE auth metadata sector `0x003bf000..0x003c0000`.
+`scan-unpair-then-pair-metadata` may also write the BLE auth metadata sector
+when pairing completes and firmware stores the refreshed bond.

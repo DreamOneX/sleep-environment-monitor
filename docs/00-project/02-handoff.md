@@ -507,7 +507,11 @@ test: add BOOT IO9 release diagnostics
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
 - Validate phone/gateway interoperability beyond the Windows central.
 - Validate real BLE auth record replacement/update behavior when another bond
-  is stored or an existing peer is updated.
+  is stored or an existing peer is updated. `tools/ble-watch` now has
+  `scan-unpair-then-pair-metadata` to exercise the existing Windows central
+  re-pair path, but acceptance still requires firmware RTT evidence of
+  `ble auth record updated`, `ble auth record appended`, or replacement plus
+  `ble auth bond stored`.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast
   blink, advertising-or-connected slow blink, 180 second boot BLE
   status window, and 10 second BOOT / IO9-triggered BLE status window.

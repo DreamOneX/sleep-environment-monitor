@@ -8,9 +8,10 @@ same change that records the evidence elsewhere.
 
 ## Current Baseline
 
-Phase 24U is implemented. The current hardware evidence confirms the Windows
-saved-bond path and BLE auth metadata reset policy, and the Windows
-`ble-watch` tool has been hardened against stale WinRT/GATT cache failures:
+Phase 24V is implemented. The current hardware evidence confirms the Windows
+saved-bond path, BLE auth metadata reset policy, and runtime saved-auth clear
+effect. The Windows `ble-watch` tool has also been hardened against stale
+WinRT/GATT cache failures:
 
 - Windows Custom ConfirmOnly pairing completed.
 - `PairingComplete` wrote one BLE authorization record to
@@ -25,6 +26,10 @@ saved-bond path and BLE auth metadata reset policy, and the Windows
 - After a reset/invalid-auth pairing window closed,
   `scan-read-metadata-now ... expect-reject no-pair` confirmed an unpaired
   central could not access protected metadata.
+- A runtime BOOT / IO9 clear watch observed the 8 second hold threshold and
+  refreshed authorization window, and a following
+  `scan-read-metadata-now ... expect-reject no-pair` confirmed the previous
+  saved authorization no longer granted protected metadata access.
 
 Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
 network faults:
@@ -48,29 +53,33 @@ validation tool:
   status-read failures.
 - `scan-watch-clear-gesture` can reconnect after transient status-read
   failures.
-- `scan-unpair` was used to recover Windows stale pairing/cache state; the
-  Windows central is currently unpaired.
+- `scan-unpair` was used to recover Windows stale pairing/cache state. The
+  latest Phase 24V end state is Windows unpaired, firmware auth metadata
+  cleared or missing, and the temporary authorization window opening after
+  reset.
 
 Phase 24 is still open because several runtime, visual, interoperability, and
 reset/erase paths have not been accepted on hardware.
 
 Current runtime clear-gesture state:
 
-- After Phase 24T, a new Windows saved-bond auth record was rebuilt with
+- After Phase 24T, a Windows saved-bond auth record was rebuilt with
   `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair`.
   That operation may write only `0x003bf000..0x003c0000`.
-- The latest `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` run
-  connected and watched status, but observed no IO9 / BOOT press:
-  `pressed_after_release=False`, `hold_threshold=False`, and
-  `refreshed_window=False`.
-- A follow-up `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success
-  no-pair` succeeded, so the saved auth record is still usable. The latest
-  clear-gesture result means "no operator press observed", not a firmware clear
-  failure.
-- Phase 24U then used `scan-unpair` to recover Windows stale GATT state. The
-  Windows central is now unpaired, so the next clear-gesture validation must
-  first rebuild or otherwise confirm a saved-bond auth record before proving
-  that the 8 second BOOT / IO9 gesture clears it.
+- `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` then observed
+  `CLEAR_GESTURE_PRESSED_AFTER_RELEASE`,
+  `CLEAR_GESTURE_HOLD_THRESHOLD pressed_ms=8000`, and
+  `CLEAR_GESTURE_WINDOW_REFRESHED remaining_ms=60000`.
+- The watch did not print final `CLEAR_GESTURE_RESULT success=True` because
+  firmware status kept reporting `boot_button=Pressed` after the operator
+  released IO9. The operator did not hold IO9 for 40 seconds or longer; treat
+  this as an IO9 release-diagnostics mismatch.
+- A follow-up `scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject
+  no-pair` reported `metadata_success=False rejected=True`, proving the
+  previous saved authorization no longer grants protected metadata access.
+- After a non-flashing reset and `scan-unpair`, status read reported
+  `pairing=Open boot_button=Released remaining_ms=39050 pressed_ms=0`. The
+  next saved-bond or replacement/update test must re-pair first.
 
 Windows Settings showing the board as paired but not connected is expected
 when `ble-watch` or another central application is not holding a GATT session.
@@ -80,13 +89,11 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
 
 ## Phase 24 Remaining Acceptance
 
-- [ ] Validate the runtime 8 second BOOT / IO9 saved-auth clear gesture after
-  firmware boot. Expected effect: erase the BLE auth metadata sector
-  `0x003bf000..0x003c0000` and reopen the temporary authorization window.
-  Use `scan-watch-clear-gesture` for delay-safe operator coordination, then
-  verify protected access rejection with
-  `scan-read-metadata-now ... expect-reject no-pair` after the temporary
-  window closes.
+- [ ] Investigate and retest BOOT / IO9 release diagnostics after the runtime
+  8 second saved-auth clear hold. Phase 24V validated the clear effect through
+  hold-threshold/window-refresh evidence and protected metadata rejection, but
+  the status stream continued to report `Pressed` after operator release until
+  reset.
 - [ ] Manually accept LED3 visual behavior on hardware: pairing or
   authorization fast blink, advertising-or-connected slow blink, the
   180 second boot BLE status window, and the 10 second BOOT / IO9-triggered BLE
@@ -137,9 +144,9 @@ equivalent moves unless explicitly documented otherwise.
   being exercised. Current important ranges are:
   `0x003bf000..0x003c0000` for BLE auth metadata and
   `0x003c0000..0x00400000` for the measurement spool.
-- [ ] Continue hardware validation for BLE auth runtime clear and record
-  replacement/update paths beyond the first observed bond write and Phase 24T
-  reset-pattern validation.
+- [ ] Continue hardware validation for BOOT / IO9 release diagnostics and BLE
+  auth record replacement/update paths beyond the first observed bond write,
+  Phase 24T reset-pattern validation, and Phase 24V runtime clear effect.
 - [ ] Recheck BOOT / IO9 electrical and UX behavior before treating it as a
   deployed user-facing pairing or clearing control.
 - [ ] Validate mobile phone and gateway behavior once a real central app or

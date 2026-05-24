@@ -7,7 +7,7 @@ a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24U is implemented in the current working tree. Phase 24 is not complete
+Phase 24V is implemented in the current working tree. Phase 24 is not complete
 yet.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
@@ -86,12 +86,9 @@ objects blocked more hardware validation:
   objects after repeated status-read failures.
 - `scan-watch-clear-gesture` can reconnect after a transient status-read
   failure instead of immediately ending the delay-safe watch.
-- `scan-unpair` cleared the Windows-side pairing/cache state and left the
-  Windows central unpaired. Runtime clear-gesture validation must rebuild or
-  otherwise confirm a saved-bond auth record before it can prove that the
-  8 second BOOT / IO9 gesture clears that record.
+- `scan-unpair` cleared the Windows-side pairing/cache state during recovery.
 
-Latest runtime clear-gesture attempt on 2026-05-25:
+Phase 24V hardware-validated the runtime saved-auth clear effect:
 
 - After Phase 24T left the board with invalid auth metadata and Windows unpaired,
   a non-flashing `probe-rs reset --chip esp32c3` reopened the temporary
@@ -100,20 +97,23 @@ Latest runtime clear-gesture attempt on 2026-05-25:
 - `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair`
   rebuilt one Windows saved-bond auth record. This may write only the BLE auth
   metadata sector `0x003bf000..0x003c0000`.
-- A first `scan-watch-clear-gesture` attempt hit a Windows GATT
-  `SERVICES status=Unreachable` result and did not begin gesture validation.
-- A second `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` connected
-  and read status for the full watch window, but observed no operator press:
-  `CLEAR_GESTURE_RESULT success=False released_before_press=True
-  pressed_after_release=False hold_threshold=False refreshed_window=False
-  released_after_hold=False latest_pairing=Closed latest_boot=Released
-  latest_pressed_ms=0 latest_remaining_ms=0`.
-- A follow-up `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success
-  no-pair` succeeded, confirming the saved auth record was still usable and
-  the no-press watch did not clear authorization.
-- Runtime 8 second BOOT / IO9 clear-gesture validation remains open. The
-  no-press watch result was not a firmware clear failure, and Phase 24U's
-  `scan-unpair` means the next attempt must first rebuild saved authorization.
+- `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair` then
+  confirmed protected metadata access through the saved authorization record.
+- `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` observed
+  `CLEAR_GESTURE_PRESSED_AFTER_RELEASE`,
+  `CLEAR_GESTURE_HOLD_THRESHOLD pressed_ms=8000`, and
+  `CLEAR_GESTURE_WINDOW_REFRESHED remaining_ms=60000`.
+- The watch did not produce final `CLEAR_GESTURE_RESULT success=True` because
+  firmware status frames continued to report `boot_button=Pressed` after the
+  operator released IO9. The operator did not hold IO9 for 40 seconds or
+  longer; treat this as an IO9 release-diagnostics mismatch.
+- `scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair` reported
+  `METADATA_NOW_RESULT success=True metadata_success=False rejected=True
+  phase=control_write`, proving the previous saved authorization no longer
+  grants protected metadata access.
+- After a non-flashing `probe-rs reset --chip esp32c3`, `scan-unpair` reported
+  `UNPAIR_RESULT status=Unpaired`, and a final status read decoded
+  `pairing=Open boot_button=Released remaining_ms=39050 pressed_ms=0`.
 
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
@@ -125,10 +125,9 @@ Important flash ranges:
 - BLE auth metadata sector: `0x003bf000..0x003c0000`. Phase 24R deliberately
   exercised a write to this sector through `PairingComplete` and restored one
   saved record after reboot. Phase 24T deliberately erased or overwrote this
-  same sector to validate reset/invalid metadata auto-pair behavior. The
-  runtime clear erase path is implemented but was not observed on hardware
-  because BOOT / IO9 stayed reported as released during the clear-gesture watch
-  runs.
+  same sector to validate reset/invalid metadata auto-pair behavior. Phase 24V
+  validated the runtime clear effect through hold-threshold/window-refresh
+  evidence and rejected protected metadata access after the clear watch.
 - Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
   exercise normal spool writes/erases through `storage_task` in this range.
   During the long Phase 24R runtime, the storage task continued appending and
@@ -166,20 +165,21 @@ exercised.
 - Documentation records Phase 24P storage-transfer evidence, Phase 24R
   saved-bond restore evidence, Phase 24S LED status/config boundary, Phase 24T
   auth metadata reset evidence, Phase 24U Windows GATT recovery tooling,
-  current LED mapping, and the remaining Phase 24 validation gaps.
+  Phase 24V runtime clear-effect evidence, current LED mapping, and the
+  remaining Phase 24 validation gaps.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
-window and the Windows saved-bond restore path. The current board may still
-have a saved auth record, but the Windows central is currently unpaired after
-Phase 24U `scan-unpair`; rebuild or confirm saved authorization before running
-the runtime clear-gesture proof. Windows Settings may show the
-custom GATT peripheral as paired but not connected when `ble-watch` is not
-holding a GATT session; that passive Settings label is not a Phase 24
-acceptance signal. If Windows still reports paired while firmware rejects
-protected access after an auth reset/clear, use `scan-unpair` before
-re-pairing. Phone/gateway interoperability, runtime saved-auth clearing,
-rejection after the runtime clear gesture, record replacement, and LED3 visual
-behavior remain unvalidated.
+window, the Windows saved-bond restore path, the auth metadata reset policy,
+and the Phase 24V runtime clear effect. The latest board state is Windows
+unpaired with firmware auth metadata cleared or missing; after reset the
+temporary authorization window opened. The next saved-bond or replacement test
+must re-pair first. Windows Settings may show the custom GATT peripheral as
+paired but not connected when `ble-watch` is not holding a GATT session; that
+passive Settings label is not a Phase 24 acceptance signal. If Windows still
+reports paired while firmware rejects protected access after an auth reset or
+clear, use `scan-unpair` before re-pairing. Phone/gateway interoperability,
+BOOT / IO9 release diagnostics after the clear hold, record replacement, and
+LED3 visual behavior remain unvalidated.
 
 ## Subagents
 
@@ -262,14 +262,47 @@ Milestone commit message:
 test: harden BLE watch GATT recovery
 ```
 
+Phase 24V hardware verification:
+
+```bash
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+git diff --check
+```
+
+Observed result:
+
+- Saved auth was rebuilt and confirmed with `expect-success no-pair`.
+- The clear watch observed an 8 second hold threshold and a refreshed
+  authorization window.
+- Protected metadata access was rejected after the clear watch, proving the
+  previous saved authorization no longer granted access.
+- Firmware status kept reporting `Pressed` after operator release; the operator
+  did not hold IO9 for 40 seconds or longer.
+- No firmware image was flashed; the runtime clear path may erase only
+  `0x003bf000..0x003c0000`.
+
+Milestone commit message:
+
+```text
+test: validate BLE runtime auth clear effect
+```
+
 ## Remaining Phase 24 Work
 
 - Validate live Wi-Fi/BLE ACK race behavior on hardware/runtime.
 - Validate BOOT / IO9 still enters download mode during reset or power-on.
 - Validate phone/gateway interoperability beyond the Windows central.
-- Validate runtime BOOT / IO9 saved-auth clearing and rejected protected access
-  after that runtime clear gesture. The most recent watch run observed no IO9
-  press and therefore did not validate or reject the clear path.
+- Investigate and retest BOOT / IO9 release diagnostics after the runtime
+  8 second clear hold. Phase 24V validated the clear effect, but the status
+  stream kept reporting `Pressed` after operator release until reset.
 - Validate BLE auth record replacement/update behavior when another bond is
   stored or an existing peer is updated.
 - Manually accept LED3 hardware visual behavior: pairing/authorization fast

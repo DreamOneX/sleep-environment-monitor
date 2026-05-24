@@ -2303,6 +2303,66 @@ Phase 24U commit message:
 test: harden BLE watch GATT recovery
 ```
 
+## Phase 24V: BLE Runtime Auth Clear Hardware Effect
+
+Phase 24V validates the runtime saved-authorization clear effect after the
+Windows central recovery tooling is in place. It accepts that the runtime clear
+path removes saved authorization access, but it does not close the BOOT / IO9
+release-diagnostics follow-up, BOOT download-mode preservation, LED3 visual
+acceptance, phone/gateway interoperability, record replacement/update, or live
+Wi-Fi/BLE ACK-race acceptance.
+
+Phase 24V scope:
+
+- Rebuild a Windows saved-bond authorization record from a reset state where
+  missing or invalid auth metadata opens the temporary authorization window.
+- Confirm protected metadata access succeeds through the saved authorization
+  record without opening a new pairing flow.
+- Run `scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000` with operator
+  IO9/BOOT input.
+- Accept the clear effect when the watch observes the press-after-release
+  state, the 8 second hold threshold, the refreshed authorization window, and a
+  following `scan-read-metadata-now ... expect-reject no-pair` rejects
+  protected metadata access.
+- Record the IO9 release-diagnostics mismatch separately if status continues
+  to report `Pressed` after the operator releases IO9. Do not treat that as
+  evidence that the operator held IO9 for 40 seconds or longer.
+- Do not flash a new firmware image.
+- Do not deliberately exercise the measurement spool
+  `0x003c0000..0x00400000`.
+
+Phase 24V verification:
+
+```bash
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success no-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-clear-gesture 30 sleep-env-esp32c3 180 8000
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-reject no-pair
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+git diff --check
+```
+
+Phase 24V hardware and flash notes:
+
+- No firmware image is flashed.
+- The runtime clear path may erase only the BLE auth metadata sector
+  `0x003bf000..0x003c0000`.
+- The measurement spool `0x003c0000..0x00400000` is not deliberately exercised.
+- `scan-unpair` changes only the Windows-side central pairing record.
+- The final Phase 24V state is Windows unpaired, with firmware auth metadata
+  cleared or missing and the temporary authorization window opening after
+  reset. The next saved-bond or auth replacement/update test must re-pair.
+
+Phase 24V commit message:
+
+```text
+test: validate BLE runtime auth clear effect
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2327,8 +2387,10 @@ test: harden BLE watch GATT recovery
   acknowledge operations.
 - Document the current Phase 24 authorization state precisely: the temporary
   BOOT / IO9 authorization window, Windows saved-bond restore path, and auth
-  metadata reset auto-pair policy are hardware-validated. Future work must
-  still validate user-controlled clearing and record replacement/update rules.
+  metadata reset auto-pair policy are hardware-validated. Phase 24V also
+  hardware-validates the runtime saved-auth clear effect. Future work must
+  still validate BOOT / IO9 release diagnostics after that clear hold and
+  record replacement/update rules.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but

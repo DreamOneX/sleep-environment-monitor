@@ -261,7 +261,23 @@ Phase 24T validates the auth metadata reset policy on hardware:
 - This validation did not validate the runtime 8 second BOOT / IO9 clear
   gesture itself.
 
-Phase 24A through 24T do not change the measurement spool flash format or
+Phase 24V validates the runtime saved-auth clear effect on hardware:
+
+- A saved Windows authorization record was rebuilt and confirmed with
+  `scan-read-metadata-now ... expect-success no-pair`.
+- `scan-watch-clear-gesture ... 8000` observed the BOOT / IO9 press after a
+  released state, the 8 second hold threshold, and the refreshed temporary
+  authorization window.
+- A following `scan-read-metadata-now ... expect-reject no-pair` confirmed the
+  previous saved authorization no longer granted protected metadata access.
+- The watch did not reach final release success because status continued to
+  report `boot_button=Pressed` after the operator released IO9. The operator
+  did not hold IO9 for 40 seconds or longer; this remains an IO9
+  release-diagnostics follow-up.
+- This validation did not flash firmware and did not deliberately exercise the
+  measurement spool `0x003c0000..0x00400000`.
+
+Phase 24A through 24V do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -279,13 +295,15 @@ bond record in the BLE auth sector, reboot restore reports one valid restored
 record, and `no-pair` encrypted metadata access succeeds through the saved
 bond. Phase 24T hardware-validates auth metadata reset auto-pair behavior and
 unpaired protected-metadata rejection after a reset/invalid-auth window closes.
+Phase 24V hardware-validates the runtime saved-auth clear effect and rejected
+protected metadata access after that runtime clear watch.
 Full BLE upload bring-up remains future Phase 24 work because live Wi-Fi/BLE
 ACK race behavior, BOOT download-mode preservation, LED3 hardware visual
-behavior, runtime auth-record clearing, rejection after the runtime clear
-gesture, and record replacement are still unvalidated. Future work must
-validate those remaining flash update paths. LED3 BLE operation feedback now
-has a compile/unit-tested firmware boundary, but the actual blue LED patterns
-have not been visually accepted on hardware yet.
+behavior, BOOT / IO9 release diagnostics after the runtime clear hold, and
+record replacement are still unvalidated. Future work must validate those
+remaining paths. LED3 BLE operation feedback now has a compile/unit-tested
+firmware boundary, but the actual blue LED patterns have not been visually
+accepted on hardware yet.
 
 ## Goals
 
@@ -443,15 +461,16 @@ rules:
 - Unpaired and unauthorized centrals cannot read measurement records.
 - Pairing state and any authorization material are handled explicitly.
 - Current hardware-validated Phase 24 authorization is the volatile BOOT / IO9
-  window, the Phase 24R Windows saved-bond restore path, and the Phase 24T
-  auth metadata reset policy. The saved-bond path stores records in
+  window, the Phase 24R Windows saved-bond restore path, the Phase 24T auth
+  metadata reset policy, and the Phase 24V runtime clear effect. The saved-bond
+  path stores records in
   `0x003bf000..0x003c0000`; missing, empty, invalid,
   records-version-mismatched, compatibility-checksum-mismatched, and
   header-checksum-mismatched auth metadata auto-opens the authorization window
-  on boot. Phase 24R also adds the runtime user-clearing gesture for saved
-  records. Future work must validate record replacement/update behavior,
-  rejection after the runtime clear gesture, and the clear gesture itself on
-  hardware.
+  on boot. The runtime clear path can erase the same sector and reopen the
+  temporary authorization window. Future work must validate record
+  replacement/update behavior and investigate the BOOT / IO9 release-diagnostics
+  mismatch observed after the runtime clear hold.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 
@@ -474,5 +493,5 @@ Phase 24 has hardware-independent tests for:
 
 Remaining hardware checks should confirm live Wi-Fi/BLE coexistence races,
 BLE auth record replacement/update behavior, LED3 BLE status indication timing
-and patterns, runtime user clearing, rejection after the runtime clear gesture,
-and that BOOT still enters download mode during reset or power-on.
+and patterns, BOOT / IO9 release diagnostics after the runtime clear hold, and
+that BOOT still enters download mode during reset or power-on.

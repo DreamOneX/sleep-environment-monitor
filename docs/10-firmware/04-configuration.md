@@ -102,11 +102,13 @@ The Phase 24 BLE upload path keeps configuration ownership explicit:
   post-boot BLE status window, and blue LED3 10 second BOOT / IO9-triggered
   BLE status window.
 - Keep the BLE authorization record-set version, record-set compatibility
-  checksum, and auto-pair-on-auth-record-reset switch in config. A version
-  mismatch, compatibility-checksum mismatch, missing header, invalid header, or
+  checksum, auth record capacity, security seed length, and
+  auto-pair-on-auth-record-reset switch in config. A version mismatch,
+  compatibility-checksum mismatch, missing/invalid header, invalid records, or
   empty record set may open the temporary authorization window on boot when the
   switch is enabled.
-- Add GATT fragment-size and transfer-timeout policy values.
+- Keep GATT fragment-size policy values in config. BLE transfer timeout policy
+  values are not currently implemented as config entries.
 - Keep project GATT protocol constants in the BLE protocol module, not in
   `config.rs`.
 - Preserve the rule that BLE is a structured low-power upload channel, not a

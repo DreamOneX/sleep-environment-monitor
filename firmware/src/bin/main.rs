@@ -31,6 +31,8 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use esp_hal::rng::Rng;
+#[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
+use esp_hal::rng::{Trng, TrngSource};
 #[cfg(target_arch = "riscv32")]
 use esp_hal::time::Rate;
 #[cfg(target_arch = "riscv32")]
@@ -40,7 +42,9 @@ use panic_rtt_target as _;
 #[cfg(all(target_arch = "riscv32", feature = "flash-smoke"))]
 use sleep_environment_monitor::drivers::flash::run_flash_smoke_test;
 #[cfg(all(target_arch = "riscv32", feature = "ble-upload"))]
-use sleep_environment_monitor::tasks::ble::{ble_pairing_task, ble_task};
+use sleep_environment_monitor::tasks::ble::{
+    BleTaskResources, ble_auth_workspace, ble_pairing_task, ble_task,
+};
 #[cfg(all(target_arch = "riscv32", feature = "wifi-upload"))]
 use sleep_environment_monitor::tasks::{net::net_task, upload::uploader_task, wifi::wifi_task};
 #[cfg(target_arch = "riscv32")]
@@ -146,6 +150,9 @@ async fn main(spawner: Spawner) -> ! {
     rtt_target::rtt_init_defmt!();
 
     let hal_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    #[cfg(feature = "ble-upload")]
+    let mut peripherals = esp_hal::init(hal_config);
+    #[cfg(not(feature = "ble-upload"))]
     let peripherals = esp_hal::init(hal_config);
 
     // The following pins are used to bootstrap the chip. They are available
@@ -163,6 +170,25 @@ async fn main(spawner: Spawner) -> ! {
     let _ = peripherals.GPIO17;
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: config::runtime::HEAP_SIZE_BYTES);
+
+    #[cfg(feature = "ble-upload")]
+    let ble_security_seed = {
+        let mut seed = [0_u8; config::ble::SECURITY_SEED_LEN];
+        let trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
+        let seed = match Trng::try_new() {
+            Ok(trng) => {
+                trng.read(&mut seed);
+                drop(trng);
+                Some(seed)
+            }
+            Err(error) => {
+                warn!("BLE security TRNG initialization failed error={:?}", error);
+                None
+            }
+        };
+        drop(trng_source);
+        seed
+    };
 
     #[cfg(feature = "flash-smoke")]
     {
@@ -259,6 +285,8 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     #[cfg(feature = "ble-upload")]
+    let ble_auth_workspace = ble_auth_workspace();
+    #[cfg(feature = "ble-upload")]
     let boot_button = Input::new(peripherals.GPIO9, InputConfig::default());
     #[cfg(feature = "ble-upload")]
     if !spawn_task(
@@ -271,19 +299,27 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "ble-upload")]
     match esp_radio::ble::controller::BleConnector::new(peripherals.BT, Default::default()) {
         Ok(connector) => {
-            if !spawn_task(
-                &spawner,
-                ble_task(
-                    connector,
-                    &STORAGE_REQUESTS,
-                    &BLE_STORAGE_RESPONSES,
-                    &NETWORK_UPLOAD_STATUS,
-                    &FIRMWARE_STATUS,
-                    &BLE_LED_RUNTIME_STATE,
-                ),
-                "ble",
-            ) {
-                warn!("BLE task spawn failed; BLE upload boundary disabled");
+            if let Some(security_seed) = ble_security_seed {
+                if !spawn_task(
+                    &spawner,
+                    ble_task(
+                        connector,
+                        security_seed,
+                        BleTaskResources {
+                            storage_requests: &STORAGE_REQUESTS,
+                            storage_responses: &BLE_STORAGE_RESPONSES,
+                            network_upload_status: &NETWORK_UPLOAD_STATUS,
+                            firmware_status: &FIRMWARE_STATUS,
+                            led_runtime_state: &BLE_LED_RUNTIME_STATE,
+                            auth_workspace: ble_auth_workspace,
+                        },
+                    ),
+                    "ble",
+                ) {
+                    warn!("BLE task spawn failed; BLE upload boundary disabled");
+                }
+            } else {
+                warn!("BLE task not started because security seed is unavailable");
             }
         }
         Err(error) => {

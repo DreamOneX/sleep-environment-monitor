@@ -16,6 +16,7 @@ default = ["wifi-upload"]
 ble-upload = [
   "dep:embassy-futures",
   "dep:embassy-sync-07",
+  "dep:rand_core_06",
   "dep:trouble-host",
   "esp-radio/ble",
 ]
@@ -66,7 +67,9 @@ trouble-host = { version = "0.6.0", default-features = false, optional = true, f
   "default-packet-pool",
   "gatt",
   "peripheral",
+  "security",
 ] }
+rand_core_06 = { package = "rand_core", version = "0.6.4", default-features = false, optional = true }
 smoltcp = { version = "0.13.0", default-features = false, features = [
   "defmt",
   "medium-ethernet",

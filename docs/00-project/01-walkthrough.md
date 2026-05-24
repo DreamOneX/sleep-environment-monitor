@@ -376,7 +376,9 @@ Hardware validation:
   - The upload queue drained from startup backlog to normal operation.
   - Real `Measurement` CSV payloads reached the local receiver.
 - The run ended because the host-side `timeout` command stopped `probe-rs`; the captured stack was the idle hook, not a firmware crash.
-- Physical LED2 visual behavior and multi-hour overnight soak still require longer observation.
+- Physical LED2 visual behavior and multi-hour overnight soak still require
+  longer observation. Later hardware clarification moved firmware status
+  indication to blue LED3 on IO1; red LED2 on IO0 is heartbeat.
 
 Observed sample:
 
@@ -765,7 +767,11 @@ Notes:
 
 - This validates persistent measurement retention across reset and recovered-before-new upload ordering on hardware.
 - The pending queue reached its configured capacity of 32 during the offline interval. Because Phase 20 storage metrics are not implemented yet, oldest-drop behavior was observed only indirectly and still needs explicit dropped-oldest metrics.
-- Remaining Phase 20 checks: multi-hour/overnight soak, Wi-Fi disconnect preservation, LED2 visual confirmation for storage/upload failure, forced full-spool oldest-drop confirmation with metrics, and power interruption during or near a flash write.
+- Remaining Phase 20 checks: multi-hour/overnight soak, Wi-Fi disconnect
+  preservation, status LED visual confirmation for storage/upload failure
+  (later hardware clarification: blue LED3, while red LED2 is heartbeat),
+  forced full-spool oldest-drop confirmation with metrics, and power
+  interruption during or near a flash write.
 
 ## Milestone 15: Persistent Storage Metrics And Limited Phase 20 Validation
 
@@ -878,7 +884,11 @@ Notes:
 - The short hardware run directly confirmed that the RTT/status metrics expose pending, recovered, corrupt, and dropped-oldest counts on the normal firmware path.
 - The receiver-offline run confirmed an explicit full-spool transition on hardware: `pending=32` with `dropped_oldest` increasing.
 - `timeout` terminated `probe-rs run` at the configured limit and printed SIGTERM stack frames; this was the host command ending the debug session, not a firmware panic.
-- Phase 20 still has human/physical close-loop checks remaining: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.
+- Phase 20 still has human/physical close-loop checks remaining: multi-hour or
+  overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline
+  behavior, status LED visual confirmation (later hardware clarification: blue
+  LED3, while red LED2 is heartbeat), and power interruption during or near a
+  flash write.
 
 ## Milestone 16: Receiver-Offline Reset Recovery With Metrics
 
@@ -946,7 +956,10 @@ Notes:
 - Reset while receiver was offline recovered a full pending backlog with explicit metrics: `pending=32 recovered=32`.
 - Receiver return drained the recovered backlog and ACKed successful uploads.
 - Full-spool oldest-drop behavior remained visible through `dropped_oldest` during both pre-reset and post-reset offline windows.
-- Remaining Phase 20 physical checks: multi-hour or overnight soak, Wi-Fi-disconnect preservation separate from receiver-offline behavior, LED2 visual confirmation, and power interruption during or near a flash write.
+- Remaining Phase 20 physical checks: multi-hour or overnight soak,
+  Wi-Fi-disconnect preservation separate from receiver-offline behavior, status
+  LED visual confirmation (later hardware clarification: blue LED3, while red
+  LED2 is heartbeat), and power interruption during or near a flash write.
 
 ## Milestone 17: Repository Split For Firmware And Server
 
@@ -1414,7 +1427,7 @@ Phase 24 documentation planning:
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
     must not ACK storage in that state.
   - BLE may ACK exactly one oldest record only when Wi-Fi upload is disabled or
-    unavailable and a paired central confirms complete receipt.
+    unavailable and an authorized central confirms complete receipt.
 - Document BOOT / IO9 as a possible future runtime pairing or authorization
   input only, with constraints that preserve the default pull-up and download
   mode behavior.
@@ -2528,4 +2541,74 @@ Remaining Phase 24 validation:
 - BLE auth metadata write/erase/update behavior remains future work.
 - Real persisted BLE bonding or equivalent authorization records remain future
   work.
+- LED3 BLE hardware visual behavior remains unvalidated.
+
+## Milestone 45: Phase 24Q BLE Auth Persistence Compile Path
+
+Phase 24Q implementation:
+
+- Enabled TrouBLE security support in the `ble-upload` feature path and added a
+  BLE security seed sourced from ESP32-C3 TRNG during firmware startup.
+- Added BLE config constants for authorization record capacity and security
+  seed length.
+- Extended `storage::ble_auth` from header-only metadata into a structured BLE
+  authorization record set with identity address, LTK, optional IRK, security
+  level, bonded flag, record CRC, record-set checksum, version policy, and
+  load/store/clear helpers.
+- Added a target compile path that restores TrouBLE bond information from
+  `0x003bf000..0x003c0000`, requests security when a pairing window or saved
+  auth exists, requires encrypted matching saved auth outside the BOOT / IO9
+  authorization window, and stores a bond record on `PairingComplete`.
+- Kept Wi-Fi upload code included in BLE+coexistence builds.
+- Updated BLE, architecture, configuration, network, integration, development
+  plan, and handoff docs to record the saved-record compile path and the
+  remaining hardware validation gaps.
+
+Validation commands run from the repository root:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Observed validation results:
+
+- `cargo test --lib` passed with `181 passed; 0 failed`.
+- The normal ESP32-C3 target build passed.
+- The BLE+Wi-Fi coexistence ESP32-C3 target build passed.
+- Host clippy, normal target clippy, and BLE+coex target clippy passed.
+- `git diff --check` passed.
+
+Flash and hardware notes:
+
+- No firmware image was flashed for this milestone.
+- No hardware BLE central, pairing/security, GATT transfer, reboot restore, or
+  saved-pairing validation was run for this milestone.
+- No deliberate BLE auth sector write or erase was exercised. Target code can
+  write or erase `0x003bf000..0x003c0000` after
+  `PairingComplete { bond: Some(..) }` in BLE-enabled firmware, but this
+  compile-validation milestone did not trigger that path.
+- No deliberate measurement-spool write/erase or BLE ACK hardware validation
+  was exercised in this milestone. The measurement spool range remains
+  `0x003c0000..0x00400000`.
+- Saved pairing records now have a compile-validated target path, but they are
+  not accepted as hardware-validated behavior until real pairing, auth-sector
+  write/erase/update, reboot restore, version/checksum reset, and user clearing
+  are tested.
+
+Remaining Phase 24 validation:
+
+- Live Wi-Fi/BLE ACK race behavior remains unvalidated on hardware.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Real BLE pairing, saved bond restore across reboot, and rejected
+  unauthorized/unencrypted access remain unvalidated on hardware.
+- BLE auth metadata write/erase/update behavior, version/checksum reset
+  behavior, automatic pairing-window opening after auth-record reset, and user
+  clearing remain unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.

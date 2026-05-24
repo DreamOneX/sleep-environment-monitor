@@ -187,6 +187,7 @@ pub struct RomSpoolFlash {
 #[cfg(target_arch = "riscv32")]
 pub struct RomBleAuthFlash {
     range: FlashRange,
+    sector_size: u32,
 }
 
 #[cfg(target_arch = "riscv32")]
@@ -210,67 +211,11 @@ impl RomSpoolFlash {
     }
 
     fn write_region(&mut self, offset: usize, data: &[u8]) -> Result<(), RomFlashError> {
-        if !offset.is_multiple_of(4) || !data.len().is_multiple_of(4) {
-            return Err(RomFlashError::Unaligned);
-        }
-
-        let mut absolute = check_flash_subrange(self.range, offset, data.len())?;
-        let mut remaining = data;
-        let mut words = [0_u32; ROM_FLASH_WORD_CHUNK];
-
-        while !remaining.is_empty() {
-            let chunk_len = remaining.len().min(words.len() * 4);
-            let word_count = chunk_len / 4;
-            let byte_len = word_count * 4;
-
-            for (word, source) in words[..word_count]
-                .iter_mut()
-                .zip(remaining[..byte_len].chunks_exact(4))
-            {
-                *word = u32::from_le_bytes([source[0], source[1], source[2], source[3]]);
-            }
-
-            let result = unsafe {
-                esp_hal::rom::spiflash::esp_rom_spiflash_write(
-                    absolute,
-                    words.as_ptr(),
-                    byte_len as u32,
-                )
-            };
-            if result != esp_hal::rom::spiflash::ESP_ROM_SPIFLASH_RESULT_OK {
-                return Err(RomFlashError::WriteFailed(result));
-            }
-
-            words[..word_count].fill(0);
-            absolute += byte_len as u32;
-            remaining = &remaining[byte_len..];
-        }
-
-        Ok(())
+        rom_flash_write_range(self.range, offset, data)
     }
 
     fn erase_region(&mut self, offset: usize, len: usize) -> Result<(), RomFlashError> {
-        if len == 0 {
-            return Err(RomFlashError::InvalidEraseRange);
-        }
-        if !offset.is_multiple_of(self.sector_size as usize)
-            || !len.is_multiple_of(self.sector_size as usize)
-        {
-            return Err(RomFlashError::Unaligned);
-        }
-
-        let absolute = check_flash_subrange(self.range, offset, len)?;
-        let first_sector = absolute / self.sector_size;
-        let sectors = len as u32 / self.sector_size;
-
-        for sector in first_sector..first_sector + sectors {
-            let result = unsafe { esp_hal::rom::spiflash::esp_rom_spiflash_erase_sector(sector) };
-            if result != esp_hal::rom::spiflash::ESP_ROM_SPIFLASH_RESULT_OK {
-                return Err(RomFlashError::EraseFailed(result));
-            }
-        }
-
-        Ok(())
+        rom_flash_erase_range(self.range, self.sector_size, offset, len)
     }
 }
 
@@ -282,6 +227,7 @@ impl RomBleAuthFlash {
 
         Ok(Self {
             range: layout.ble_auth,
+            sector_size: layout.sector_size,
         })
     }
 
@@ -300,6 +246,87 @@ impl RomBleAuthFlash {
     pub fn read(&self, offset: usize, out: &mut [u8]) -> Result<(), RomFlashError> {
         rom_flash_read_range(self.range, offset, out)
     }
+
+    fn write_region(&mut self, offset: usize, data: &[u8]) -> Result<(), RomFlashError> {
+        rom_flash_write_range(self.range, offset, data)
+    }
+
+    fn erase_region(&mut self, offset: usize, len: usize) -> Result<(), RomFlashError> {
+        rom_flash_erase_range(self.range, self.sector_size, offset, len)
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+fn rom_flash_write_range(
+    range: FlashRange,
+    offset: usize,
+    data: &[u8],
+) -> Result<(), RomFlashError> {
+    if !offset.is_multiple_of(4) || !data.len().is_multiple_of(4) {
+        return Err(RomFlashError::Unaligned);
+    }
+
+    let mut absolute = check_flash_subrange(range, offset, data.len())?;
+    let mut remaining = data;
+    let mut words = [0_u32; ROM_FLASH_WORD_CHUNK];
+
+    while !remaining.is_empty() {
+        let chunk_len = remaining.len().min(words.len() * 4);
+        let word_count = chunk_len / 4;
+        let byte_len = word_count * 4;
+
+        for (word, source) in words[..word_count]
+            .iter_mut()
+            .zip(remaining[..byte_len].chunks_exact(4))
+        {
+            *word = u32::from_le_bytes([source[0], source[1], source[2], source[3]]);
+        }
+
+        let result = unsafe {
+            esp_hal::rom::spiflash::esp_rom_spiflash_write(
+                absolute,
+                words.as_ptr(),
+                byte_len as u32,
+            )
+        };
+        if result != esp_hal::rom::spiflash::ESP_ROM_SPIFLASH_RESULT_OK {
+            return Err(RomFlashError::WriteFailed(result));
+        }
+
+        words[..word_count].fill(0);
+        absolute += byte_len as u32;
+        remaining = &remaining[byte_len..];
+    }
+
+    Ok(())
+}
+
+#[cfg(target_arch = "riscv32")]
+fn rom_flash_erase_range(
+    range: FlashRange,
+    sector_size: u32,
+    offset: usize,
+    len: usize,
+) -> Result<(), RomFlashError> {
+    if len == 0 {
+        return Err(RomFlashError::InvalidEraseRange);
+    }
+    if !offset.is_multiple_of(sector_size as usize) || !len.is_multiple_of(sector_size as usize) {
+        return Err(RomFlashError::Unaligned);
+    }
+
+    let absolute = check_flash_subrange(range, offset, len)?;
+    let first_sector = absolute / sector_size;
+    let sectors = len as u32 / sector_size;
+
+    for sector in first_sector..first_sector + sectors {
+        let result = unsafe { esp_hal::rom::spiflash::esp_rom_spiflash_erase_sector(sector) };
+        if result != esp_hal::rom::spiflash::ESP_ROM_SPIFLASH_RESULT_OK {
+            return Err(RomFlashError::EraseFailed(result));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(target_arch = "riscv32")]
@@ -377,6 +404,29 @@ impl FlashStorage for RomSpoolFlash {
 
     fn read(&self, offset: usize, out: &mut [u8]) -> Result<(), FlashError> {
         self.read_region(offset, out).map_err(rom_to_flash_error)
+    }
+
+    fn write(&mut self, offset: usize, data: &[u8]) -> Result<(), FlashError> {
+        self.write_region(offset, data).map_err(rom_to_flash_error)
+    }
+
+    fn erase(&mut self, offset: usize, len: usize) -> Result<(), FlashError> {
+        self.erase_region(offset, len).map_err(rom_to_flash_error)
+    }
+}
+
+#[cfg(target_arch = "riscv32")]
+impl FlashStorage for RomBleAuthFlash {
+    fn len(&self) -> usize {
+        self.range.size as usize
+    }
+
+    fn sector_size(&self) -> usize {
+        self.sector_size as usize
+    }
+
+    fn read(&self, offset: usize, out: &mut [u8]) -> Result<(), FlashError> {
+        RomBleAuthFlash::read(self, offset, out).map_err(rom_to_flash_error)
     }
 
     fn write(&mut self, offset: usize, data: &[u8]) -> Result<(), FlashError> {

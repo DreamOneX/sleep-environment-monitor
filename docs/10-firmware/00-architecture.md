@@ -252,9 +252,9 @@ Current `config.rs` groups:
 - `runtime`: heap size and main idle sleep policy.
 - `network`: network stack sizing and DHCP configuration.
 - `ble`: BLE feature enablement, advertising name, fragment and HCI buffer
-  sizes, polling intervals, pairing hold/window timing, authorization metadata
-  record-set version/checksum, and
-  `AUTO_PAIR_ON_AUTH_RECORD_RESET`.
+  sizes, polling intervals, pairing hold/window timing, authorization record
+  capacity, authorization record-set version/checksum, security seed length,
+  and `AUTO_PAIR_ON_AUTH_RECORD_RESET`.
 - `wifi`: Wi-Fi feature enablement, SSID/password/auth-mode defaults,
   reconnect backoff, credential validation, SSID 32-byte limit, WPA password
   8-to-64-byte limits, open-network empty-password rule, and the rule that a
@@ -270,11 +270,12 @@ Current `config.rs` groups:
 - `aggregator`: measurement aggregation log cadence.
 - `led`: heartbeat and status blink timing.
 
-`AUTO_PAIR_ON_AUTH_RECORD_RESET` only allows Phase 24O startup logic to open a
-RAM-only authorization window when the read-only BLE authorization metadata
-header is absent, invalid, empty, version-incompatible, or checksum-mismatched.
-It does not write or erase flash and does not persist real bonding, pairing
-keys, allowlists, or authorization records.
+`AUTO_PAIR_ON_AUTH_RECORD_RESET` allows BLE startup to open the BOOT / IO9
+authorization window when the BLE authorization record set is absent, invalid,
+empty, version-incompatible, or checksum-mismatched. Phase 24Q adds a
+compile-validated target path for restoring TrouBLE bond records and storing a
+new bond record on `PairingComplete`, but that flash write/erase path and
+saved-pairing behavior are not hardware-validated yet.
 
 See [04-configuration.md](04-configuration.md).
 
@@ -329,8 +330,8 @@ ESP32-C3 internal SPI flash adapter.
 Responsibilities:
 
 - Expose a bounded storage region for the measurement spool.
-- Expose a bounded read-only BLE authorization metadata region for Phase 24
-  boot-time pairing policy checks.
+- Expose a bounded BLE authorization metadata region for Phase 24 boot-time
+  pairing policy checks and future BLE bond-record persistence.
 - Implement the project `FlashStorage` interface over the ESP32-C3 ROM SPI flash functions on the embedded target.
 - Refuse out-of-range access.
 - Require sector-aligned erase operations and 4-byte-aligned ROM read/write operations.
@@ -349,21 +350,28 @@ Default firmware builds must not enable `flash-smoke`, so normal boot does not e
 
 ## `storage/ble_auth.rs`
 
-Hardware-independent BLE authorization metadata header logic.
+Hardware-independent BLE authorization record-set logic.
 
 Responsibilities:
 
-- Define the future BLE authorization records header magic, format version,
+- Define the BLE authorization records header magic, header format version,
   record-set version, record count, records checksum, and header checksum.
-- Treat erased flash, invalid header data, empty record sets, record-set version
-  mismatch, or checksum mismatch as requiring a new pairing/authorization
-  window when the config switch allows it.
+- Define structured authorization records for identity address, long-term key,
+  optional identity resolving key, security level, bonded flag, record CRC, and
+  fixed record length.
+- Treat erased flash, invalid header data, invalid records, empty record sets,
+  record-set version mismatch, or checksum mismatch as requiring a new
+  pairing/authorization window when the config switch allows it.
+- Encode, load, store, replace, and clear authorization records through the
+  project `FlashStorage` interface.
 - Keep this metadata separate from the measurement spool format and JSON
   payload shape.
 
-Phase 24 currently reads this header only. It does not write or erase the BLE
-authorization metadata sector, and it does not persist bonded peers, pairing
-keys, allowlists, or authorization records yet.
+Phase 24Q target code can restore TrouBLE bond information from this sector and
+can store a bond record after `PairingComplete` in BLE-enabled firmware. That
+path is compile/static verified only; real pairing persistence, reboot restore,
+flash write/erase/update behavior, version/checksum migration, and user
+clearing have not been accepted on hardware yet.
 
 ---
 
@@ -399,8 +407,8 @@ Rules:
 - Phase 22 JSON field-fragment records use a payload flag so legacy unflagged CSV records can be skipped during migration.
 - A record is uploadable only after its CRC validates.
 - A record is removed from the spool only after Wi-Fi upload returns HTTP 2xx,
-  or after future BLE upload receives paired-central complete-record
-  confirmation while Wi-Fi upload is unavailable.
+  or after BLE upload receives authorized-central complete-record confirmation
+  while Wi-Fi upload is unavailable.
 - Upload acknowledgements are sequence-checked so a stale Wi-Fi or BLE ACK does
   not delete a different oldest pending record.
 - If the storage region is full, delete the oldest acknowledged or pending record required to make room, preserving the newest measurements.
@@ -582,7 +590,7 @@ Payload encoding must be unit tested.
 
 Embassy task boundary and pure transfer core for Bluetooth Low Energy upload.
 
-Current Phase 24A through Phase 24P
+Current Phase 24A through Phase 24Q
 responsibilities:
 
 - Define project-specific protocol constants and structured status, metadata,
@@ -636,10 +644,15 @@ responsibilities:
 - Support ACK-mode BLE storage drain through the existing
   sequence-checked `StorageCommand::Ack { client: StorageClient::Ble, sequence }`
   path when the BLE ACK policy permits it.
-- In `ble-upload` target builds, read the BLE authorization metadata header at
-  startup and use the config-gated policy to open the RAM-only authorization
-  window when the header is absent, invalid, empty, version-incompatible, or
-  checksum-mismatched.
+- In `ble-upload` target builds, inspect BLE authorization metadata at startup
+  and use the config-gated policy to open the temporary BOOT / IO9
+  authorization window when the record set is absent, invalid, empty,
+  version-incompatible, or checksum-mismatched.
+- In `ble-upload` target builds, load structured BLE authorization records
+  from the reserved auth sector, restore TrouBLE bond information before host
+  build, seed TrouBLE security from TRNG, require encryption for measurement
+  metadata/fragment/control access when saved records exist, and store a bond
+  record on `PairingComplete`.
 - Publish BLE runtime and pairing-window status to the LED status task so blue
   LED3 can show time-bounded BLE indications while red LED2 remains heartbeat.
 - Provide pure LED3 BLE timing and pattern helpers for the 180 second boot
@@ -648,16 +661,16 @@ responsibilities:
 
 Future runtime responsibilities:
 
-- Replace the pairing-window authorization skeleton with validated real BLE
-  pairing/security or a documented equivalent authorization flow.
-- Persist bonded peers, pairing keys, allowlists, or equivalent authorization
-  records only after the security model defines storage location, update rules,
-  and user-controlled clearing. Current Phase 24 authorization is RAM-only and
-  does not save pairing records in flash.
+- Validate the current BLE pairing/security and authorization-record
+  persistence path on hardware, including pairing, reboot restore, rejected
+  unencrypted access, record replacement, version/checksum reset behavior, and
+  user-controlled clearing.
 - Validate remaining live Wi-Fi/BLE ACK race behavior, BOOT download-mode
   preservation, BLE auth metadata write/erase/update behavior, persisted
   authorization records, and LED3 hardware visual behavior.
-- Never write flash directly.
+- Never write the measurement spool directly; use `storage_task` for all
+  measurement append/peek/ACK behavior. BLE auth-sector writes are limited to
+  the reserved `0x003bf000..0x003c0000` authorization record sector.
 - Never block sensor sampling, microphone sampling, aggregation, Wi-Fi
   reconnect, or REST upload.
 
@@ -684,9 +697,11 @@ that a stale BLE ACK after Wi-Fi ACK does not remove the next oldest record.
 Phase 24P central validation confirms post-ACK oldest-record advancement and
 disconnect-before-Complete/ACK preservation after draining enough records to
 avoid full-spool drop-oldest interference. Phase 24P also compile-validates the
-LED3 BLE overlay path and adds pure timing/pattern tests.
-Live Wi-Fi/BLE ACK race behavior, BLE auth metadata write/erase behavior,
-persisted bonding or authorization records, LED3 BLE indication hardware
+LED3 BLE overlay path and adds pure timing/pattern tests. Phase 24Q
+compile-validates the TrouBLE security/bond-record persistence path and adds
+authorization record load/store tests.
+Live Wi-Fi/BLE ACK race behavior, BLE auth metadata write/erase behavior on
+hardware, saved-pairing persistence across reboot, LED3 BLE indication hardware
 behavior, and BOOT download-mode preservation still need future
 hardware/runtime validation.
 
@@ -737,7 +752,8 @@ aggregator_task does not write flash directly
 storage_task is the only task that writes the measurement flash region
 uploader_task does not read sensors
 uploader_task does not erase flash except through storage/spool acknowledgement
-ble_task does not erase flash except through storage/spool acknowledgement
+ble_task does not erase measurement flash except through storage/spool acknowledgement
+ble_task may update only the reserved BLE auth sector after BLE PairingComplete
 wifi_task does not process sensor data
 ```
 
@@ -747,10 +763,11 @@ Persistence rules:
 append measurement before treating it as durable
 upload oldest valid record first
 acknowledge only after HTTP 2xx
-for BLE, acknowledge only after paired-central confirmation when Wi-Fi upload is unavailable
+for BLE, acknowledge only after authorized central confirmation when Wi-Fi upload is unavailable
 preserve pending records across reset
 drop oldest when the configured persistent spool is full
-never write outside the configured flash spool region
+never write measurement records outside the configured flash spool region
+never write BLE auth records outside the configured BLE auth sector
 ```
 
 ---

@@ -77,7 +77,7 @@ BLE independent upload channel.
 - Let BLE transmit copies while Wi-Fi upload is available and succeeding, but do
   not let BLE ACK storage in that state.
 - Let BLE ACK the oldest pending record only when Wi-Fi upload is disabled or
-  unavailable and a paired central confirms complete receipt.
+  unavailable and an authorized central confirms complete receipt.
 - Use BOOT / IO9 only as a runtime input for pairing or authorization, and
   preserve download-mode behavior during reset or power-on.
 

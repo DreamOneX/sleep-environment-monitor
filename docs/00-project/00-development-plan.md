@@ -887,7 +887,9 @@ Use the persistent spool as the upload backlog.
 - Make `uploader_task` read the oldest pending record from storage.
 - Acknowledge records only after HTTP 2xx.
 - Preserve records on upload failure, Wi-Fi disconnect, or reset.
-- Report storage errors through status output and LED2 policy.
+- Report storage errors through status output and the current LED status policy
+  (currently blue LED3 for firmware status after Phase 24P; red LED2 remains
+  heartbeat).
 
 ## Unit Tests
 
@@ -961,7 +963,8 @@ Add tests only if new pure logic is introduced.
 - Confirm pending records upload after receiver returns.
 - Force at least one full-spool condition and confirm oldest records are dropped.
 - Interrupt power during or near a write and confirm the next boot recovers without reset loop.
-- Confirm LED2/status output reports storage or upload failures.
+- Confirm status output and the current status LED report storage or upload
+  failures (currently blue LED3 after Phase 24P; red LED2 remains heartbeat).
 
 ## Done When
 
@@ -1972,10 +1975,9 @@ Phase 24P scope:
   connecting, or connected slow blink; boot BLE status window of 180 seconds;
   BOOT / IO9 or pairing-trigger BLE status window of at least 10 seconds, with
   fast blink continuing for the full pairing/authorization window.
-- Keep current BLE authorization RAM-only. Pairing/bonding records are not
-  persisted yet; future work must define real bonding or equivalent persistent
-  authorization records, record contents, write/erase/update rules,
-  version/checksum migration behavior, and user-controlled clearing.
+- Keep Phase 24P authorization RAM-only. Later Phase 24 work may add saved
+  bonding or equivalent persistent authorization records, but Phase 24P itself
+  does not validate them.
 - Do not flash new firmware as part of this slice unless explicitly needed.
 
 Phase 24P verification:
@@ -2017,6 +2019,73 @@ Phase 24P commit message:
 test: validate BLE disconnect preservation
 ```
 
+## Phase 24Q: BLE Security And Auth Record Compile Path
+
+Phase 24Q adds a compile-validated security and authorization-record
+persistence path. It does not accept full Phase 24 completion because the saved
+pairing path has not been validated on hardware and the remaining live BLE/Wi-Fi
+checks are still open.
+
+Phase 24Q scope:
+
+- Enable TrouBLE security support in the `ble-upload` feature path and seed the
+  BLE security RNG from ESP32-C3 TRNG during startup.
+- Keep Wi-Fi enabled in `ble-upload,radio-coex` builds so BLE security changes
+  compile with the existing Wi-Fi path.
+- Add config entries for BLE authorization record capacity and security seed
+  length.
+- Extend the BLE auth sector model with structured authorization records:
+  identity address, LTK, optional IRK, security level, bonded flag, record CRC,
+  record-set checksum, record-set version, and clear/store/load helpers.
+- Implement target compile paths to restore TrouBLE bond information from
+  `0x003bf000..0x003c0000`, require encrypted access to measurement
+  metadata/fragment/control characteristics when saved auth exists, and store a
+  bond record on `PairingComplete`.
+- Keep the BOOT / IO9 authorization window as the hardware-validated access
+  path until saved pairing is manually validated.
+- Preserve measurement spool flash format and measurement JSON payload shape.
+- Do not run BLE functional pairing tests in this slice unless explicitly
+  requested as a later hardware-validation step.
+
+Phase 24Q verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+git diff --check
+```
+
+Phase 24Q flash notes:
+
+- No firmware flash is required for the compile validation slice.
+- Target code can write or erase the BLE auth sector
+  `0x003bf000..0x003c0000` when a BLE-enabled firmware receives
+  `PairingComplete { bond: Some(..) }`, but Phase 24Q compile validation does
+  not deliberately exercise that flash range.
+- Measurement spool behavior remains owned by `storage_task` in
+  `0x003c0000..0x00400000`.
+
+Remaining Phase 24Q hardware checks:
+
+- Validate real BLE pairing, saved bond restore across reboot, and rejected
+  unauthorized/unencrypted access.
+- Validate auth-record write/erase/update behavior, version/checksum reset
+  behavior, automatic pairing-window opening after auth-record reset, and
+  user-controlled clearing.
+- Validate live Wi-Fi/BLE ACK race behavior, BOOT download-mode preservation,
+  and LED3 BLE visual behavior.
+
+Phase 24Q commit message:
+
+```text
+feat: add BLE auth persistence compile path
+```
+
 ## Work Items
 
 - Add a BLE feature boundary that can be enabled or disabled independently from
@@ -2039,18 +2108,18 @@ test: validate BLE disconnect preservation
   mapping logic.
 - Keep `storage_task` as the only owner of persistent spool append, peek, and
   acknowledge operations.
-- Document the current Phase 24 effective pairing/authorization state as
-  RAM-only. The BLE authorization metadata sector exists only as a future
-  record-set header and startup policy boundary until real BLE bonding or an
-  equivalent persistent authorization record is implemented. Future work must
-  define record contents, write/erase/update rules, version or checksum
-  migration behavior, and user-controlled clearing.
+- Document the current Phase 24 authorization state precisely: the temporary
+  BOOT / IO9 authorization window is hardware-validated; saved authorization
+  records have a compile-validated target path but are not yet accepted as a
+  hardware-validated pairing persistence feature. Future work must validate
+  write/erase/update rules, version or checksum migration behavior, automatic
+  pairing-window opening after auth-record reset, and user-controlled clearing.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but
     must not ACK the spool in that state.
   - BLE may ACK exactly one oldest record only when Wi-Fi upload is disabled or
-    unavailable and a paired central confirms complete receipt.
+    unavailable and an authorized central confirms complete receipt.
 - Use BOOT / IO9 only as a runtime input for a future pairing or authorization
   gesture.
 - Preserve BOOT / IO9 download-mode behavior during reset or power-on.
@@ -2077,16 +2146,18 @@ Add hardware-independent tests for:
 - BLE enable/disable config selection.
 - BOOT / IO9 pairing gesture state logic.
 - BLE authorization metadata header parsing and auto-pair policy.
+- BLE authorization record encode/load/store/clear behavior and version /
+  checksum auto-pair policy.
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing as hardware-independent logic.
 
 ## Manual Integration Checks
 
 - Confirm BLE advertises only when enabled.
-- Confirm a paired BLE central can connect and read structured status.
-- Confirm a paired BLE central can receive a full measurement record through
+- Confirm an authorized BLE central can connect and read structured status.
+- Confirm an authorized BLE central can receive a full measurement record through
   GATT fragments.
-- Confirm unpaired centrals cannot read measurement records.
+- Confirm unpaired or unauthorized centrals cannot read measurement records.
 - Confirm BLE transfer does not stop sensor sampling, aggregation, storage, or
   Wi-Fi reconnect.
 - Confirm BLE does not ACK storage while Wi-Fi REST upload is succeeding.
@@ -2099,6 +2170,12 @@ Add hardware-independent tests for:
 - Confirm missing, empty, version-mismatched, or checksum-mismatched BLE
   authorization metadata opens the temporary authorization window on boot when
   the config switch is enabled.
+- Confirm saved BLE authorization records survive reboot and permit only the
+  matching encrypted central after hardware pairing is validated.
+- Confirm a config version/checksum update can force the pairing window to open
+  even when prior saved records exist.
+- Confirm there is a documented user operation to clear saved BLE
+  authorization records.
 - Confirm LED3 gives observable feedback for BLE operations: pairing or
   authorization window open fast-blinks, and BLE advertising, connecting, or
   connection establishment slow-blinks.

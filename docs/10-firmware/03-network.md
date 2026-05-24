@@ -161,7 +161,8 @@ ACK rules:
 - BLE may transmit copies while Wi-Fi upload is available and succeeding, but it
   must not acknowledge storage in that state.
 - BLE may acknowledge exactly one oldest pending record only when Wi-Fi upload
-  is disabled or unavailable and a paired central confirms complete receipt.
+  is disabled or unavailable and an authorized central confirms complete
+  receipt.
 - BLE disconnect before confirmation preserves the pending record.
 
 Wi-Fi upload is unavailable when Wi-Fi is disabled, disconnected, lacks IP

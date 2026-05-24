@@ -184,8 +184,8 @@ Phase 24N strengthens hardware-independent Wi-Fi/BLE ACK race coverage:
 
 Phase 24O adds a BLE authorization metadata and auto-pair policy boundary:
 
-- `0x003bf000..0x003c0000` is reserved for a future BLE authorization metadata
-  sector, immediately before the measurement spool.
+- `0x003bf000..0x003c0000` is reserved for BLE authorization metadata,
+  immediately before the measurement spool.
 - `storage::ble_auth` defines a header with magic, header format version,
   authorization-record-set version, record count, record-set checksum, and
   header checksum.
@@ -200,7 +200,24 @@ Phase 24O adds a BLE authorization metadata and auto-pair policy boundary:
   persist real bonded peers, pairing keys, allowlists, or authorization
   records.
 
-Phase 24A through 24P do not change the measurement spool flash format or
+Phase 24Q adds a compile-validated BLE security and bond-record persistence
+path:
+
+- `storage::ble_auth` now defines fixed-size structured authorization records
+  containing peer identity address, LTK, optional IRK, security level, bonded
+  flag, record CRC, and record-set checksum.
+- `ble-upload` target code seeds TrouBLE security from hardware TRNG before
+  host build, restores saved bond records from the BLE auth sector, requests
+  encryption when a pairing window or saved authorization record exists, and
+  stores a bond record on `PairingComplete`.
+- Measurement metadata, fragment, and control characteristics require
+  encryption. Outside the BOOT / IO9 temporary authorization window, encrypted
+  connections must match a saved authorization record before accessing
+  measurement records.
+- No hardware pairing, reboot restore, phone/gateway interoperability, or BLE
+  auth flash write/erase/update validation has been run for this path yet.
+
+Phase 24A through 24Q do not change the measurement spool flash format or
 measurement JSON payload shape. The GATT host/server, authorized read-only
 transfer path, runtime ACK wiring, independent radio feature matrix,
 structured status snapshot, board-side advertising startup, central-side
@@ -212,19 +229,19 @@ central. Storage-level stale ACK protection for a Wi-Fi/BLE race is covered by
 unit tests. Phase 24P additionally validates post-ACK oldest-record
 advancement and live disconnect-before-Complete/ACK preservation with the
 Windows central after draining enough records to avoid full-spool drop-oldest
-interference. Live Wi-Fi/BLE ACK race behavior, BOOT download-mode
-preservation, LED3 hardware visual behavior, and real persisted BLE
-bonding/authorization records have not been validated yet. Full BLE upload
-bring-up remains future Phase 24 work.
-The current effective authorization state is still RAM-only: firmware opens a
-temporary BOOT / IO9 authorization window and does not save usable pairing
-records yet. The BLE authorization metadata sector is only a future
-record-set header and startup policy boundary until real bonding or an
-equivalent persistent authorization record is implemented. Future work must
-define and validate record contents, writes, erases, updates, version/checksum
-migration behavior, and user-controlled clearing. LED3 BLE operation feedback
-now has a compile/unit-tested firmware boundary, but the actual blue LED
-patterns have not been visually accepted on hardware yet.
+interference. Phase 24Q compile-validates saved authorization records, but live
+Wi-Fi/BLE ACK race behavior, BOOT download-mode preservation, LED3 hardware
+visual behavior, BLE auth-sector writes/erases/updates, and saved pairing
+persistence across reboot have not been validated yet. Full BLE upload bring-up
+remains future Phase 24 work.
+The current hardware-validated authorization state is still the temporary
+BOOT / IO9 authorization window. Saved pairing records now have a target compile
+path, but they are not yet hardware-accepted as a completed security feature.
+Future work must validate actual bond contents, flash writes/erases/updates,
+version/checksum migration behavior, automatic pairing-window opening after
+record reset, and user-controlled clearing. LED3 BLE operation feedback now has
+a compile/unit-tested firmware boundary, but the actual blue LED patterns have
+not been visually accepted on hardware yet.
 
 ## Goals
 
@@ -233,7 +250,8 @@ BLE must be a real Bluetooth Low Energy feature:
 - Use BLE GATT services and characteristics.
 - Use structured records, fragments, status, and acknowledgements.
 - Keep Wi-Fi and BLE independently enabled or disabled by firmware config.
-- Let BLE upload persisted measurement records when a paired central is nearby.
+- Let BLE upload persisted measurement records when an authorized or paired
+  central is nearby.
 - Preserve sampling and persistent storage when BLE or Wi-Fi is unavailable.
 
 BLE must not be:
@@ -283,7 +301,7 @@ Acknowledgement policy:
 - If Wi-Fi upload is available and succeeding, BLE may transmit copies but must
   not acknowledge the spool.
 - If Wi-Fi upload is disabled or unavailable, BLE may acknowledge exactly one
-  oldest record only after the paired central confirms complete receipt.
+  oldest record only after the authorized central confirms complete receipt.
 - If BLE disconnects mid-record, the record remains pending.
 - If Wi-Fi and BLE race on the same record, storage acknowledgement must be
   idempotent and must remove at most one oldest pending record.
@@ -298,7 +316,7 @@ Wi-Fi and BLE are independent features:
 
 - Wi-Fi enabled, BLE disabled: normal REST upload path.
 - Wi-Fi disabled, BLE enabled: local BLE upload path can drain records after
-  paired-central acknowledgement.
+  authorized-central acknowledgement.
 - Both enabled: Wi-Fi remains the primary durable ACK path while it is working;
   BLE can expose status and copy records without ACK.
 - Both disabled: sampling and persistent storage continue until the spool fills,
@@ -367,15 +385,16 @@ Phase 24 documentation and implementation enforce or track these security
 rules:
 
 - Advertising does not contain measurement data or credentials.
-- Unpaired centrals cannot read measurement records.
+- Unpaired and unauthorized centrals cannot read measurement records.
 - Pairing state and any authorization material are handled explicitly.
-- Current Phase 24 authorization is only the volatile BOOT / IO9 window. A
-  reserved BLE authorization metadata sector exists at
-  `0x003bf000..0x003c0000`, but Phase 24O reads only its header to decide
-  whether to open the authorization window. Future work must implement real
-  BLE bonding or a documented equivalent persistent authorization record,
-  including record contents, write/erase/update rules, version or checksum
-  migration behavior, and how a user can clear it.
+- Current hardware-validated Phase 24 authorization is the volatile BOOT / IO9
+  window. Phase 24Q adds a compile-validated saved bond-record path in
+  `0x003bf000..0x003c0000`, including version/checksum reset policy and
+  auto-opening the authorization window when the record set is missing, empty,
+  invalid, version-mismatched, or compatibility-checksum-mismatched. Future
+  work must validate real BLE bonding, saved-pairing reboot restore,
+  write/erase/update rules, version or checksum migration behavior, and how a
+  user can clear saved records.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 
@@ -390,11 +409,13 @@ Phase 24 has hardware-independent tests for:
 - Idempotent ACK behavior when Wi-Fi and BLE observe the same record.
 - BLE feature enable/disable config selection.
 - BOOT / IO9 pairing gesture state logic.
-- BLE authorization metadata header parsing and auto-pair policy.
+- BLE authorization record encode/load/store/clear behavior and auto-pair
+  policy.
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing.
 
-Remaining hardware checks should confirm real pairing or equivalent persistent
-authorization, live Wi-Fi/BLE coexistence races, BLE auth metadata
+Remaining hardware checks should confirm real pairing and saved-record
+persistence, live Wi-Fi/BLE coexistence races, BLE auth metadata
 write/erase/update behavior, LED3 BLE status indication timing and patterns,
-and that BOOT still enters download mode during reset or power-on.
+automatic pairing-window opening after auth-record reset, user clearing, and
+that BOOT still enters download mode during reset or power-on.

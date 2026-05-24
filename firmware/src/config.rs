@@ -21,9 +21,11 @@ pub mod ble {
     pub const PAIRING_BUTTON_POLL_MILLIS: u64 = 50;
     pub const PAIRING_HOLD_MILLIS: u64 = 2_000;
     pub const PAIRING_WINDOW_SECS: u64 = 60;
+    pub const AUTH_RECORD_CAPACITY: usize = 10;
     pub const AUTH_RECORDS_VERSION: u32 = 1;
     pub const AUTH_RECORDS_CHECKSUM: u32 = 0;
     pub const AUTO_PAIR_ON_AUTH_RECORD_RESET: bool = cfg!(feature = "ble-upload");
+    pub const SECURITY_SEED_LEN: usize = 32;
 }
 
 pub mod wifi {

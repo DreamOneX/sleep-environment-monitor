@@ -182,8 +182,11 @@ Timing and polarity:
 
 `util::status` owns the pure policy mapping. `tasks::led` owns active-low GPIO
 output and should not contain business policy. Phase 24P compile-validates the
-LED3 BLE overlay path and pure timing/pattern tests. Hardware visual acceptance
-of the LED3 BLE blink patterns remains a manual Phase 24 check.
+LED3 BLE overlay path and pure timing/pattern tests. The 2026-05-26 hardware
+session manually accepts slow blink for the exercised advertising/connected
+state and fast blink for a BOOT / IO9-triggered pairing/authorization window.
+The final Phase 24 acceptance pass manually accepts the 180 second post-boot
+BLE indication window after reset or power-on.
 
 ---
 
@@ -750,16 +753,21 @@ responsibilities:
 
 Future runtime responsibilities:
 
-- Validate the remaining BLE pairing/security and authorization-record paths on
-  hardware, including runtime user-controlled clearing, rejected access after
-  that runtime clear gesture, and record replacement/update. Phase 24R has
+- Revalidate BLE pairing/security and authorization-record paths after
+  hardware, security-policy, or TrouBLE integration changes. Phase 24R has
   already validated the first Windows saved-bond write and reboot-restore path.
   Phase 24T has already validated auth metadata reset auto-pair behavior and
   unpaired protected-metadata rejection after a reset/invalid-auth window
-  closes.
-- Validate remaining live Wi-Fi/BLE ACK race behavior, BOOT download-mode
-  preservation, BLE auth record replacement/update behavior beyond the first
-  saved bond write, and LED3 hardware visual behavior.
+  closes. Phase 24Z has validated runtime user-controlled clearing and rejected
+  access after that runtime clear gesture. The 2026-05-26 hardware session has
+  validated the existing Windows-central auth-record update path.
+- Revalidate BOOT download-mode preservation and LED3 timing after hardware or
+  BOOT / IO9 firmware-policy changes. A distinct second-central auth-record
+  append or full-capacity replacement run remains useful future coverage beyond
+  the accepted existing Windows-central update.
+- Treat phone/gateway interoperability beyond the Windows `ble-watch` central
+  as `skipped / not planned` for Phase 24. If a mobile app or gateway becomes
+  product scope later, start it as a separate central-side plan.
 - Never write the measurement spool directly; use `storage_task` for all
   measurement append/peek/ACK behavior. BLE auth-sector writes are limited to
   the reserved `0x003bf000..0x003c0000` authorization record sector.
@@ -799,10 +807,15 @@ auth metadata reset auto-pair behavior for missing, invalid, empty,
 records-version-mismatched, compatibility-checksum-mismatched, and
 header-checksum-mismatched metadata, and confirms unpaired protected-metadata
 rejection after a reset/invalid-auth window closes.
-Live Wi-Fi/BLE ACK race behavior, runtime saved-auth clearing, rejection after
-the runtime clear gesture, BLE auth record replacement/update behavior, LED3
-BLE indication hardware behavior, and BOOT download-mode preservation still
-need future hardware/runtime validation.
+Phase 24Z hardware-validates runtime saved-auth clearing and rejection after
+the runtime clear gesture, and the follow-up live ACK-policy run validates that
+BLE ACK is suppressed while Wi-Fi/IP is ready and REST upload is succeeding.
+The 2026-05-26 hardware session validates the existing Windows-central
+auth-record update path and manual LED3 slow/fast blink observations for the
+exercised BLE states. The final Phase 24 acceptance pass validates the
+180 second post-boot LED3 BLE indication window and BOOT download-mode
+preservation. Phone/gateway interoperability is `skipped / not planned` for
+Phase 24.
 
 ---
 

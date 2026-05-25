@@ -1,6 +1,6 @@
 # Project Todo List
 
-Last updated: 2026-05-25.
+Last updated: 2026-05-26.
 
 This file is the current project task ledger. Any future task status change,
 acceptance result, or newly discovered risk must be synchronized here in the
@@ -61,6 +61,16 @@ WinRT/GATT cache failures and emits clear runtime clear/release diagnostics:
   firmware logged `ble storage ACK suppressed sequence=136853
   network_state=IpReady upload_result=Success`. This accepts the live
   Wi-Fi/BLE ACK-policy behavior for the observed hardware case.
+- A 2026-05-26 existing Windows-central re-pair run accepted real existing-peer
+  auth-record update behavior. RTT logs showed `ble auth record updated
+  index=0` and `ble auth bond stored count=1 offset=0x003bf000 len=4096`, and
+  `scan-read-metadata-now ... expect-success auto-pair` read protected metadata
+  through the refreshed bond.
+- 2026-05-26 manual LED3 observation accepted the BLE slow-blink and
+  fast-blink patterns for the exercised states. While `ble-watch
+  scan-watch-status` held a BLE connection with `pairing=Closed`, the operator
+  reported `LED3 慢闪`. During a BOOT / IO9-triggered `pairing=Open` window,
+  the operator reported `LED3 快闪`.
 
 Phase 24S also separates plain Wi-Fi/IP-not-ready LED indication from explicit
 network faults:
@@ -84,6 +94,8 @@ validation tool:
   status-read failures.
 - `scan-watch-clear-gesture` can reconnect after transient status-read
   failures.
+- `scan-watch-status` can reconnect after a recoverable stale WinRT/GATT
+  status-read object during long visual-observation runs.
 - `scan-watch-clear-gesture` now prints
   `CLEAR_GESTURE_CLEAR_EFFECT_OBSERVED` after the hold threshold plus refreshed
   pairing-window evidence, and
@@ -94,9 +106,10 @@ validation tool:
   protected metadata access is rejected when the temporary authorization window
   is closed.
 
-Phase 24 is still open because several visual, interoperability,
-replacement/update, and reset/power-on paths have not been accepted on
-hardware.
+Phase 24 is complete. The final acceptance pass manually accepted the
+180 second post-boot LED3 BLE status window, accepted BOOT / IO9 download-mode
+preservation during reset or power-on, and marks phone/gateway interoperability
+beyond the Windows `ble-watch` central as `skipped / not planned` for Phase 24.
 
 Current runtime clear-gesture state:
 
@@ -120,8 +133,11 @@ Current runtime clear-gesture state:
   no-pair` after the refreshed authorization window expired reported
   `metadata_success=False rejected=True`, proving the previous saved
   authorization no longer grants protected metadata access.
-- The latest saved-bond or replacement/update test must re-pair first because
-  the BLE auth metadata sector was cleared by the runtime gesture.
+- The latest manual BOOT / IO9 LED3 fast-blink check was held long enough to
+  trigger the saved-auth clear threshold again. RTT logs showed `ble auth
+  records clear requested pressed_ms=8000` and `ble auth records cleared
+  offset=0x003bf000 len=4096`. A following hard reset restored the normal
+  application BLE status path after Windows-side stale pairing was removed.
 
 Windows Settings showing the board as paired but not connected is expected
 when `ble-watch` or another central application is not holding a GATT session.
@@ -131,22 +147,17 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
 
 ## Phase 24 Remaining Acceptance
 
-- [ ] Manually accept LED3 visual behavior on hardware: pairing or
-  authorization fast blink, advertising-or-connected slow blink, the
-  180 second boot BLE status window, and the 10 second BOOT / IO9-triggered BLE
-  status window.
-- [ ] Validate BOOT download-mode preservation during reset or power-on.
+- [x] Manually accept LED3 visual behavior for the exercised BLE states:
+  advertising-or-connected slow blink and BOOT / IO9-triggered pairing or
+  authorization fast blink. The fast-blink run also covers the BOOT / IO9
+  trigger case where the pairing window remains open longer than 10 seconds.
+- [x] Manually accept the 180 second post-boot BLE status window on LED3 after
+  reset or power-on.
+- [x] Validate BOOT download-mode preservation during reset or power-on.
   Holding BOOT / IO9 at reset or power-on must enter ESP32-C3 download mode,
   not BLE pairing or BLE record clearing.
-- [ ] Validate phone or gateway interoperability beyond the current Windows BLE
-  central validation tool.
-- [ ] Validate real BLE auth record replacement/update behavior when another
-  bond is stored or an existing peer is updated. Phase 24X covers the pure
-  upsert policy and target compile path, but not a runtime second-bond or
-  existing-peer update. `ble-watch scan-unpair-then-pair-metadata` is available
-  for the existing Windows central re-pair/update run; completion still
-  requires matching firmware RTT logs showing the auth-record action and
-  `ble auth bond stored`.
+- [x] Mark phone/gateway interoperability beyond the current Windows BLE
+  central validation tool as `skipped / not planned` for Phase 24.
 
 ## Phase 25 Refactor And Maintenance
 
@@ -186,12 +197,15 @@ equivalent moves unless explicitly documented otherwise.
   `0x003c0000..0x00400000` for the measurement spool.
 - [ ] Continue hardware validation for BLE auth record replacement/update paths
   beyond the pure Phase 24X upsert policy, the first observed bond write,
-  Phase 24T reset-pattern validation, and Phase 24Z runtime clear/release
-  validation.
+  Phase 24T reset-pattern validation, Phase 24Z runtime clear/release
+  validation, and the 2026-05-26 existing-peer update run. A distinct
+  second-central append or full-capacity replacement run remains useful future
+  coverage but is no longer the open Phase 24 existing-peer update item.
 - [ ] Recheck BOOT / IO9 electrical and UX behavior before treating it as a
   deployed user-facing pairing or clearing control. Current board facts: no
   discrete IO9 pull-up, ESP32-C3 weak pull-up only during boot/strap sampling,
   runtime firmware must explicitly enable the MCU internal pull-up, and BOOT
   has an IO9-to-GND capacitor in parallel.
 - [ ] Validate mobile phone and gateway behavior once a real central app or
-  gateway exists.
+  gateway exists. This is explicitly outside Phase 24 and currently
+  `not planned`.

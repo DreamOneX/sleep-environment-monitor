@@ -3426,3 +3426,165 @@ Remaining Phase 24 validation:
   run with firmware RTT evidence.
 - Phone/gateway interoperability remains unvalidated.
 - LED3 BLE hardware visual behavior remains unvalidated.
+
+## Milestone 58: Phase 24 BLE LED And Existing-Peer Auth Hardware Evidence
+
+This milestone records 2026-05-26 hardware evidence gathered from the running
+BLE+Wi-Fi firmware without flashing a new application image.
+
+No app image was flashed for this milestone. The last flashed app-image range
+remains approximately `0x00010000..0x003bf000`. Normal firmware storage was
+running during the checks and may write the measurement spool region
+`0x003c0000..0x00400000`. Pairing, saved-bond update, and the later long BOOT /
+IO9 hold may write or erase the BLE authorization metadata sector
+`0x003bf000..0x003c0000`.
+
+Validation commands and tools run:
+
+```bash
+probe-rs attach --chip esp32c3 --no-location target/riscv32imc-unknown-none-elf/debug/sleep-environment-monitor
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair-then-pair-metadata 30 sleep-env-esp32c3 90
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 120
+cargo espflash board-info --chip esp32c3 --port /dev/ttyACM0 --before no-reset --after no-reset --non-interactive
+cargo espflash board-info --chip esp32c3 --port /dev/ttyACM0 --before usb-reset --after no-reset --non-interactive
+cargo espflash board-info --chip esp32c3 --port /dev/ttyACM0 --before default-reset --after hard-reset --non-interactive
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-unpair 30 sleep-env-esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+```
+
+Observed validation results:
+
+- The existing Windows central re-pair/update path was accepted with firmware
+  RTT evidence. `scan-unpair-then-pair-metadata` timed out near the manual
+  BOOT / IO9 timing boundary, but it opened the authorization window. The
+  follow-up `scan-read-metadata-now ... expect-success auto-pair` completed
+  pairing and read protected metadata:
+  `METADATA_NOW_PAIR_CUSTOM_RESULT status=Paired`,
+  `METADATA_NOW_METADATA_DECODED version=1 sequence=156735 payload_len=206`,
+  and `METADATA_NOW_RESULT success=True metadata_success=True rejected=False`.
+- RTT logs matched the existing-peer update acceptance signal:
+  `ble pairing complete security_level=Encrypted bonded=true saved_bonds=1`,
+  `ble auth record updated index=0`, `ble auth bond stored count=1
+  offset=0x003bf000 len=4096`, and `ble metadata prepared sequence=156735
+  payload_len=206`.
+- BLE connected/advertising LED3 slow blink was manually accepted. While
+  `scan-watch-status` held a BLE status connection and decoded
+  `runtime=Connected network=IpReady ... pairing=Closed boot_button=Released`,
+  the operator reported `LED3 慢闪`.
+- BOOT / IO9-triggered pairing/authorization LED3 fast blink was manually
+  accepted. `scan-watch-status` decoded `boot_button=Pressed`, then
+  `pairing=Open` with `remaining_ms` near `60000`; during that open window the
+  operator reported `LED3 快闪`.
+- The fast-blink check held BOOT / IO9 long enough to trigger the runtime
+  saved-auth clear threshold. RTT logs showed `ble auth records clear requested
+  pressed_ms=8000` and `ble auth records cleared offset=0x003bf000 len=4096`.
+  This deliberately exercised only the BLE auth metadata sector.
+- A hard reset after the clear restored the normal application BLE path.
+  Windows-side stale pairing first caused `Unreachable` GATT reads. After
+  `scan-unpair`, a follow-up `scan-read-status` succeeded and decoded
+  `runtime=Connected network=IpReady upload=TransportFailed pending=32` and
+  `pairing=Closed boot_button=Released remaining_ms=0 pressed_ms=0`.
+- A download-mode preservation attempt was not accepted. Read-only
+  `cargo espflash board-info` probes using `--before no-reset --after
+  no-reset`, `--before usb-reset --after no-reset`, and `--before
+  default-reset --after hard-reset` all failed with `Error while connecting to
+  device`; a following BLE scan also did not find the board until the operator
+  hard-reset the board back to application mode. After recovery,
+  `scan-read-status 20 sleep-env-esp32c3` again decoded `runtime=Connected
+  network=IpReady upload=TransportFailed pending=32` and
+  `pairing=Closed boot_button=Released`. This is recorded as
+  inconclusive/failed evidence for the current serial download-mode evidence
+  chain, not as download-mode validation.
+
+Flash and hardware notes:
+
+- This milestone did not flash a new firmware image.
+- The existing-peer auth update and the later runtime clear gesture exercised
+  the BLE auth metadata sector `0x003bf000..0x003c0000`.
+- Normal storage may continue to write the measurement spool region
+  `0x003c0000..0x00400000` while the firmware runs.
+- LED3 slow blink and BOOT-triggered pairing/authorization fast blink are now
+  visually accepted for the exercised states.
+
+Remaining Phase 24 validation:
+
+- The 180 second post-boot BLE status window on LED3 still needs explicit
+  manual visual acceptance after reset or power-on.
+- BOOT / IO9 download-mode preservation remains unvalidated.
+- Phone/gateway interoperability remains unvalidated beyond the Windows
+  `ble-watch` central.
+
+## Milestone 59: Phase 24 Final LED And BOOT Acceptance
+
+This milestone closes Phase 24 acceptance. It records the final 2026-05-26
+manual hardware checks and the explicit Phase 24 scope decision for non-Windows
+centrals.
+
+No firmware image was flashed for this milestone. The last flashed app-image
+range remains approximately `0x00010000..0x003bf000`. No deliberate flash
+write or erase was performed by these final checks. Normal firmware storage may
+continue to write the measurement spool region `0x003c0000..0x00400000` while
+the firmware runs.
+
+Tooling update:
+
+- `tools/ble-watch scan-watch-status` now catches recoverable stale WinRT/GATT
+  status-read exceptions such as `ObjectDisposedException`, releases the stale
+  status connection, opens a fresh GATT status connection, and continues until
+  the original watch deadline.
+- The runtime clear-gesture watch uses the same recoverable status-snapshot
+  helper.
+
+Validation commands and tools run:
+
+```bash
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+probe-rs reset --chip esp32c3
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-watch-status 30 sleep-env-esp32c3 180
+'/mnt/c/Program Files/dotnet/dotnet.exe' "$(wslpath -w tools/ble-watch/bin/Debug/net10.0-windows10.0.19041.0/ble-watch.dll)" scan-read-status 30 sleep-env-esp32c3
+```
+
+Observed validation results:
+
+- The Windows .NET build passed with 0 warnings and 0 errors.
+- After `probe-rs reset --chip esp32c3`, the 180 second status watch started
+  and decoded early post-boot status frames with `runtime=Connected`,
+  `network=IpReady`, `pairing=Open`, and `boot_button=Released`. The operator
+  manually accepted that blue LED3 represented BLE status for the 180 second
+  post-boot indication window.
+- BOOT / IO9 download-mode preservation during reset or power-on was accepted
+  by operator-assisted validation. Holding BOOT / IO9 at reset or power-on
+  still selects ESP32-C3 download mode rather than runtime BLE pairing or BLE
+  auth-record clearing.
+- Phone/gateway interoperability beyond the Windows `ble-watch` central is
+  `skipped / not planned` for Phase 24. This repository does not implement a
+  mobile app or gateway in Phase 24; Windows `ble-watch` remains the accepted
+  Phase 24 validation central.
+- A final `scan-read-status 30 sleep-env-esp32c3` confirmed that the
+  application BLE path was reachable after the acceptance steps and decoded
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32` and
+  `pairing=Closed boot_button=Released remaining_ms=0 pressed_ms=0`.
+
+Flash and hardware notes:
+
+- This milestone did not flash a new firmware image.
+- No deliberate BLE auth metadata sector write or erase was performed.
+- No deliberate measurement spool ACK or drain was performed.
+- Future BOOT / IO9 hardware changes or runtime GPIO policy changes should
+  revalidate both runtime release behavior and reset/power-on download-mode
+  behavior.
+
+Phase 24 status:
+
+- Phase 24 is complete.
+- Distinct second-central append or full-capacity BLE auth-record replacement
+  remains useful future coverage, but it is no longer a Phase 24 acceptance
+  blocker because the existing Windows-central update path has hardware
+  evidence.
+
+Milestone commit message:
+
+```text
+test: close Phase 24 BLE acceptance
+```

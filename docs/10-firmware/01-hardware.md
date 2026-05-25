@@ -150,16 +150,19 @@ be assumed to remain configured after firmware starts running.
 
 The current board has a capacitor from IO9 to GND in parallel with the BOOT
 button. This can delay the BOOT pin rising during reset or power-up, so BOOT /
-IO9 download-mode preservation and runtime release detection must be validated
-on the actual board.
+IO9 download-mode preservation and runtime release detection are board-specific
+hardware facts. Phase 24 validated both the runtime release path with the
+explicit firmware pull-up and download-mode preservation during reset or
+power-on.
 
 BLE feature builds read BOOT / IO9 only as a runtime input after the firmware
 has booted. Runtime firmware configures IO9 as input-only with the MCU internal
 pull-up enabled and uses an active-low long-press state machine for the BLE
 authorization window and saved-auth clear gesture. Firmware must not configure
 IO9 as an output or enable a pull-down. Holding BOOT during reset or power-on
-must continue to select download mode; this still requires hardware validation
-before the pairing gesture is treated as user-facing behavior.
+must continue to select download mode; Phase 24 final acceptance validated that
+behavior on the current board. Revalidate after hardware changes or BOOT / IO9
+firmware policy changes.
 
 ### IO8
 
@@ -392,7 +395,7 @@ LEDs are active-low.
 The microphone signal is an analog biased signal and requires DC removal in processing.
 The microphone path is not calibrated for absolute dB SPL.
 IO9 has no discrete board pull-up; firmware must enable the MCU internal pull-up when reading IO9 at runtime.
-IO9 has a capacitor to GND in parallel with the BOOT button; validate download-mode and runtime release behavior on hardware.
+IO9 has a capacitor to GND in parallel with the BOOT button; Phase 24 validated download-mode preservation and runtime release behavior on current hardware.
 IO9 must not be driven as an output for BLE pairing or any other runtime feature.
 IO8 is pulled high and should not be externally pulled low during boot.
 ```

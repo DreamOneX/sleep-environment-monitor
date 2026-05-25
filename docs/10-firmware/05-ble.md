@@ -364,13 +364,15 @@ explicit runtime GPIO9 internal pull-up firmware. The next Phase 24 slice adds
 extra BLE+Wi-Fi coexistence heap and validates that the previous Wi-Fi
 controller initialization error `257` no longer occurs in the BLE+Wi-Fi
 runtime. The subsequent live ACK-policy run validates that BLE ACK is
-suppressed while Wi-Fi/IP is ready and REST upload is succeeding.
-Full BLE upload bring-up remains future Phase 24 work because BOOT
-download-mode preservation, LED3 hardware visual behavior, real record
-replacement/update, and phone/gateway interoperability are still unvalidated or
-unresolved. Future work must validate those remaining paths. LED3 BLE
-operation feedback now has a compile/unit-tested firmware boundary, but the
-actual blue LED patterns have not been visually accepted on hardware yet.
+suppressed while Wi-Fi/IP is ready and REST upload is succeeding. A 2026-05-26
+hardware run then validates the existing Windows-central auth-record update
+path with firmware RTT evidence, plus the exercised LED3 BLE slow-blink and
+fast-blink states by manual observation. The final Phase 24 acceptance pass
+also validates the 180 second post-boot LED3 BLE status window and BOOT / IO9
+download-mode preservation during reset or power-on. Phone/gateway
+interoperability beyond the Windows `ble-watch` central is `skipped / not
+planned` for Phase 24 because this repository does not implement a mobile app
+or gateway.
 
 ## Goals
 
@@ -474,11 +476,12 @@ Constraints:
 - Keep the runtime GPIO9 input pull-up explicitly enabled when BLE feature
   builds read BOOT / IO9.
 - Treat the current IO9-to-GND capacitor in parallel with BOOT as a hardware
-  fact that requires download-mode and runtime release validation on the board.
+  fact whose download-mode and runtime release behavior must be revalidated
+  after hardware or BOOT / IO9 firmware-policy changes.
 - Preserve the existing boot behavior where holding BOOT during reset or power
   on enters download mode.
-- Continue validating download-mode preservation before relying on IO9 for
-  deployed user-facing pairing.
+- Phase 24 final acceptance validated download-mode preservation on the current
+  board before closing the temporary IO9 pairing/clear gesture work.
 
 The implemented temporary authorization gesture is an active-low runtime long
 press after boot. About 2 seconds opens the temporary authorization window.
@@ -517,8 +520,11 @@ BLE indication timing:
   window.
 
 The LED3 pattern decision and timing-window logic are implemented as
-hardware-independent status mapping with unit tests. Manual integration must
-still verify the actual active-low blue LED behavior on hardware.
+hardware-independent status mapping with unit tests. The 2026-05-26 hardware
+session manually accepted slow blink for the exercised advertising/connected
+state and fast blink for a BOOT / IO9-triggered pairing/authorization window.
+The final Phase 24 acceptance pass manually accepted the 180 second post-boot
+BLE indication window after reset or power-on.
 
 ## Security
 
@@ -541,8 +547,11 @@ rules:
   temporary authorization window. Phase 24Z validates that clear path,
   including final release-after-hold diagnostics, with the explicit runtime
   GPIO9 internal pull-up firmware. Phase 24X covers the pure saved-auth
-  upsert/replacement policy used by target persistence, but future work must
-  validate real runtime record replacement/update behavior.
+  upsert/replacement policy used by target persistence, and the 2026-05-26
+  Windows-central re-pair run validates the real existing-peer update path with
+  `ble auth record updated index=0` plus `ble auth bond stored` RTT evidence.
+  A distinct second-central append or full-capacity replacement run remains
+  useful future coverage.
 - Debug-only open access, if used for bring-up, is gated by config and clearly
   marked as unsafe for deployed firmware.
 
@@ -566,7 +575,8 @@ Phase 24 has hardware-independent tests for:
 - LED3 BLE status pattern selection and boot/BOOT-trigger indication-window
   timing.
 
-Remaining hardware checks should confirm real BLE auth record
-replacement/update behavior, LED3 BLE status indication timing and patterns,
-phone/gateway interoperability, and that BOOT still enters download mode during
-reset or power-on.
+Phase 24 hardware acceptance now covers the 180 second post-boot LED3 BLE
+status window and BOOT download-mode preservation during reset or power-on.
+Phone/gateway interoperability is `skipped / not planned` for Phase 24. A
+distinct second-central auth-record append or full-capacity replacement run
+remains useful future coverage beyond the accepted existing-peer update path.

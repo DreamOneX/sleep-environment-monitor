@@ -2531,8 +2531,10 @@ test: add BOOT IO9 release diagnostics
   metadata reset auto-pair policy are hardware-validated. Phase 24Z also
   hardware-validates the runtime saved-auth clear/release path with the
   explicit runtime GPIO9 internal pull-up firmware. Phase 24X covers the
-  auth-record upsert policy in pure tests, but future work must still validate
-  real runtime record replacement/update behavior.
+  auth-record upsert policy in pure tests, and the 2026-05-26 Windows-central
+  re-pair run validates real existing-peer update behavior. A distinct
+  second-central append or full-capacity replacement run remains useful future
+  coverage but is not a Phase 24 acceptance blocker.
 - Preserve Wi-Fi acknowledgement semantics:
   - HTTP 2xx remains the only Wi-Fi REST ACK condition.
   - BLE may transmit copies while Wi-Fi upload is available and succeeding, but

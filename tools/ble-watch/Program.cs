@@ -684,6 +684,8 @@ static async Task<int> WatchStatusAsync(
     Guid serviceUuid,
     Guid statusUuid)
 {
+    Console.WriteLine(
+        $"WATCH_CONNECT address={FormatAddress(address)} address_type={addressType} seconds={watchSeconds}");
     var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(watchSeconds);
     var index = 0;
     var connectionAttempt = 1;
@@ -701,20 +703,42 @@ static async Task<int> WatchStatusAsync(
         return opened.FailureCode;
     }
 
-    using var connection = opened.Connection;
-    while (DateTimeOffset.UtcNow < deadline)
+    var connection = opened.Connection;
+    try
     {
-        index++;
-        var readResult = await ReadStatusValueWithRetryAsync(connection.Status, $"WATCH_READ index={index}");
-        if (readResult.Status != GattCommunicationStatus.Success)
+        while (DateTimeOffset.UtcNow < deadline)
         {
-            return 5;
-        }
+            index++;
+            var maybeSnapshot = await ReadStatusSnapshotRecoverableAsync(connection.Status, $"WATCH_{index}");
+            if (maybeSnapshot is null)
+            {
+                connection.Dispose();
+                connectionAttempt++;
+                Console.WriteLine($"WATCH_RECONNECT reason=status_read_failed next_attempt={connectionAttempt}");
+                var reopened = await OpenStatusConnectionAsync(
+                    address,
+                    addressType,
+                    serviceUuid,
+                    statusUuid,
+                    "WATCH",
+                    connectionAttempt,
+                    printPairing: false,
+                    dumpGattWhenServiceMissing: false);
+                if (reopened.Connection is null)
+                {
+                    return 5;
+                }
+                connection = reopened.Connection;
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+                continue;
+            }
 
-        var bytes = BufferToBytes(readResult.Value);
-        Console.WriteLine($"WATCH_STATUS_BYTES index={index} len={bytes.Length} hex={Convert.ToHexString(bytes)}");
-        PrintStatusDecoded(bytes);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+    }
+    finally
+    {
+        connection.Dispose();
     }
 
     return 0;
@@ -771,7 +795,7 @@ static async Task<int> WatchClearGestureAsync(
         while (DateTimeOffset.UtcNow < deadline)
         {
             index++;
-            var maybeSnapshot = await ReadStatusSnapshotAsync(connection.Status, $"CLEAR_GESTURE_{index}");
+            var maybeSnapshot = await ReadStatusSnapshotRecoverableAsync(connection.Status, $"CLEAR_GESTURE_{index}");
             if (maybeSnapshot is null)
             {
                 connection.Dispose();
@@ -2524,6 +2548,22 @@ static async Task<StatusSnapshot?> ReadStatusSnapshotAsync(GattCharacteristic st
     PrintStatusDecoded(bytes);
     return TryDecodeStatus(bytes, out var snapshot) ? snapshot : null;
 }
+
+static async Task<StatusSnapshot?> ReadStatusSnapshotRecoverableAsync(GattCharacteristic status, string label)
+{
+    try
+    {
+        return await ReadStatusSnapshotAsync(status, label);
+    }
+    catch (Exception error) when (IsRecoverableGattException(error))
+    {
+        Console.WriteLine($"{label}_STATUS_READ_EXCEPTION type={error.GetType().Name} message={error.Message}");
+        return null;
+    }
+}
+
+static bool IsRecoverableGattException(Exception error) =>
+    error is ObjectDisposedException or COMException;
 
 static async Task<GattReadResult> ReadStatusValueWithRetryAsync(
     GattCharacteristic status,

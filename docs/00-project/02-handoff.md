@@ -1,15 +1,17 @@
 # Handoff
 
-Last updated: 2026-05-25.
+Last updated: 2026-05-26.
 
 When future work changes task status, records a new acceptance result, or finds
 a new risk, update [03-todo.md](03-todo.md) in the same documentation pass.
 
 ## Current State
 
-Phase 24Z, the BLE+Wi-Fi coexistence heap fix, and the live Wi-Fi/BLE ACK
-suppression validation are implemented in the current working tree. Phase 24 is
-not complete yet.
+Phase 24 is complete in the current working tree. Phase 24Z, the BLE+Wi-Fi
+coexistence heap fix, live Wi-Fi/BLE ACK suppression validation, the
+2026-05-26 LED/existing-peer auth validation evidence, the final LED3
+post-boot/download-mode acceptance, and the Phase 24 phone/gateway
+interoperability scope decision are implemented or documented.
 
 Phase 24P added live BLE evidence for two storage-transfer checks and the
 current LED status boundary:
@@ -225,6 +227,65 @@ coexistence ACK-policy item for the observed hardware case:
 - This proves the live BLE ACK path does not delete storage while Wi-Fi/IP is
   ready and REST upload is succeeding.
 
+The 2026-05-26 hardware session accepted the existing Windows-central
+auth-record update path and two LED3 BLE visual states:
+
+- `scan-unpair-then-pair-metadata` opened the authorization window but timed
+  out near the manual timing boundary. A following
+  `scan-read-metadata-now 30 sleep-env-esp32c3 expect-success auto-pair`
+  completed pairing and read protected metadata.
+- Firmware RTT logs showed `ble auth record updated index=0` and
+  `ble auth bond stored count=1 offset=0x003bf000 len=4096`, accepting the
+  existing-peer runtime update path.
+- While `scan-watch-status` held a BLE connection with `pairing=Closed`, the
+  operator reported `LED3 慢闪`, accepting the advertising-or-connected slow
+  blink for the exercised state.
+- During a BOOT / IO9-triggered `pairing=Open` window, the operator reported
+  `LED3 快闪`, accepting the pairing/authorization fast blink for the exercised
+  state and the BOOT-triggered overlay case where the pairing window remains
+  open longer than 10 seconds.
+- That manual fast-blink hold also crossed the 8 second clear threshold again.
+  Firmware logged `ble auth records clear requested pressed_ms=8000` and
+  `ble auth records cleared offset=0x003bf000 len=4096`, so the BLE auth
+  metadata sector was exercised during this session.
+- A following hard reset restored the application BLE path. After clearing
+  stale Windows-side pairing state with `scan-unpair`, `scan-read-status`
+  decoded `runtime=Connected network=IpReady upload=TransportFailed
+  pending=32` and `pairing=Closed boot_button=Released`.
+- Read-only BOOT/download-mode probes were inconclusive: `cargo espflash
+  board-info` attempts using `--before no-reset --after no-reset`, `--before
+  usb-reset --after no-reset`, and `--before default-reset --after hard-reset`
+  all failed with `Error while connecting to device`. Do not count that as
+  download-mode preservation evidence. After the failed probes, BLE status
+  reads still confirmed the application path can recover:
+  `runtime=Connected network=IpReady upload=TransportFailed pending=32` and
+  `pairing=Closed boot_button=Released`.
+
+The final Phase 24 acceptance pass closed the remaining Phase 24 hardware and
+scope items:
+
+- `tools/ble-watch scan-watch-status` now reopens the Windows GATT status
+  connection if a long status watch hits a recoverable stale WinRT/GATT object.
+  The Windows .NET build passed with 0 warnings and 0 errors.
+- After `probe-rs reset --chip esp32c3`, `scan-watch-status 30
+  sleep-env-esp32c3 180` started a machine-side status trace and decoded
+  `runtime=Connected network=IpReady`, `pairing=Open`, and
+  `boot_button=Released` early in the post-boot window. The operator manually
+  accepted the blue LED3 180 second post-boot BLE status window.
+- BOOT / IO9 download-mode preservation during reset or power-on was accepted
+  by operator-assisted validation. This validates that holding BOOT / IO9 at
+  reset or power-on still selects ESP32-C3 download mode rather than runtime
+  BLE pairing or BLE auth-record clearing.
+- Phone/gateway interoperability beyond the Windows `ble-watch` central is
+  `skipped / not planned` for Phase 24. This repository does not implement a
+  mobile app or gateway in Phase 24; Windows `ble-watch` remains the accepted
+  Phase 24 validation central. Future phone/gateway behavior should start from
+  a separate app/gateway plan if that product direction is revived.
+- A final `scan-read-status 30 sleep-env-esp32c3` confirmed the application BLE
+  path recovered after the acceptance steps:
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32` and
+  `pairing=Closed boot_button=Released`.
+
 Firmware was flashed during Phase 24R hardware validation with the BLE+Wi-Fi
 build using `probe-rs` through the ESP JTAG interface. Before flashing, the
 declared ranges were:
@@ -239,7 +300,9 @@ Important flash ranges:
   validated the runtime clear effect through hold-threshold/window-refresh
   evidence and rejected protected metadata access after the clear watch.
   Phase 24Z validated final BOOT / IO9 release-after-hold diagnostics and again
-  cleared this sector through the runtime gesture.
+  cleared this sector through the runtime gesture. The 2026-05-26
+  existing-peer update wrote this sector through bond storage, and the later
+  LED3 fast-blink check erased it again through the runtime clear gesture.
 - Measurement spool: `0x003c0000..0x00400000`. BLE ACK/drain validation may
   exercise normal spool writes/erases through `storage_task` in this range.
   During the long Phase 24R runtime, the storage task continued appending and
@@ -253,9 +316,11 @@ exercised.
 - `tools/ble-watch` includes `scan-drain-then-disconnect-preserves-record`.
 - `tools/ble-watch` retries Windows GATT service and characteristic lookup,
   retries Uncached status reads, recreates status connections for
-  `scan-read-status`, and reconnects the runtime clear-gesture watch after a
-  transient status-read failure. It also distinguishes clear-effect evidence
-  from missing final release observation in `scan-watch-clear-gesture`.
+  `scan-read-status`, reconnects the runtime clear-gesture watch after a
+  transient status-read failure, and reconnects `scan-watch-status` after a
+  recoverable stale WinRT/GATT status-read failure. It also distinguishes
+  clear-effect evidence from missing final release observation in
+  `scan-watch-clear-gesture`.
 - `firmware/src/board.rs` maps MCU-controlled LEDs as `PIN_LED2 = 0` and
   `PIN_LED3 = 1`.
 - `firmware/src/tasks/led.rs` fast-flashes red LED2 at boot/reset and then runs
@@ -287,20 +352,42 @@ exercised.
   tooling, Phase 24X auth-record upsert policy coverage, Phase 24Y BOOT / IO9
   transition diagnostics, Phase 24Z runtime IO9 pull-up retest evidence, the
   BLE+Wi-Fi coexistence heap startup fix, live Wi-Fi/BLE ACK suppression
-  evidence, current LED mapping, and the remaining Phase 24 validation gaps.
+  evidence, existing-peer auth update evidence, current LED mapping, final
+  LED3 visual acceptance, BOOT download-mode acceptance, and the Phase 24
+  phone/gateway `skipped / not planned` scope decision.
 
 The hardware-validated BLE authorization paths are now the temporary BOOT / IO9
 window, the Windows saved-bond restore path, the auth metadata reset policy,
-and the Phase 24Z runtime clear/release path. The latest board state has
-firmware auth metadata cleared or missing, and protected metadata access is
-rejected when the temporary authorization window is closed. The next saved-bond
-or replacement test must re-pair first. Windows Settings may show the custom
-GATT peripheral as paired but not connected when `ble-watch` is not holding a
-GATT session; that passive Settings label is not a Phase 24 acceptance signal.
-If Windows still reports paired while firmware rejects protected access after
-an auth reset or clear, use `scan-unpair` before re-pairing. Phone/gateway
-interoperability, real record replacement, LED3 visual behavior, and BOOT
-download-mode preservation remain unvalidated or unresolved.
+the Phase 24Z runtime clear/release path, and the existing Windows-central
+auth-record update path. The latest board state has firmware auth metadata
+cleared or missing after the 2026-05-26 LED3 fast-blink hold crossed the clear
+threshold. Windows Settings may show the custom GATT peripheral as paired but
+not connected when `ble-watch` is not holding a GATT session; that passive
+Settings label is not a Phase 24 acceptance signal. If Windows still reports
+paired while firmware rejects protected access after an auth reset or clear,
+use `scan-unpair` before re-pairing. A distinct second-central append or
+full-capacity auth replacement run remains useful future coverage, but the
+existing-peer update item has hardware evidence.
+
+Current board/test starting point:
+
+- No new firmware image was flashed during the 2026-05-26 LED/existing-peer
+  auth session.
+- No `probe-rs`, `ble-watch`, `espflash`, or local server process should be
+  assumed to still be running from that session.
+- After the final acceptance pass, the application BLE path was reachable. The
+  latest useful status evidence decoded
+  `runtime=Connected network=IpReady upload=TimeFailed pending=32` and
+  `pairing=Closed boot_button=Released`.
+- The firmware auth metadata is likely cleared or missing because the last
+  BOOT / IO9 fast-blink observation crossed the 8 second runtime clear
+  threshold. Protected metadata, transfer, or saved-bond tests should expect to
+  re-pair first, and stale Windows pairing should be removed with `scan-unpair`
+  if firmware rejects access.
+- The older `cargo espflash board-info` attempts are failed/inconclusive
+  historical evidence, not the accepted download-mode validation. The final
+  operator-assisted BOOT / IO9 reset or power-on check accepted download-mode
+  preservation for Phase 24.
 
 Manual hardware tests that need operator timing, such as BOOT / IO9 presses,
 must first notify the operator through PowerShell
@@ -504,17 +591,12 @@ test: add BOOT IO9 release diagnostics
 
 ## Remaining Phase 24 Work
 
-- Validate BOOT / IO9 still enters download mode during reset or power-on.
-- Validate phone/gateway interoperability beyond the Windows central.
-- Validate real BLE auth record replacement/update behavior when another bond
-  is stored or an existing peer is updated. `tools/ble-watch` now has
-  `scan-unpair-then-pair-metadata` to exercise the existing Windows central
-  re-pair path, but acceptance still requires firmware RTT evidence of
-  `ble auth record updated`, `ble auth record appended`, or replacement plus
-  `ble auth bond stored`.
-- Manually accept LED3 hardware visual behavior: pairing/authorization fast
-  blink, advertising-or-connected slow blink, 180 second boot BLE
-  status window, and 10 second BOOT / IO9-triggered BLE status window.
+- None for Phase 24.
+- Phone/gateway interoperability beyond the Windows `ble-watch` central is
+  `skipped / not planned` for Phase 24 because no mobile app or gateway is
+  implemented in this repository.
+- Keep distinct second-central append or full-capacity auth replacement
+  validation as future coverage beyond the now-accepted existing-peer update.
 
 ## Phase 25 Notes
 

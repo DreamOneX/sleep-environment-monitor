@@ -600,18 +600,23 @@ test: add BOOT IO9 release diagnostics
 
 ## Phase 25 Notes
 
-Phase 25 should start with documentation and baseline freezing, then split long
-files without behavior changes:
+Phase 25 is complete in the current working tree. It was a behavior-preserving
+split of Phase 24 maintenance modules:
 
-- `tools/ble-watch/Program.cs`: split CLI, BLE profile constants, scanner, GATT
-  client, transfer client, protocol helpers, models, and WinRT helpers.
-- `firmware/src/tasks/upload.rs`: split pure endpoint/JSON/HTTP/parse/time
-  logic from target runtime uploader.
-- `firmware/src/tasks/ble.rs`: split profile/status/protocol/transfer/ACK /
-  pairing/auth/storage bridge/GATT/runtime modules, keeping original public
-  paths re-exported during the move.
-- Later candidates: `firmware/src/storage/spool.rs` and
-  `firmware/src/tasks/storage.rs`.
+- `tools/ble-watch/Program.cs` now uses `tools/ble-watch/src/` helpers for BLE
+  profile UUIDs, scanner behavior, protocol/status decoding, protected GATT
+  reads, models, output formatting, and WinRT pairing helpers. CLI commands and
+  output labels are preserved.
+- `firmware/src/tasks/upload/` separates endpoint/types, JSON, HTTP,
+  discovery/time parsing, time selection, and target runtime uploader logic.
+- `firmware/src/tasks/ble/` separates profile, protocol, pairing, status,
+  transfer, target BLE auth, storage bridge, GATT, and runtime code while
+  preserving `tasks::ble::*`.
+- `firmware/src/storage/spool/`, `firmware/src/storage/ble_auth/`, and
+  `firmware/src/tasks/storage/` now separate their pure policy/codec pieces
+  from flash-backed or target runtime code while preserving public paths.
 
-Phase 25 must not change BLE UUIDs, frame layouts, ACK conditions, Wi-Fi retry /
-discovery / time-sync behavior, flash ranges, or measurement payload JSON shape.
+Phase 25 did not change BLE UUIDs, frame layouts, ACK conditions, Wi-Fi retry /
+discovery / time-sync behavior, flash ranges, BOOT / IO9 behavior, LED3 overlay
+rules, or measurement payload JSON shape. Future optional split candidate:
+`firmware/src/drivers/flash.rs`.

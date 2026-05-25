@@ -2637,6 +2637,84 @@ feat: add BLE upload channel
 
 ---
 
+# Phase 25: Refactor And Maintenance Split
+
+## Goal
+
+Reduce the Phase 24 BLE, storage, upload, and validation-tool maintenance
+surface without changing runtime behavior or external contracts.
+
+## Work Items
+
+- Freeze BLE UUIDs, status / metadata / fragment / control frame bytes, BLE ACK
+  policy, Wi-Fi HTTP 2xx ACK semantics, flash ranges, REST JSON shape,
+  BOOT / IO9 behavior, and LED3 BLE overlay rules before refactoring.
+- Split `tools/ble-watch/Program.cs` into BLE profile constants, scanner,
+  protocol helpers, models, protected GATT helpers, WinRT pairing helpers, and
+  output formatting while preserving CLI commands and output labels.
+- Split `firmware/src/tasks/upload.rs` into endpoint/types, JSON, HTTP,
+  discovery/time parsing, time selection, and target runtime uploader modules.
+- Split `firmware/src/tasks/ble.rs` into profile, status, protocol, transfer,
+  pairing, target BLE auth, storage bridge, GATT, and runtime modules while
+  preserving public `tasks::ble::*` paths.
+- Split `firmware/src/storage/spool.rs` into memory queue, wire codec, and
+  flash-backed log modules while preserving public `storage::spool::*` paths.
+- Split `firmware/src/storage/ble_auth.rs` into types/status, upsert policy,
+  header codec, record codec, and flash load/store/clear modules while
+  preserving public `storage::ble_auth::*` paths.
+- Split `firmware/src/tasks/storage.rs` into backlog/metrics,
+  command/response protocol, and target runtime modules while preserving public
+  `tasks::storage::*` paths.
+- Keep [../10-firmware/05-ble.md](../10-firmware/05-ble.md) as the BLE ACK and
+  security rule authority during the split.
+- Keep LED overlay rules centralized and avoid duplicate status policy
+  implementations.
+
+## Unit Tests
+
+No new behavior is introduced. Existing hardware-independent tests must still
+pass.
+
+## Verification
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+git diff --check
+```
+
+## Manual Integration Checks
+
+None required for this phase. Do not flash firmware or deliberately write/erase
+firmware flash as part of Phase 25.
+
+## Done When
+
+- All listed modules are split without changing public paths used by existing
+  code.
+- BLE UUIDs, frame layouts, ACK conditions, Wi-Fi behavior, flash ranges,
+  BOOT / IO9 behavior, LED3 overlay rules, and REST measurement JSON remain
+  unchanged.
+- Existing Rust tests/builds/clippy checks and the Windows `ble-watch` build
+  pass.
+- Completion evidence is recorded in
+  [01-walkthrough.md](01-walkthrough.md), and task status is synchronized in
+  [03-todo.md](03-todo.md).
+
+## Git Commit Message
+
+```text
+refactor: split Phase 24 maintenance modules
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.

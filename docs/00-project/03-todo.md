@@ -161,27 +161,37 @@ BLE auth records are cleared or reset, remove the Windows-side pairing with
 
 ## Phase 25 Refactor And Maintenance
 
-Phase 25 should start only after Phase 24 behavior is frozen or the remaining
-validation gaps are intentionally carried forward. These items should be
-equivalent moves unless explicitly documented otherwise.
+Phase 25 is complete. The work was behavior-preserving and did not flash
+firmware or deliberately write/erase flash. BLE UUIDs, status/metadata /
+fragment/control frame bytes, ACK policy, Wi-Fi HTTP 2xx ACK semantics, flash
+ranges, REST JSON payload shape, BOOT / IO9 behavior, and LED3 BLE overlay
+rules remain frozen.
 
-- [ ] Freeze the BLE UUIDs, status/metadata/control frame bytes, ACK policy,
+- [x] Freeze the BLE UUIDs, status/metadata/control frame bytes, ACK policy,
   Wi-Fi HTTP 2xx ACK semantics, flash ranges, and measurement payload JSON
   shape before refactoring.
-- [ ] Split `tools/ble-watch/Program.cs` into CLI, BLE profile constants,
-  scanner, GATT client, transfer client, protocol helpers, models, and WinRT
-  helpers.
-- [ ] Split `firmware/src/tasks/upload.rs` into pure endpoint/JSON/HTTP/parse
+- [x] Split `tools/ble-watch/Program.cs` into BLE profile constants, scanner,
+  protocol helpers, models, protected GATT helpers, WinRT pairing helpers, and
+  output formatting while preserving CLI commands and output labels.
+- [x] Split `firmware/src/tasks/upload.rs` into pure endpoint/JSON/HTTP/parse
   and time logic plus target runtime uploader code.
-- [ ] Split `firmware/src/tasks/ble.rs` into profile, status, protocol,
+- [x] Split `firmware/src/tasks/ble.rs` into profile, status, protocol,
   transfer, ACK, pairing, auth, storage bridge, GATT, and runtime modules while
-  preserving public paths through re-exports during the move.
-- [ ] Keep `docs/10-firmware/05-ble.md` as the BLE ACK/security rule authority
+  preserving public paths.
+- [x] Split `firmware/src/storage/spool.rs` into memory queue, wire codec, and
+  flash-backed log modules while preserving public paths.
+- [x] Split `firmware/src/storage/ble_auth.rs` into types/status, upsert
+  policy, header codec, record codec, and flash load/store/clear modules while
+  preserving public paths.
+- [x] Split `firmware/src/tasks/storage.rs` into backlog/metrics,
+  command/response protocol, and target runtime modules while preserving public
+  paths.
+- [x] Keep `docs/10-firmware/05-ble.md` as the BLE ACK/security rule authority
   during the split.
-- [ ] Keep LED overlay rules centralized and avoid duplicate status policy
+- [x] Keep LED overlay rules centralized and avoid duplicate status policy
   implementations.
-- [ ] Consider later, lower-priority splits for `firmware/src/storage/spool.rs`
-  and `firmware/src/tasks/storage.rs`.
+- [ ] Consider later, lower-priority splits for `firmware/src/drivers/flash.rs`
+  if flash layout, ROM adapter, and smoke-test code continue to grow.
 
 ## Future Security, Configuration, And Hardware Validation
 

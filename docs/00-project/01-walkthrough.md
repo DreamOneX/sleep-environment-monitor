@@ -3588,3 +3588,67 @@ Milestone commit message:
 ```text
 test: close Phase 24 BLE acceptance
 ```
+
+## Milestone 60: Phase 25 Refactor And Maintenance
+
+This milestone completes the Phase 25 behavior-preserving maintenance split.
+No firmware image was flashed and no deliberate flash write or erase was
+performed. The Phase 24 behavior baseline remains frozen:
+
+- BLE UUIDs and status / metadata / fragment / control frame bytes are
+  unchanged.
+- BLE ACK policy and Wi-Fi HTTP 2xx ACK semantics are unchanged.
+- REST measurement JSON shape, discovery behavior, and time-sync behavior are
+  unchanged.
+- Flash ranges remain `0x003bf000..0x003c0000` for BLE auth metadata and
+  `0x003c0000..0x00400000` for the measurement spool.
+- BOOT / IO9, saved-auth clear, and LED3 BLE overlay behavior are unchanged.
+
+Scope:
+
+- Split the persistent spool module into memory queue, wire codec, and
+  flash-backed log pieces while preserving the `storage::spool::*` public
+  path.
+- Split BLE authorization storage into type/status definitions, upsert policy,
+  header codec, record codec, and flash load/store/clear helpers while
+  preserving the `storage::ble_auth::*` public path.
+- Split upload logic into endpoint/types, JSON payload construction, HTTP
+  construction/parsing, discovery/time parsers, time selection, and target
+  uploader runtime while preserving `tasks::upload::*`.
+- Split storage task code into backlog/metrics, command/response protocol, and
+  target runtime while preserving `tasks::storage::*`.
+- Split BLE task code into profile, protocol, pairing, status, transfer,
+  target BLE auth, storage bridge, GATT, and runtime files while preserving
+  `tasks::ble::*`.
+- Split the Windows BLE validation tool into `src/` helpers for BLE profile
+  UUIDs, output formatting, models, protocol/status decoding, protected GATT
+  reads, pairing helpers, and scanning while leaving CLI command behavior and
+  output labels intact.
+
+Verification:
+
+```bash
+cargo fmt
+cargo test --lib
+cargo build --target riscv32imc-unknown-none-elf
+cargo clippy --all-targets
+cargo clippy --target riscv32imc-unknown-none-elf
+cargo build --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+cargo clippy --target riscv32imc-unknown-none-elf --features ble-upload,radio-coex
+'/mnt/c/Program Files/dotnet/dotnet.exe' build "$(wslpath -w tools/ble-watch/ble-watch.csproj)"
+```
+
+Observed validation results:
+
+- `cargo test --lib` passed 191 host unit tests.
+- Default ESP32-C3 target build passed.
+- Default host and ESP32-C3 target clippy checks passed.
+- BLE+Wi-Fi coexistence ESP32-C3 target build and clippy checks passed with
+  `ble-upload,radio-coex`.
+- The Windows .NET `ble-watch` build passed with 0 warnings and 0 errors.
+
+Milestone commit message:
+
+```text
+refactor: split Phase 24 maintenance modules
+```

@@ -3766,3 +3766,43 @@ Milestone commit message:
 ```text
 feat: add server toml configuration
 ```
+
+## Milestone 64: Server Persistent Store Backends
+
+This milestone adds independently testable SQLite and JSONL measurement store
+backends. It does not yet change the upload ACK path or enable configured
+durable writes from `serve`.
+
+Implementation:
+
+- Added `MeasurementRecord` with server receive time, display time, and display
+  time source metadata.
+- Added `SQLiteMeasurementStore` with schema creation, keep-first duplicate
+  handling, canonical history reads, and basic summaries.
+- Added `JsonlMeasurementStore` with append writes, keep-first canonical reads,
+  duplicate/conflict reporting, and atomic compaction.
+- Added shared stable payload JSON and summary helpers.
+- Preserved `InMemoryMeasurementSink` for the current upload behavior until the
+  ACK policy milestone connects the durable stores.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 56 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 17 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Milestone commit message:
+
+```text
+feat: add server persistent stores
+```

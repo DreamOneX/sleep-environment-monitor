@@ -3,6 +3,18 @@
 This document defines the planned Phase 26 server persistence, TOML
 configuration, history API, and Rich display behavior.
 
+Implementation status through Milestone 65:
+
+- TOML loading, XDG default generation, and CLI overrides are implemented.
+- SQLite and JSONL stores are implemented with canonical reads, duplicate
+  handling, summaries, and JSONL compaction.
+- `sleep-env-server serve` routes uploads through configured durable stores and
+  applies the configured ACK policy before returning HTTP 2xx.
+- Startup and periodic backfill helpers copy missing canonical records between
+  enabled stores.
+- Retention cleanup, authenticated history API, Rich live dashboard, and local
+  history CLI remain pending for later Phase 26 milestones.
+
 The implementation must preserve the existing firmware-facing REST and UDP
 contract. Firmware still uploads measurements to `POST /api/v1/measurements`
 and treats HTTP 2xx as the only upload ACK condition.

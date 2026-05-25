@@ -87,6 +87,35 @@ class ServerOutput:
             duplicate=duplicate,
         )
 
+    def upload_rejected(
+        self,
+        *,
+        source: str,
+        byte_count: int,
+        device_id: str,
+        sequence: int,
+        status_code: int,
+        duplicate: bool,
+        conflict: bool,
+        reason: str,
+    ) -> None:
+        """Writes bounded upload rejection metadata without dumping payloads."""
+        self.emit(
+            "upload_rejected",
+            source=source,
+            bytes=byte_count,
+            device_id=device_id,
+            sequence=sequence,
+            status_code=status_code,
+            duplicate=duplicate,
+            conflict=conflict,
+            reason=reason,
+        )
+
+    def storage_reconciled(self, *, copied: int) -> None:
+        """Writes one storage reconciliation event."""
+        self.emit("storage_reconciled", copied=copied)
+
     def shutdown_requested(self) -> None:
         """Writes interrupt-driven shutdown metadata."""
         self.emit("shutdown_requested")
@@ -178,3 +207,17 @@ class NullOutput:
         duplicate: bool,
     ) -> None:
         """Ignores upload acceptance metadata."""
+
+    def upload_rejected(
+        self,
+        *,
+        source: str,
+        byte_count: int,
+        device_id: str,
+        sequence: int,
+        status_code: int,
+        duplicate: bool,
+        conflict: bool,
+        reason: str,
+    ) -> None:
+        """Ignores upload rejection metadata."""

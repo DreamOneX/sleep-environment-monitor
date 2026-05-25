@@ -6,11 +6,18 @@ import json
 import os
 import sqlite3
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock, Thread
 from typing import Any, Protocol
 
+from sleep_env_server.config import (
+    AckPolicyConfig,
+    PolicyProfileConfig,
+    StorageConfig,
+    StoragePolicyConfig,
+    StorageTargetConfig,
+)
 from sleep_env_server.models import MeasurementUpload
 
 
@@ -105,6 +112,27 @@ class StorageWriteResult:
 
 
 @dataclass(frozen=True)
+class StorageAcceptance:
+    """Composite upload acceptance result."""
+
+    accepted: bool
+    duplicate: bool
+    conflict: bool
+    results: tuple[StorageWriteResult, ...] = ()
+    status_code: int = 204
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ConfiguredStore:
+    """Persistent backend with effective ACK settings."""
+
+    target: str
+    store: MeasurementStore
+    ack: AckPolicyConfig
+
+
+@dataclass(frozen=True)
 class HistorySummary:
     """Small summary for history views and APIs."""
 
@@ -184,9 +212,10 @@ class SQLiteMeasurementStore:
 
     name = "sqlite"
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, dedup_strategy: str = "keep_first") -> None:
         """Initializes a SQLite store."""
         self.path = Path(path)
+        self.dedup_strategy = dedup_strategy
         self._initialized = False
         self._lock = Lock()
 
@@ -235,7 +264,7 @@ class SQLiteMeasurementStore:
         self._initialized = True
 
     def write(self, record: MeasurementRecord) -> StorageWriteResult:
-        """Writes one record with keep-first duplicate behavior."""
+        """Writes one record using the configured duplicate behavior."""
         with self._lock:
             self.initialize()
             with self._connect() as conn:
@@ -248,6 +277,69 @@ class SQLiteMeasurementStore:
                 ).fetchone()
                 if row is not None:
                     conflict = row["payload_json"] != record.payload_json
+                    if conflict and self.dedup_strategy == "reject":
+                        return StorageWriteResult(
+                            backend=self.name,
+                            stored=False,
+                            duplicate=True,
+                            conflict=True,
+                            error="duplicate conflict rejected",
+                        )
+                    if conflict and self.dedup_strategy in ("keep_last", "overwrite"):
+                        conn.execute(
+                            """
+                            UPDATE measurements
+                            SET received_unix_ms = ?,
+                                source = ?,
+                                display_unix_ms = ?,
+                                display_time_source = ?,
+                                payload_json = ?,
+                                schema_version = ?,
+                                time_status = ?,
+                                wall_clock_unix_ms = ?,
+                                uptime_ms = ?,
+                                temperature_c = ?,
+                                humidity_percent = ?,
+                                lux = ?,
+                                mic_mean = ?,
+                                mic_rms = ?,
+                                mic_peak = ?,
+                                mic_db_rel = ?,
+                                mic_clip_count = ?,
+                                error_flags = ?,
+                                duplicate_count = duplicate_count + 1,
+                                updated_unix_ms = ?
+                            WHERE device_id = ? AND sequence = ?
+                            """,
+                            (
+                                record.received_unix_ms,
+                                record.source,
+                                record.display_unix_ms,
+                                record.display_time_source,
+                                record.payload_json,
+                                record.upload.schema_version,
+                                record.upload.time_status,
+                                record.upload.wall_clock_unix_ms,
+                                record.upload.uptime_ms,
+                                record.upload.temperature_c,
+                                record.upload.humidity_percent,
+                                record.upload.lux,
+                                record.upload.mic_mean,
+                                record.upload.mic_rms,
+                                record.upload.mic_peak,
+                                record.upload.mic_db_rel,
+                                record.upload.mic_clip_count,
+                                record.upload.error_flags,
+                                record.received_unix_ms,
+                                *record.key,
+                            ),
+                        )
+                        return StorageWriteResult(
+                            backend=self.name,
+                            stored=True,
+                            duplicate=True,
+                            conflict=True,
+                        )
                     conn.execute(
                         """
                         UPDATE measurements
@@ -330,13 +422,14 @@ class SQLiteMeasurementStore:
 
 
 class JsonlMeasurementStore:
-    """JSONL-backed append store with keep-first canonical reads."""
+    """JSONL-backed append store with configurable canonical reads."""
 
     name = "jsonl"
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, dedup_strategy: str = "keep_first") -> None:
         """Initializes a JSONL store."""
         self.path = Path(path)
+        self.dedup_strategy = dedup_strategy
         self._lock = Lock()
 
     def initialize(self) -> None:
@@ -353,6 +446,14 @@ class JsonlMeasurementStore:
             existing = canonical.get(record.key)
             duplicate = existing is not None
             conflict = existing is not None and existing.payload_json != record.payload_json
+            if conflict and self.dedup_strategy == "reject":
+                return StorageWriteResult(
+                    backend=self.name,
+                    stored=False,
+                    duplicate=True,
+                    conflict=True,
+                    error="duplicate conflict rejected",
+                )
             with self.path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(record.to_jsonl_event(), separators=(",", ":")))
                 stream.write("\n")
@@ -424,7 +525,7 @@ class JsonlMeasurementStore:
         return len(records)
 
     def _canonical_records(self) -> dict[tuple[str, int], MeasurementRecord]:
-        """Reads canonical keep-first records from the JSONL file."""
+        """Reads canonical records from the JSONL file."""
         if not self.path.exists():
             return {}
         records: dict[tuple[str, int], MeasurementRecord] = {}
@@ -434,8 +535,257 @@ class JsonlMeasurementStore:
                     continue
                 event = json.loads(line)
                 record = MeasurementRecord.from_jsonl_event(event)
-                records.setdefault(record.key, record)
+                existing = records.get(record.key)
+                if existing is None:
+                    records[record.key] = record
+                    continue
+                if existing.payload_json != record.payload_json and self.dedup_strategy in (
+                    "keep_last",
+                    "overwrite",
+                ):
+                    records[record.key] = record
         return records
+
+
+class ConfiguredMeasurementSink:
+    """Composite sink that writes configured stores and evaluates ACK policy."""
+
+    def __init__(
+        self,
+        storage_config: StorageConfig,
+        *,
+        stores: tuple[ConfiguredStore, ...] | None = None,
+    ) -> None:
+        """Initializes a configured sink."""
+        self.storage_config = storage_config
+        self.memory = InMemoryMeasurementSink()
+        self.stores = stores if stores is not None else build_configured_stores(storage_config)
+
+    def accept_upload(
+        self,
+        measurement: MeasurementUpload,
+        *,
+        received_unix_ms: int,
+        source: str = "unknown",
+    ) -> StorageAcceptance:
+        """Accepts an upload into memory and configured durable stores."""
+        memory_result = self.memory.accept(measurement)
+        if not self.storage_config.enabled:
+            if self.storage_config.required_for_ack:
+                return StorageAcceptance(
+                    accepted=False,
+                    duplicate=memory_result.duplicate,
+                    conflict=False,
+                    status_code=503,
+                    reason="storage required for ACK but storage is disabled",
+                )
+            return StorageAcceptance(
+                accepted=True,
+                duplicate=memory_result.duplicate,
+                conflict=False,
+            )
+
+        record = MeasurementRecord.from_upload(
+            measurement,
+            received_unix_ms=received_unix_ms,
+            source=source,
+        )
+        if self.storage_config.time_source == "server_received":
+            record = replace(
+                record,
+                display_unix_ms=received_unix_ms,
+                display_time_source="server_received",
+            )
+        results = tuple(_write_store(configured, record) for configured in self.stores)
+        accepted, reason = self._ack_satisfied(results)
+        status_code = 204 if accepted else _unsatisfied_status(results)
+        return StorageAcceptance(
+            accepted=accepted,
+            duplicate=memory_result.duplicate or any(result.duplicate for result in results),
+            conflict=any(result.conflict for result in results),
+            results=results,
+            status_code=status_code,
+            reason=reason,
+        )
+
+    def _ack_satisfied(self, results: tuple[StorageWriteResult, ...]) -> tuple[bool, str | None]:
+        """Evaluates the configured ACK policy."""
+        if not self.storage_config.required_for_ack:
+            return True, None
+        if not self.stores:
+            return False, "storage required for ACK but no storage backend is enabled"
+
+        result_by_backend = {result.backend: result for result in results}
+        sufficient = [configured for configured in self.stores if configured.ack.sufficient_for_ack]
+        if any(result_by_backend[configured.target].stored for configured in sufficient):
+            return True, None
+
+        required = [configured for configured in self.stores if configured.ack.required_for_ack]
+        if not required:
+            return False, "storage required for ACK but no required backend is configured"
+        if all(result_by_backend[configured.target].stored for configured in required):
+            return True, None
+        return False, "storage ACK policy was not satisfied"
+
+    def reconcile_once(self) -> int:
+        """Copies missing canonical records between enabled stores once."""
+        if len(self.stores) < 2:
+            return 0
+        by_key: dict[tuple[str, int], MeasurementRecord] = {}
+        present: dict[str, set[tuple[str, int]]] = {}
+        for configured in self.stores:
+            records = configured.store.list_records(limit=1_000_000)
+            present[configured.target] = {record.key for record in records}
+            for record in records:
+                by_key.setdefault(record.key, record)
+
+        writes = 0
+        for configured in self.stores:
+            missing = [
+                record for key, record in by_key.items() if key not in present[configured.target]
+            ]
+            for record in missing:
+                if configured.store.write(record).stored:
+                    writes += 1
+        return writes
+
+    def compact_jsonl_once(self) -> int:
+        """Compacts configured JSONL stores once."""
+        written = 0
+        for configured in self.stores:
+            if isinstance(configured.store, JsonlMeasurementStore):
+                written += configured.store.compact()
+        return written
+
+
+class StorageMaintenanceThread(Thread):
+    """Background storage reconciliation loop."""
+
+    def __init__(self, sink: ConfiguredMeasurementSink, interval_seconds: int) -> None:
+        """Initializes a daemon maintenance thread."""
+        super().__init__(name="storage-maintenance", daemon=True)
+        self._sink = sink
+        self._interval_seconds = interval_seconds
+        self._stop_requested = Event()
+
+    def stop(self) -> None:
+        """Requests maintenance shutdown."""
+        self._stop_requested.set()
+
+    def run(self) -> None:
+        """Runs periodic reconciliation until stopped."""
+        while not self._stop_requested.wait(self._interval_seconds):
+            self._sink.reconcile_once()
+            self._sink.compact_jsonl_once()
+
+
+def build_configured_stores(config: StorageConfig) -> tuple[ConfiguredStore, ...]:
+    """Builds enabled durable stores from configuration."""
+    if not config.enabled:
+        return ()
+    stores: list[ConfiguredStore] = []
+    if config.sqlite.enabled:
+        stores.append(_configured_store("sqlite", config.sqlite, config))
+    if config.jsonl.enabled:
+        stores.append(_configured_store("jsonl", config.jsonl, config))
+    return tuple(stores)
+
+
+def _configured_store(
+    name: str,
+    target: StorageTargetConfig,
+    config: StorageConfig,
+) -> ConfiguredStore:
+    """Builds one configured store with effective profile settings."""
+    profile = _effective_policy_profile(target.policy, config.policy)
+    if name == "sqlite":
+        store: MeasurementStore = SQLiteMeasurementStore(
+            target.path,
+            dedup_strategy=profile.deduplication.strategy,
+        )
+    elif name == "jsonl":
+        store = JsonlMeasurementStore(
+            target.path,
+            dedup_strategy=profile.deduplication.strategy,
+        )
+    else:
+        raise ValueError(f"unsupported storage target: {name}")
+    return ConfiguredStore(
+        target=name,
+        store=store,
+        ack=_effective_ack(target, profile),
+    )
+
+
+def _effective_policy_profile(
+    name: str,
+    policy: StoragePolicyConfig,
+) -> PolicyProfileConfig:
+    """Returns a profile with parent settings applied.
+
+    Profile parsing keeps normal dataclass defaults for omitted nested fields.
+    During inheritance, a child field that still equals its type default is
+    treated as omitted so common child profiles can inherit parent ACK,
+    deduplication, limit, and backfill settings without repeating them.
+    """
+    profile = policy.profiles[name]
+    parent_name = profile.parent or policy.default_parent
+    if not parent_name:
+        return profile
+    parent = _effective_policy_profile(parent_name, policy)
+    default = PolicyProfileConfig()
+    return PolicyProfileConfig(
+        parent=profile.parent,
+        limit=profile.limit if profile.limit != default.limit else parent.limit,
+        deduplication=(
+            profile.deduplication
+            if profile.deduplication != default.deduplication
+            else parent.deduplication
+        ),
+        ack=profile.ack if profile.ack != default.ack else parent.ack,
+        backfill=profile.backfill if profile.backfill != default.backfill else parent.backfill,
+    )
+
+
+def _effective_ack(
+    target: StorageTargetConfig,
+    profile: PolicyProfileConfig,
+) -> AckPolicyConfig:
+    """Returns target ACK settings, falling back to the policy profile."""
+    if target.ack.required_for_ack or target.ack.sufficient_for_ack:
+        return target.ack
+    return profile.ack
+
+
+def _write_store(
+    configured: ConfiguredStore,
+    record: MeasurementRecord,
+) -> StorageWriteResult:
+    """Writes to one store and converts backend exceptions into status."""
+    try:
+        result = configured.store.write(record)
+    except Exception as exc:  # noqa: BLE001 - backend failures must not crash upload handling
+        return StorageWriteResult(
+            backend=configured.target,
+            stored=False,
+            error=str(exc),
+        )
+    if result.backend == configured.target:
+        return result
+    return StorageWriteResult(
+        backend=configured.target,
+        stored=result.stored,
+        duplicate=result.duplicate,
+        conflict=result.conflict,
+        error=result.error,
+    )
+
+
+def _unsatisfied_status(results: tuple[StorageWriteResult, ...]) -> int:
+    """Maps an unsatisfied ACK policy to a firmware-visible status code."""
+    if any(result.conflict for result in results):
+        return 409
+    return 503
 
 
 def canonical_payload_json(upload: MeasurementUpload) -> str:

@@ -23,7 +23,7 @@ from sleep_env_server.discovery import (
     local_address_for_peer,
 )
 from sleep_env_server.output import OutputMode, ServerOutput
-from sleep_env_server.storage import InMemoryMeasurementSink
+from sleep_env_server.storage import ConfiguredMeasurementSink, StorageMaintenanceThread
 
 PRINT_OUTPUT_MODES = ("rich", "plain", "json")
 
@@ -136,17 +136,29 @@ def run_serve(
         ),
         stream=stream,
     )
-    sink = InMemoryMeasurementSink()
+    sink = ConfiguredMeasurementSink(app_config.storage)
     app = create_app(config, sink=sink, output=output)
     discovery = UdpDiscoveryResponder(config, output)
+    maintenance: StorageMaintenanceThread | None = None
 
     output.startup(config, config.log_level)
+    if app_config.storage.reconcile_on_start:
+        output.storage_reconciled(copied=sink.reconcile_once())
+    if app_config.storage.reconcile_interval_seconds > 0 and len(sink.stores) > 1:
+        maintenance = StorageMaintenanceThread(
+            sink,
+            app_config.storage.reconcile_interval_seconds,
+        )
+        maintenance.start()
     discovery.start()
     try:
         uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level)
     except KeyboardInterrupt:
         output.shutdown_requested()
     finally:
+        if maintenance is not None:
+            maintenance.stop()
+            maintenance.join(timeout=1.0)
         discovery.stop()
         discovery.join(timeout=1.0)
         output.stopped()

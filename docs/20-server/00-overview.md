@@ -18,9 +18,10 @@ packaged Python application:
 The formal server:
 
 - Accepts RESTful measurement uploads from one or more devices.
-- Returns HTTP 2xx only after the upload passes validation and is accepted by
-  the in-process sink.
-- Treats duplicate `(device_id, sequence)` uploads as idempotent success.
+- Returns HTTP 2xx only after the upload passes validation and the configured
+  storage ACK policy is satisfied.
+- Treats duplicate `(device_id, sequence)` uploads according to the configured
+  storage deduplication policy.
 - Provides a server time endpoint so firmware can obtain real-world time when
   NTP is unavailable.
 - Publishes a discovery document for automatic endpoint discovery.
@@ -41,9 +42,9 @@ than future storage or deployment intent.
 
 | Request | Current behavior |
 |---|---|
-| `POST /api/v1/measurements` with a valid schema-version-1 body | Accepts the upload into a process-local in-memory sink, emits bounded acceptance metadata, and returns `204 No Content`. |
+| `POST /api/v1/measurements` with a valid schema-version-1 body | Accepts the upload into the configured sink, writes enabled durable stores, emits bounded acceptance metadata, and returns `204 No Content` when the ACK policy is satisfied. |
 | `POST /api/v1/measurements` with invalid JSON or an invalid model | Returns a FastAPI/Pydantic request-validation error response and does not accept the upload. |
-| Repeated `POST /api/v1/measurements` with the same `(device_id, sequence)` | Returns `204 No Content` as idempotent success; the first accepted model for that key remains in memory. A later payload with the same key is not compared field-by-field or used to replace the first model. |
+| Repeated `POST /api/v1/measurements` with the same `(device_id, sequence)` | Follows the configured deduplication strategy. The default `keep_first` behavior returns `204 No Content` and preserves the first canonical record. A `reject` policy returns non-2xx for conflicting duplicates when that rejection prevents the ACK policy from being satisfied. |
 | `POST` to another path, including the removed `/measurements` CSV path | Returns `404 Not Found`. |
 | `GET /api/v1/time` | Returns `{"unix_ms": <server wall-clock epoch milliseconds>, "source": "server"}` at request time. |
 | `GET /.well-known/sleep-environment-monitor` | Returns API path metadata and the configured UDP discovery port. It does not include the server HTTP host or port. |
@@ -64,14 +65,21 @@ The accepted upload model currently enforces:
 
 ### State And Diagnostics
 
-- Accepted records and duplicate keys exist only in the running server process.
-  A restart loses them; there is no database, file export, retention policy, or
-  measurement read/query endpoint.
+- Accepted records are tracked in the running process and, when configured,
+  written to SQLite, JSONL, or both. The generated default configuration enables
+  SQLite at `./sleep-environment.db` and requires it for upload ACK.
+- JSONL compaction and cross-store backfill helpers are implemented. Backfill
+  runs once at startup when enabled and can run periodically in a background
+  maintenance thread.
+- There is not yet a measurement read/query endpoint; the authenticated history
+  API is a later Phase 26 milestone.
 - Successful upload diagnostics include client source address, request byte
   count, `device_id`, `sequence`, and duplicate status. Sensor values and the
   unbounded body are not written to the server event output.
+- Storage ACK failures emit bounded rejection diagnostics and return non-2xx to
+  preserve the firmware retry contract.
 - There is no HTTP authentication, authorization, or transport-security setup
-  in the application itself.
+  for upload, time, or discovery endpoints.
 
 ### UDP Discovery
 
@@ -90,24 +98,24 @@ The accepted upload model currently enforces:
 
 | Command | Current behavior |
 |---|---|
-| `sleep-env-server serve` | Starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
-| `sleep-env-server check-config` | Validates CLI-provided host/port settings without opening sockets and prints a plain `config_ok` event on success. |
+| `sleep-env-server serve` | Loads TOML configuration, starts configured storage and optional maintenance backfill, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
+| `sleep-env-server check-config` | Validates XDG or explicit TOML plus CLI overrides without opening sockets and prints a plain `config_ok` event on success. |
 | `sleep-env-server print-discovery` | Prints the HTTP discovery document and an example UDP discovery response in `rich`, `plain`, or `json` output. |
 | `python3 server/post_receiver.py` | Compatibility entry point; inserts `serve` when invoked without an explicit subcommand. |
 
-The current configuration surface is command-line flags. No environment-file or
-environment-variable loading is implemented by the application.
+The current configuration surface is TOML plus CLI overrides. Without
+`--config`, commands read or generate
+`$XDG_CONFIG_HOME/sleep-env-server/config.toml`, falling back to
+`~/.config/sleep-env-server/config.toml` when `XDG_CONFIG_HOME` is unset.
 
 ## Boundaries
 
-Phase 23 intentionally uses process-local duplicate tracking only. Durable
-storage, deployment service management, authentication, authorization, and
-long-term retention policy remain future work.
+Durable SQLite/JSONL storage and upload ACK policy are implemented for Phase 26.
+Deployment service management, upload authentication/authorization, retention
+cleanup enforcement, and history reads remain future work.
 
-Phase 26 adds the planned server-side persistence and local operator surfaces:
+Phase 26 continues to add the planned local operator surfaces:
 
-- SQLite and JSONL persistence with configurable ACK policy.
-- TOML configuration loaded from XDG defaults or an explicit `--config` path.
 - Rich live dashboard and offline history views.
 - Bearer-protected history read endpoints.
 

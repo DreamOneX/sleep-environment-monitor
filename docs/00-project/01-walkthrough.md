@@ -3806,3 +3806,64 @@ Milestone commit message:
 ```text
 feat: add server persistent stores
 ```
+
+## Milestone 65: Server Storage ACK Policy And Backfill
+
+This milestone connects configured durable storage to the upload path and
+enforces the Phase 26 storage ACK policy.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  with implementation status through Milestone 65.
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md) so current
+  behavior reflects configured TOML loading, SQLite/JSONL persistence, storage
+  ACK behavior, and startup backfill.
+- Updated [../20-server/01-rest-api.md](../20-server/01-rest-api.md) to state
+  that upload HTTP 2xx now depends on the configured storage ACK policy.
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) to document storage
+  setup and maintenance behavior in `serve`.
+
+Implementation:
+
+- Added `ConfiguredMeasurementSink` to write enabled stores and evaluate
+  global, required, and sufficient ACK policy before the FastAPI route returns.
+- Added per-target effective ACK and deduplication handling from storage policy
+  profiles.
+- Added `reject`, `keep_last`, and `overwrite` duplicate behavior to the
+  SQLite and JSONL stores.
+- Added bounded upload rejection diagnostics without logging measurement
+  payloads.
+- Updated `sleep-env-server serve` to build configured stores, run startup
+  reconciliation when enabled, and start a background maintenance thread for
+  periodic reconcile/JSONL compaction when multiple stores are active.
+- Added deterministic tests for ACK policy behavior, duplicate conflicts,
+  durable upload writes, and cross-store backfill.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 66 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 17 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- No human-assisted or hardware verification was required for this server
+  milestone. Human-assisted verification remains skipped unless a later user
+  message changes that availability assumption.
+
+Milestone commit message:
+
+```text
+feat: add storage ack policy and backfill
+```

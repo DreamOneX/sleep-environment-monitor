@@ -58,6 +58,10 @@ json-log: disabled
 
 Behavior:
 
+- Load XDG or explicit TOML configuration and apply CLI overrides.
+- Build configured SQLite/JSONL storage targets before opening network sockets.
+- Run startup backfill when enabled and start the background storage
+  maintenance loop when more than one backend is active.
 - Start the FastAPI/Uvicorn HTTP server.
 - Start the UDP discovery responder on the configured port.
 - Print Rich startup information for local operation unless disabled.

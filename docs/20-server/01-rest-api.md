@@ -35,10 +35,13 @@ The firmware may acknowledge a persisted measurement only after `POST /api/v1/me
 
 Server requirements:
 
-- Return 2xx only after the payload is accepted.
+- Return 2xx only after the payload is accepted and the configured storage ACK
+  policy is satisfied.
 - Return non-2xx for invalid payloads or unavailable ingestion.
-- Tolerate duplicate submissions from the same device and sequence. Phase 23
-  treats duplicates as idempotent success and returns `204`.
+- Tolerate duplicate submissions from the same device and sequence according to
+  the configured deduplication policy. The default generated configuration uses
+  `keep_first`; a `reject` policy may return non-2xx for conflicting duplicates
+  when durable storage is required for ACK.
 - Preserve enough request metadata for later diagnostics.
 
 Firmware requirements:
@@ -123,13 +126,14 @@ default.
 
 ## Implementation Notes
 
-The Phase 23 formal server keeps behavior equivalent to the Phase 22 receiver
-unless this contract is intentionally revised in a later phase.
+The formal server keeps the Phase 22 firmware-facing API paths and payload
+schema. Phase 26 adds configurable durable storage behind the upload ACK
+decision.
 
 Requirements:
 
-- `POST /api/v1/measurements` returns a 2xx response only after accepting
-  the upload for processing.
+- `POST /api/v1/measurements` returns a 2xx response only after accepting the
+  upload for processing and satisfying the configured storage ACK policy.
 - Invalid JSON, invalid measurement schema, or unavailable ingestion returns
   non-2xx.
 - Other `POST` paths return `404`.

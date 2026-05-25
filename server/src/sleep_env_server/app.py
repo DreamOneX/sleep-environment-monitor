@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Protocol
+from typing import Any, Protocol
 
 from fastapi import FastAPI, Request, Response
 
 from sleep_env_server.config import ServerConfig
 from sleep_env_server.models import DiscoveryDocument, MeasurementUpload, TimeResponse
 from sleep_env_server.output import NullOutput
-from sleep_env_server.storage import InMemoryMeasurementSink
+from sleep_env_server.storage import InMemoryMeasurementSink, StorageAcceptance
 
 Clock = Callable[[], int]
 
@@ -30,6 +30,20 @@ class UploadOutput(Protocol):
     ) -> None:
         """Writes bounded upload acceptance metadata."""
 
+    def upload_rejected(
+        self,
+        *,
+        source: str,
+        byte_count: int,
+        device_id: str,
+        sequence: int,
+        status_code: int,
+        duplicate: bool,
+        conflict: bool,
+        reason: str,
+    ) -> None:
+        """Writes bounded upload rejection metadata."""
+
 
 def current_unix_ms() -> int:
     """Returns the current Unix time in milliseconds."""
@@ -40,7 +54,7 @@ def create_app(
     config: ServerConfig | None = None,
     *,
     clock: Clock = current_unix_ms,
-    sink: InMemoryMeasurementSink | None = None,
+    sink: object | None = None,
     output: UploadOutput | None = None,
 ) -> FastAPI:
     """Creates the FastAPI application.
@@ -63,8 +77,25 @@ def create_app(
     @app.post(active_config.measurement_upload_path, status_code=204)
     async def upload_measurement(upload: MeasurementUpload, request: Request) -> Response:
         body = await request.body()
-        accepted = active_sink.accept(upload)
         source = request.client.host if request.client is not None else "unknown"
+        accepted = _accept_measurement(
+            active_sink,
+            upload,
+            received_unix_ms=clock(),
+            source=source,
+        )
+        if not accepted.accepted:
+            active_output.upload_rejected(
+                source=source,
+                byte_count=len(body),
+                device_id=upload.device_id,
+                sequence=upload.sequence,
+                status_code=accepted.status_code,
+                duplicate=accepted.duplicate,
+                conflict=accepted.conflict,
+                reason=accepted.reason or "storage ACK policy was not satisfied",
+            )
+            return Response(status_code=accepted.status_code)
         active_output.upload_accepted(
             source=source,
             byte_count=len(body),
@@ -83,3 +114,23 @@ def create_app(
         return active_config.discovery_document()
 
     return app
+
+
+def _accept_measurement(
+    sink: Any,
+    upload: MeasurementUpload,
+    *,
+    received_unix_ms: int,
+    source: str,
+) -> StorageAcceptance:
+    """Accepts an upload through either the configured or legacy sink API."""
+    accept_upload = getattr(sink, "accept_upload", None)
+    if callable(accept_upload):
+        return accept_upload(upload, received_unix_ms=received_unix_ms, source=source)
+
+    accepted = sink.accept(upload)
+    return StorageAcceptance(
+        accepted=True,
+        duplicate=accepted.duplicate,
+        conflict=False,
+    )

@@ -104,6 +104,13 @@ Phase 23 intentionally uses process-local duplicate tracking only. Durable
 storage, deployment service management, authentication, authorization, and
 long-term retention policy remain future work.
 
+Phase 26 adds the planned server-side persistence and local operator surfaces:
+
+- SQLite and JSONL persistence with configurable ACK policy.
+- TOML configuration loaded from XDG defaults or an explicit `--config` path.
+- Rich live dashboard and offline history views.
+- Bearer-protected history read endpoints.
+
 Phase 24 BLE upload planning does not add a server-side BLE protocol. If a
 future phone or gateway receives measurements over BLE and forwards them to the
 server, it should use the existing REST API contract.
@@ -114,5 +121,7 @@ server, it should use the existing REST API contract.
 - [02-toolchain.md](02-toolchain.md): Python toolchain, style policy,
   formatter/linter policy, and unit-test expectations.
 - [03-cli.md](03-cli.md): `argparse` command surface.
+- [04-persistence-configuration.md](04-persistence-configuration.md): persistence,
+  TOML configuration, history API, and Rich display plan.
 - [../10-firmware/03-network.md](../10-firmware/03-network.md): firmware network responsibilities.
 - [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md): cross-component roadmap.

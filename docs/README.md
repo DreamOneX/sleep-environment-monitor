@@ -38,6 +38,7 @@ This directory contains the tracked project documentation.
 - [20-server/01-rest-api.md](20-server/01-rest-api.md): REST API contract between firmware and server.
 - [20-server/02-toolchain.md](20-server/02-toolchain.md): Python server toolchain, style policy, formatter/linter policy, and test expectations.
 - [20-server/03-cli.md](20-server/03-cli.md): formal server CLI behavior.
+- [20-server/04-persistence-configuration.md](20-server/04-persistence-configuration.md): planned server persistence, TOML configuration, history API, and Rich display behavior.
 
 ## Integration
 
@@ -62,3 +63,5 @@ This directory contains the tracked project documentation.
 - Keep BLE upload design decisions in `10-firmware/05-ble.md`.
 - Keep the server API contract in `20-server/01-rest-api.md`.
 - Keep server toolchain, CLI, style, and test policy in `20-server/02-toolchain.md` and `20-server/03-cli.md`.
+- Keep server persistence, configuration, history API, and Rich display
+  behavior in `20-server/04-persistence-configuration.md`.

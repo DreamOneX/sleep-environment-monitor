@@ -3690,3 +3690,38 @@ Milestone commit message:
 ```text
 docs: describe current server behavior
 ```
+
+## Milestone 62: Phase 26 Server Persistence Plan
+
+This milestone starts Phase 26 with documentation-first planning for server
+persistence, TOML configuration, Rich output, and history reads. It does not
+change server runtime code.
+
+Documentation update:
+
+- Added [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  as the Phase 26 persistence/configuration/history design authority.
+- Added [../../server/config.example.toml](../../server/config.example.toml)
+  as the tracked example for the planned XDG-generated TOML configuration.
+- Added Phase 26 to [00-development-plan.md](00-development-plan.md).
+- Updated the documentation index, server overview, CLI docs, and toolchain
+  docs to reference the planned storage, configuration, history API, and Rich
+  dashboard behavior.
+- Recorded the rule that every Phase 26 milestone must end with at least one
+  commit.
+
+Validation commands:
+
+```bash
+git diff --check
+```
+
+Observed validation results:
+
+- `git diff --check` completed without whitespace diagnostics.
+
+Milestone commit message:
+
+```text
+docs: plan server persistence and history
+```

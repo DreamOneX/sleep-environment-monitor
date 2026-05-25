@@ -1,0 +1,62 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+udp_discovery_port = 39022
+api_base = "/api/v1"
+log_level = "info"
+
+[output]
+mode = "auto" # auto, rich, plain, json
+dashboard = true
+
+[storage]
+enabled = true
+required_for_ack = true
+reconcile_on_start = true
+reconcile_interval_seconds = 300
+time_source = "device_reported" # device_reported, server_received
+time_fallback = "server_received"
+
+[storage.policy]
+default_profile = "default"
+default_parent = ""
+
+[storage.policy.profile.default]
+limit = { time_limit = "10d", size_limit = "100MB" }
+deduplication = { strategy = "keep_first" } # keep_first, keep_last, overwrite, reject
+ack = { required_for_ack = false, sufficient_for_ack = false }
+
+[storage.policy.profile.default.backfill]
+source = "all"
+exclude = []
+conflict = "error" # overwrite, keep, earliest, latest, error
+
+[storage.policy.profile.no_limit]
+parent = "default"
+limit = { time_limit = -1, size_limit = -1 }
+
+[storage.jsonl]
+enabled = false
+path = "./sleep-environment.jsonl"
+policy = "default"
+ack = { required_for_ack = false, sufficient_for_ack = false }
+
+[storage.sqlite]
+enabled = true
+path = "./sleep-environment.db"
+policy = "no_limit"
+ack = { required_for_ack = true, sufficient_for_ack = true }
+
+[history_api]
+enabled = false
+bearer_token = ""
+read_source = "merge" # merge, sqlite, jsonl
+
+[history_api.merge]
+sources = ["sqlite", "jsonl"]
+conflict = "error"
+
+[history_cli]
+read_source = "merge"
+tail_count = 20
+metrics = ["temperature_c", "humidity_percent", "lux", "mic_db_rel"]

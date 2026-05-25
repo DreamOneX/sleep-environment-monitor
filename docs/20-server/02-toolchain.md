@@ -15,6 +15,8 @@ Implemented defaults:
 - Data validation: Pydantic models.
 - Human-readable console output: Rich.
 - CLI implementation: Python stdlib `argparse`.
+- Configuration parser: Python stdlib `tomllib`.
+- Durable local storage: Python stdlib `sqlite3` and JSONL files.
 - Tests: pytest.
 - Formatter and linter: Ruff, used as check-only guidance.
 
@@ -24,6 +26,7 @@ Primary commands:
 uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
 uv run sleep-env-server check-config
 uv run sleep-env-server print-discovery
+uv run sleep-env-server history
 ```
 
 ## Package Layout
@@ -35,6 +38,7 @@ server/
 ├── pyproject.toml
 ├── uv.lock
 ├── README.md
+├── config.example.toml
 ├── post_receiver.py
 ├── src/
 │   └── sleep_env_server/

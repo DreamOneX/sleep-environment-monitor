@@ -2715,6 +2715,86 @@ refactor: split Phase 24 maintenance modules
 
 ---
 
+# Phase 26: Server Persistence, Configuration, And History
+
+## Goal
+
+Add durable server-side measurement storage, TOML configuration, Rich local
+operator views, and authenticated history reads while preserving the existing
+firmware upload contract.
+
+Documentation comes first. Each Phase 26 milestone must update relevant docs,
+record completion evidence in [01-walkthrough.md](01-walkthrough.md), and end
+with at least one commit.
+
+## Work Items
+
+- Add [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  and keep server persistence/configuration behavior documented before code
+  changes.
+- Add [../../server/config.example.toml](../../server/config.example.toml) as
+  the tracked configuration reference.
+- Load TOML configuration from XDG defaults or an explicit `--config` path.
+- Generate the XDG default config on first use when it is absent.
+- Preserve CLI overrides for host, ports, log level, and output behavior.
+- Add SQLite and JSONL storage backends that can be independently enabled.
+- Implement configurable ACK policy with global `storage.required_for_ack`,
+  backend-level `required_for_ack`, and backend-level `sufficient_for_ack`.
+- Implement policy profiles for retention, deduplication, and backfill.
+- Add Bearer-protected history read endpoints under `/api/v1/history/`.
+- Add Rich live dashboard output for interactive `serve` sessions.
+- Add a local history CLI for summary, tail, and simple metric trends.
+
+## Unit Tests
+
+All Phase 26 tests must remain hardware-free.
+
+Required coverage:
+
+- XDG config path selection, default generation, explicit config loading, and
+  CLI override precedence.
+- Storage policy profile inheritance, loop rejection, retention parsing,
+  deduplication strategy parsing, and ACK flag parsing.
+- SQLite and JSONL write/read behavior, duplicate handling, compaction, and
+  retention cleanup.
+- ACK matrix for global required off, sufficient success, required success,
+  missing ACK paths, storage failures, and duplicate conflicts.
+- Backfill startup and background helpers with deterministic fake clocks or
+  direct helper calls.
+- History API token validation, query validation, measurement listing, and
+  summary output.
+- Rich dashboard/history output paths without requiring a real terminal.
+
+## Verification
+
+Run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+## Done When
+
+- Existing upload, time, discovery, and UDP discovery behavior remains
+  compatible with firmware.
+- Default config generation produces a valid TOML file.
+- Measurements can persist to SQLite, JSONL, both, or neither according to
+  config.
+- HTTP 2xx upload ACK follows the configured storage ACK policy.
+- History API requires Bearer token when enabled.
+- Rich live and offline views are available without breaking plain/JSON output.
+- Each milestone has at least one commit and walkthrough evidence.
+
+## Git Commit Message
+
+```text
+feat: persist and display server measurements
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.

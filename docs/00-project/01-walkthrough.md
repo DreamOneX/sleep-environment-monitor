@@ -3725,3 +3725,44 @@ Milestone commit message:
 ```text
 docs: plan server persistence and history
 ```
+
+## Milestone 63: Server TOML Configuration Foundation
+
+This milestone implements the Phase 26 TOML configuration foundation. It does
+not yet route uploads into durable storage.
+
+Implementation:
+
+- Added `AppConfig` plus server, output, storage policy, storage target,
+  history API, and history CLI configuration models.
+- Added TOML loading through Python stdlib `tomllib`.
+- Added XDG default config resolution for
+  `$XDG_CONFIG_HOME/sleep-env-server/config.toml` or
+  `~/.config/sleep-env-server/config.toml`.
+- Added automatic default config generation from
+  [../../server/config.example.toml](../../server/config.example.toml) when the
+  XDG default file is absent.
+- Added `--config` to server CLI commands and changed CLI host/port/log
+  options so unspecified CLI defaults do not overwrite TOML values.
+- Kept `config_from_args` as a file-free parser helper for tests while runtime
+  command handlers load TOML through `app_config_from_args`.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 48 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 16 server files formatted.
+
+Milestone commit message:
+
+```text
+feat: add server toml configuration
+```

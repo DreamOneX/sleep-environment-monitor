@@ -6,7 +6,8 @@ import json
 import os
 import sqlite3
 import tempfile
-from dataclasses import dataclass, replace
+import time
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Protocol
@@ -130,6 +131,7 @@ class ConfiguredStore:
     target: str
     store: MeasurementStore
     ack: AckPolicyConfig
+    profile: PolicyProfileConfig = field(default_factory=PolicyProfileConfig)
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,9 @@ class MeasurementStore(Protocol):
         end_unix_ms: int | None = None,
     ) -> HistorySummary:
         """Returns a summary for canonical records."""
+
+    def retain_records(self, records: list[MeasurementRecord]) -> int:
+        """Deletes records not present in the retained canonical set."""
 
 
 class InMemoryMeasurementSink:
@@ -414,6 +419,32 @@ class SQLiteMeasurementStore:
         )
         return summarize_records(records)
 
+    def retain_records(self, records: list[MeasurementRecord]) -> int:
+        """Deletes canonical records not present in ``records``."""
+        keep = {record.key for record in records}
+        with self._lock:
+            self.initialize()
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT device_id, sequence FROM measurements
+                    """
+                ).fetchall()
+                removed = 0
+                for row in rows:
+                    key = (str(row["device_id"]), int(row["sequence"]))
+                    if key in keep:
+                        continue
+                    conn.execute(
+                        """
+                        DELETE FROM measurements
+                        WHERE device_id = ? AND sequence = ?
+                        """,
+                        key,
+                    )
+                    removed += 1
+        return removed
+
     def _connect(self) -> sqlite3.Connection:
         """Opens a configured SQLite connection."""
         conn = sqlite3.connect(self.path)
@@ -509,20 +540,15 @@ class JsonlMeasurementStore:
         """
         with self._lock:
             records = list(self._canonical_records().values())
-            if self.path.parent != Path("."):
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=self.path.parent,
-                delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                for record in records:
-                    tmp.write(json.dumps(record.to_jsonl_event(), separators=(",", ":")))
-                    tmp.write("\n")
-            os.replace(tmp_path, self.path)
+            self._replace_records_unlocked(records)
         return len(records)
+
+    def retain_records(self, records: list[MeasurementRecord]) -> int:
+        """Rewrites the JSONL file with retained canonical records only."""
+        with self._lock:
+            existing_count = len(self._canonical_records())
+            self._replace_records_unlocked(records)
+        return max(0, existing_count - len(records))
 
     def _canonical_records(self) -> dict[tuple[str, int], MeasurementRecord]:
         """Reads canonical records from the JSONL file."""
@@ -545,6 +571,22 @@ class JsonlMeasurementStore:
                 ):
                     records[record.key] = record
         return records
+
+    def _replace_records_unlocked(self, records: list[MeasurementRecord]) -> None:
+        """Atomically rewrites records while the caller owns ``_lock``."""
+        if self.path.parent != Path("."):
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=self.path.parent,
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            for record in records:
+                tmp.write(json.dumps(record.to_jsonl_event(), separators=(",", ":")))
+                tmp.write("\n")
+        os.replace(tmp_path, self.path)
 
 
 class ConfiguredMeasurementSink:
@@ -628,24 +670,33 @@ class ConfiguredMeasurementSink:
         return False, "storage ACK policy was not satisfied"
 
     def reconcile_once(self) -> int:
-        """Copies missing canonical records between enabled stores once."""
+        """Copies and reconciles canonical records between enabled stores once."""
         if len(self.stores) < 2:
             return 0
-        by_key: dict[tuple[str, int], MeasurementRecord] = {}
-        present: dict[str, set[tuple[str, int]]] = {}
-        for configured in self.stores:
-            records = configured.store.list_records(limit=1_000_000)
-            present[configured.target] = {record.key for record in records}
-            for record in records:
-                by_key.setdefault(record.key, record)
 
         writes = 0
-        for configured in self.stores:
-            missing = [
-                record for key, record in by_key.items() if key not in present[configured.target]
-            ]
-            for record in missing:
-                if configured.store.write(record).stored:
+        for destination in self.stores:
+            destination_records = {
+                record.key: record for record in destination.store.list_records(limit=1_000_000)
+            }
+            source_records = _backfill_source_records(destination, self.stores)
+            for key, source_record in source_records.items():
+                existing = destination_records.get(key)
+                if existing is None:
+                    if destination.store.write(source_record).stored:
+                        destination_records[key] = source_record
+                        writes += 1
+                    continue
+
+                selected = _resolve_record_conflict(
+                    existing,
+                    source_record,
+                    destination.profile.backfill.conflict,
+                )
+                if selected is None or selected.payload_json == existing.payload_json:
+                    continue
+                if _replace_store_record(destination.store, existing.key, selected):
+                    destination_records[key] = selected
                     writes += 1
         return writes
 
@@ -656,6 +707,19 @@ class ConfiguredMeasurementSink:
             if isinstance(configured.store, JsonlMeasurementStore):
                 written += configured.store.compact()
         return written
+
+    def enforce_retention_once(self, now_unix_ms: int | None = None) -> int:
+        """Applies configured retention limits once.
+
+        Args:
+            now_unix_ms: Optional deterministic time for tests. Defaults to
+                current wall-clock epoch milliseconds.
+
+        Returns:
+            Number of canonical records removed.
+        """
+        active_now = int(time.time() * 1000) if now_unix_ms is None else now_unix_ms
+        return sum(_enforce_store_retention(configured, active_now) for configured in self.stores)
 
 
 class StorageMaintenanceThread(Thread):
@@ -676,6 +740,7 @@ class StorageMaintenanceThread(Thread):
         """Runs periodic reconciliation until stopped."""
         while not self._stop_requested.wait(self._interval_seconds):
             self._sink.reconcile_once()
+            self._sink.enforce_retention_once()
             self._sink.compact_jsonl_once()
 
 
@@ -787,6 +852,165 @@ def history_summary_to_dict(summary: HistorySummary) -> dict[str, Any]:
     }
 
 
+def _backfill_source_records(
+    destination: ConfiguredStore,
+    stores: tuple[ConfiguredStore, ...],
+) -> dict[tuple[str, int], MeasurementRecord]:
+    """Collects source records for one destination store."""
+    backfill = destination.profile.backfill
+    excluded = set(backfill.exclude)
+    records_by_key: dict[tuple[str, int], MeasurementRecord] = {}
+    blocked: set[tuple[str, int]] = set()
+    for source in stores:
+        if source.target == destination.target:
+            continue
+        if source.target in excluded:
+            continue
+        if backfill.source != "all" and source.target != backfill.source:
+            continue
+        for record in source.store.list_records(limit=1_000_000):
+            if record.key in blocked:
+                continue
+            existing = records_by_key.get(record.key)
+            if existing is None:
+                records_by_key[record.key] = record
+                continue
+            selected = _resolve_record_conflict(existing, record, backfill.conflict)
+            if selected is None:
+                blocked.add(record.key)
+                records_by_key.pop(record.key, None)
+                continue
+            records_by_key[record.key] = selected
+    return records_by_key
+
+
+def _resolve_record_conflict(
+    existing: MeasurementRecord,
+    candidate: MeasurementRecord,
+    conflict: str,
+) -> MeasurementRecord | None:
+    """Resolves one duplicate-key record conflict."""
+    if existing.payload_json == candidate.payload_json:
+        return existing
+    if conflict == "keep":
+        return existing
+    if conflict == "overwrite":
+        return candidate
+    if conflict == "earliest":
+        return candidate if candidate.display_unix_ms < existing.display_unix_ms else existing
+    if conflict == "latest":
+        return candidate if candidate.display_unix_ms > existing.display_unix_ms else existing
+    return None
+
+
+def _replace_store_record(
+    store: MeasurementStore,
+    key: tuple[str, int],
+    record: MeasurementRecord,
+) -> bool:
+    """Replaces one canonical store record by deleting then writing."""
+    retained = [item for item in store.list_records(limit=1_000_000) if item.key != key]
+    store.retain_records(retained)
+    return store.write(record).stored
+
+
+def _enforce_store_retention(configured: ConfiguredStore, now_unix_ms: int) -> int:
+    """Applies effective retention limits to one configured store."""
+    time_limit_ms = _duration_limit_ms(configured.profile.limit.time_limit)
+    size_limit_bytes = _size_limit_bytes(configured.profile.limit.size_limit)
+    if time_limit_ms is None and size_limit_bytes is None:
+        return 0
+    records = configured.store.list_records(limit=1_000_000)
+    retained = _retained_records(
+        records,
+        now_unix_ms=now_unix_ms,
+        time_limit_ms=time_limit_ms,
+        size_limit_bytes=size_limit_bytes,
+    )
+    if len(retained) == len(records):
+        return 0
+    return configured.store.retain_records(retained)
+
+
+def _retained_records(
+    records: list[MeasurementRecord],
+    *,
+    now_unix_ms: int,
+    time_limit_ms: int | None,
+    size_limit_bytes: int | None,
+) -> list[MeasurementRecord]:
+    """Returns records retained by time and approximate canonical event size."""
+    retained = sorted(records, key=lambda record: (record.display_unix_ms, *record.key))
+    if time_limit_ms is not None:
+        cutoff = now_unix_ms - time_limit_ms
+        retained = [record for record in retained if record.display_unix_ms >= cutoff]
+
+    if size_limit_bytes is None:
+        return retained
+    if size_limit_bytes <= 0:
+        return []
+
+    newest_first = sorted(
+        retained, key=lambda record: (record.display_unix_ms, *record.key), reverse=True
+    )
+    size = 0
+    kept: list[MeasurementRecord] = []
+    for record in newest_first:
+        record_size = _record_event_size(record)
+        if size + record_size <= size_limit_bytes or not kept:
+            kept.append(record)
+            size += record_size
+            continue
+        break
+    kept.sort(key=lambda record: (record.display_unix_ms, *record.key))
+    return kept
+
+
+def _duration_limit_ms(value: str | int) -> int | None:
+    """Parses retention time limits; ``-1`` means unlimited."""
+    if isinstance(value, int):
+        return None if value < 0 else value
+    text = value.strip().lower()
+    if text == "-1":
+        return None
+    for suffix, multiplier in (
+        ("ms", 1),
+        ("s", 1_000),
+        ("m", 60_000),
+        ("h", 3_600_000),
+        ("d", 86_400_000),
+    ):
+        if text.endswith(suffix):
+            return int(float(text[: -len(suffix)]) * multiplier)
+    return int(text)
+
+
+def _size_limit_bytes(value: str | int) -> int | None:
+    """Parses retention size limits; ``-1`` means unlimited."""
+    if isinstance(value, int):
+        return None if value < 0 else value
+    text = value.strip().lower()
+    if text == "-1":
+        return None
+    for suffix, multiplier in (
+        ("gib", 1024**3),
+        ("gb", 1000**3),
+        ("mib", 1024**2),
+        ("mb", 1000**2),
+        ("kib", 1024),
+        ("kb", 1000),
+        ("b", 1),
+    ):
+        if text.endswith(suffix):
+            return int(float(text[: -len(suffix)]) * multiplier)
+    return int(text)
+
+
+def _record_event_size(record: MeasurementRecord) -> int:
+    """Returns the byte size of one canonical JSONL event."""
+    return len(json.dumps(record.to_jsonl_event(), separators=(",", ":")).encode("utf-8")) + 1
+
+
 def _configured_store(
     name: str,
     target: StorageTargetConfig,
@@ -810,6 +1034,7 @@ def _configured_store(
         target=name,
         store=store,
         ack=_effective_ack(target, profile),
+        profile=profile,
     )
 
 

@@ -193,6 +193,26 @@ rules remain frozen.
 - [ ] Consider later, lower-priority splits for `firmware/src/drivers/flash.rs`
   if flash layout, ROM adapter, and smoke-test code continue to grow.
 
+## Phase 26 Server Persistence, Configuration, And History
+
+Phase 26 is complete for hardware-free server implementation and validation.
+No human-assisted or hardware verification was required for this server phase.
+
+- [x] Added documentation-first Phase 26 persistence/configuration/history plan
+  and tracked TOML example configuration.
+- [x] Implemented XDG/default TOML loading, default config generation, explicit
+  `--config`, and CLI overrides.
+- [x] Implemented SQLite and JSONL storage with duplicate handling, canonical
+  reads, summaries, JSONL compaction, and retention cleanup.
+- [x] Implemented configurable storage ACK policy and durable upload routing.
+- [x] Implemented startup/periodic backfill with source, exclude, and conflict
+  handling.
+- [x] Implemented Bearer-protected history read endpoints.
+- [x] Implemented Rich local serve output and offline `history` CLI summary,
+  tail, and metric trends.
+- [x] Recorded milestone validation evidence and committed every Phase 26
+  milestone separately.
+
 ## Future Security, Configuration, And Hardware Validation
 
 - [ ] Replace bring-up Wi-Fi defaults with a deployment-safe credential model.

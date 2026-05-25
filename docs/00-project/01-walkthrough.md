@@ -3980,3 +3980,60 @@ Milestone commit message:
 ```text
 feat: add rich history output
 ```
+
+## Milestone 68: Retention Cleanup And Final Server Validation
+
+This milestone completes the remaining Phase 26 storage policy work and records
+the final server validation pass.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to mark retention cleanup implemented and document the supported time/size
+  limit units.
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md) so current
+  behavior includes retention cleanup and no longer lists it as future work.
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) so `serve` documents
+  startup retention cleanup and the single-backend maintenance loop.
+- Updated [03-todo.md](03-todo.md) to mark Phase 26 server persistence,
+  configuration, history, Rich output, backfill, and retention tasks complete.
+
+Implementation:
+
+- Added effective policy profile retention limits to configured stores.
+- Added retention cleanup for SQLite and JSONL stores.
+- Added parsing for retention duration limits and byte-size limits.
+- Added startup and periodic retention cleanup through `ConfiguredMeasurementSink`
+  and the storage maintenance thread.
+- Completed configurable backfill source, exclude, and conflict handling.
+- Added deterministic tests for retention parsing, SQLite time retention, JSONL
+  size compaction, backfill source selection, source exclusion, and conflict
+  resolution.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 86 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 17 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- No human-assisted or hardware verification was required for Phase 26.
+  Human-assisted verification remains skipped unless a later user message
+  changes that availability assumption.
+
+Milestone commit message:
+
+```text
+feat: complete server retention policies
+```

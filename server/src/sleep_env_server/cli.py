@@ -192,7 +192,8 @@ def run_serve(
     output.startup(config, config.log_level)
     if app_config.storage.reconcile_on_start:
         output.storage_reconciled(copied=sink.reconcile_once())
-    if app_config.storage.reconcile_interval_seconds > 0 and len(sink.stores) > 1:
+    sink.enforce_retention_once()
+    if app_config.storage.reconcile_interval_seconds > 0 and sink.stores:
         maintenance = StorageMaintenanceThread(
             sink,
             app_config.storage.reconcile_interval_seconds,

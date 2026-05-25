@@ -4,7 +4,14 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from sleep_env_server.config import AckPolicyConfig, StorageConfig, StorageTargetConfig
+from sleep_env_server.config import (
+    AckPolicyConfig,
+    BackfillConfig,
+    LimitConfig,
+    PolicyProfileConfig,
+    StorageConfig,
+    StorageTargetConfig,
+)
 from sleep_env_server.models import MeasurementUpload
 from sleep_env_server.storage import (
     ConfiguredMeasurementSink,
@@ -325,6 +332,140 @@ def test_configured_sink_reconcile_copies_missing_records_between_stores(
     assert copied == 2
     assert [item.upload.sequence for item in sqlite.list_records()] == [1, 2]
     assert [item.upload.sequence for item in jsonl.list_records()] == [1, 2]
+
+
+def test_configured_sink_reconcile_honors_backfill_conflict_latest(
+    tmp_path: Path,
+) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    sqlite.write(record(1))
+    jsonl.write(
+        replace(
+            record(1, temperature_c=30.0),
+            display_unix_ms=1_700_000_000_999,
+        )
+    )
+    sink = ConfiguredMeasurementSink(
+        StorageConfig(),
+        stores=(
+            ConfiguredStore(
+                target="sqlite",
+                store=sqlite,
+                ack=AckPolicyConfig(),
+                profile=PolicyProfileConfig(backfill=BackfillConfig(conflict="latest")),
+            ),
+            ConfiguredStore(target="jsonl", store=jsonl, ack=AckPolicyConfig()),
+        ),
+    )
+
+    copied = sink.reconcile_once()
+
+    assert copied == 1
+    assert sqlite.list_records()[0].upload.temperature_c == 30.0
+
+
+def test_configured_sink_reconcile_can_exclude_a_source(tmp_path: Path) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    jsonl.write(record(1))
+    sink = ConfiguredMeasurementSink(
+        StorageConfig(),
+        stores=(
+            ConfiguredStore(
+                target="sqlite",
+                store=sqlite,
+                ack=AckPolicyConfig(),
+                profile=PolicyProfileConfig(backfill=BackfillConfig(exclude=("jsonl",))),
+            ),
+            ConfiguredStore(target="jsonl", store=jsonl, ack=AckPolicyConfig()),
+        ),
+    )
+
+    copied = sink.reconcile_once()
+
+    assert copied == 0
+    assert sqlite.list_records() == []
+
+
+def test_configured_sink_reconcile_can_select_one_source(tmp_path: Path) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    archive = SQLiteMeasurementStore(tmp_path / "archive.db")
+    sqlite.write(record(1))
+    jsonl.write(record(2))
+    sink = ConfiguredMeasurementSink(
+        StorageConfig(),
+        stores=(
+            ConfiguredStore(
+                target="archive",
+                store=archive,
+                ack=AckPolicyConfig(),
+                profile=PolicyProfileConfig(backfill=BackfillConfig(source="jsonl")),
+            ),
+            ConfiguredStore(target="sqlite", store=sqlite, ack=AckPolicyConfig()),
+            ConfiguredStore(target="jsonl", store=jsonl, ack=AckPolicyConfig()),
+        ),
+    )
+
+    copied = sink.reconcile_once()
+
+    assert copied == 3
+    assert [item.upload.sequence for item in archive.list_records()] == [2]
+
+
+def test_configured_sink_retention_removes_sqlite_records_by_time(
+    tmp_path: Path,
+) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    sqlite.write(record(1))
+    sqlite.write(record(2))
+    sqlite.write(record(3))
+    sink = ConfiguredMeasurementSink(
+        StorageConfig(),
+        stores=(
+            ConfiguredStore(
+                target="sqlite",
+                store=sqlite,
+                ack=AckPolicyConfig(),
+                profile=PolicyProfileConfig(
+                    limit=LimitConfig(time_limit="1ms", size_limit=-1),
+                ),
+            ),
+        ),
+    )
+
+    removed = sink.enforce_retention_once(now_unix_ms=1_700_000_000_003)
+
+    assert removed == 1
+    assert [item.upload.sequence for item in sqlite.list_records()] == [2, 3]
+
+
+def test_configured_sink_retention_compacts_jsonl_by_size(
+    tmp_path: Path,
+) -> None:
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    jsonl.write(record(1))
+    jsonl.write(record(2))
+    jsonl.write(record(3))
+    sink = ConfiguredMeasurementSink(
+        StorageConfig(),
+        stores=(
+            ConfiguredStore(
+                target="jsonl",
+                store=jsonl,
+                ack=AckPolicyConfig(),
+                profile=PolicyProfileConfig(
+                    limit=LimitConfig(time_limit=-1, size_limit=1),
+                ),
+            ),
+        ),
+    )
+
+    removed = sink.enforce_retention_once(now_unix_ms=1_700_000_000_003)
+
+    assert removed == 2
+    assert [item.upload.sequence for item in jsonl.list_records()] == [3]
 
 
 def test_list_configured_history_records_can_merge_sources(tmp_path: Path) -> None:

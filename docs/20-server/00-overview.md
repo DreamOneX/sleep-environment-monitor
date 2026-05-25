@@ -70,9 +70,9 @@ The accepted upload model currently enforces:
 - Accepted records are tracked in the running process and, when configured,
   written to SQLite, JSONL, or both. The generated default configuration enables
   SQLite at `./sleep-environment.db` and requires it for upload ACK.
-- JSONL compaction and cross-store backfill helpers are implemented. Backfill
-  runs once at startup when enabled and can run periodically in a background
-  maintenance thread.
+- JSONL compaction, cross-store backfill, and retention cleanup helpers are
+  implemented. Backfill and retention cleanup run at startup when enabled and
+  can run periodically in a background maintenance thread.
 - The history read API is disabled by default. When enabled, it requires a
   configured Bearer token and reads from SQLite, JSONL, or a configured merged
   view.
@@ -104,7 +104,7 @@ The accepted upload model currently enforces:
 
 | Command | Current behavior |
 |---|---|
-| `sleep-env-server serve` | Loads TOML configuration, starts configured storage and optional maintenance backfill, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
+| `sleep-env-server serve` | Loads TOML configuration, starts configured storage plus maintenance backfill/retention, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
 | `sleep-env-server check-config` | Validates XDG or explicit TOML plus CLI overrides without opening sockets and prints a plain `config_ok` event on success. |
 | `sleep-env-server print-discovery` | Prints the HTTP discovery document and an example UDP discovery response in `rich`, `plain`, or `json` output. |
 | `sleep-env-server history` | Reads configured local storage directly and prints summary, recent measurements, and simple metric trends in `rich`, `plain`, or `json` output. |
@@ -120,7 +120,7 @@ The current configuration surface is TOML plus CLI overrides. Without
 Durable SQLite/JSONL storage, upload ACK policy, authenticated history reads,
 Rich local output, and the offline history CLI are implemented for Phase 26.
 Deployment service management, upload authentication/authorization, and
-retention cleanup enforcement remain future work.
+production deployment hardening remain future work.
 
 Phase 24 BLE upload planning does not add a server-side BLE protocol. If a
 future phone or gateway receives measurements over BLE and forwards them to the

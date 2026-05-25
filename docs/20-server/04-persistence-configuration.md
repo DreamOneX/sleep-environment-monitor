@@ -3,7 +3,7 @@
 This document defines the planned Phase 26 server persistence, TOML
 configuration, history API, and Rich display behavior.
 
-Implementation status through Milestone 67:
+Implementation status through Milestone 68:
 
 - TOML loading, XDG default generation, and CLI overrides are implemented.
 - SQLite and JSONL stores are implemented with canonical reads, duplicate
@@ -15,7 +15,7 @@ Implementation status through Milestone 67:
   enabled stores.
 - Rich serve output shows a local live measurements/trends dashboard, and
   `sleep-env-server history` prints summary, recent rows, and metric trends.
-- Retention cleanup remains pending for a later Phase 26 milestone.
+- Retention cleanup is enforced on startup and in the periodic maintenance loop.
 
 The implementation must preserve the existing firmware-facing REST and UDP
 contract. Firmware still uploads measurements to `POST /api/v1/measurements`
@@ -109,9 +109,13 @@ Retention limits:
 
 - `time_limit` may be a duration string such as `10d` or `-1`.
 - `size_limit` may be a size string such as `100MB` or `-1`.
-- SQLite deletes records outside the retained canonical window.
-- JSONL uses atomic compaction to keep retained canonical records and required
-  audit state.
+- `-1` means unlimited.
+- Time limits currently support `ms`, `s`, `m`, `h`, and `d` suffixes.
+- Size limits currently support byte, KB/MB/GB, and KiB/MiB/GiB suffixes.
+- SQLite deletes canonical records outside the retained window.
+- JSONL uses atomic rewrite/compaction to keep retained canonical records.
+- Size retention is based on the canonical JSON event byte budget and retains
+  newest canonical records first.
 
 Backfill runs once at startup and then on a configured background interval.
 Backfill can read all enabled targets or one target, exclude targets, and apply

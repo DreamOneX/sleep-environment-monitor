@@ -123,6 +123,31 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.history_cli.metrics == ("temperature_c",)
 
 
+def test_storage_policy_retention_limits_are_parsed(tmp_path: Path) -> None:
+    config_path = tmp_path / "server.toml"
+    config_path.write_text(
+        """
+        [storage.policy]
+        default_profile = "default"
+
+        [storage.policy.profile.default]
+        limit = { time_limit = "2h", size_limit = "4MB" }
+
+        [storage.sqlite]
+        enabled = true
+        path = "./measurements.db"
+        policy = "default"
+        """,
+        encoding="utf-8",
+    )
+
+    config = load_app_config(str(config_path))
+
+    profile = config.storage.policy.profiles["default"]
+    assert profile.limit.time_limit == "2h"
+    assert profile.limit.size_limit == "4MB"
+
+
 def test_history_api_requires_token_when_enabled() -> None:
     with pytest.raises(ValueError, match="bearer_token"):
         app_config_from_mapping({"history_api": {"enabled": True}})

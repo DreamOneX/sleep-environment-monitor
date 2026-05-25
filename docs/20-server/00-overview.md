@@ -47,6 +47,8 @@ than future storage or deployment intent.
 | Repeated `POST /api/v1/measurements` with the same `(device_id, sequence)` | Follows the configured deduplication strategy. The default `keep_first` behavior returns `204 No Content` and preserves the first canonical record. A `reject` policy returns non-2xx for conflicting duplicates when that rejection prevents the ACK policy from being satisfied. |
 | `POST` to another path, including the removed `/measurements` CSV path | Returns `404 Not Found`. |
 | `GET /api/v1/time` | Returns `{"unix_ms": <server wall-clock epoch milliseconds>, "source": "server"}` at request time. |
+| `GET /api/v1/history/measurements` | Registered only when `[history_api].enabled = true`; requires `Authorization: Bearer <token>` and returns filtered, paginated persisted records. |
+| `GET /api/v1/history/summary` | Registered only when `[history_api].enabled = true`; requires `Authorization: Bearer <token>` and returns counts and metric averages for the selected range. |
 | `GET /.well-known/sleep-environment-monitor` | Returns API path metadata and the configured UDP discovery port. It does not include the server HTTP host or port. |
 
 The accepted upload model currently enforces:
@@ -71,8 +73,9 @@ The accepted upload model currently enforces:
 - JSONL compaction and cross-store backfill helpers are implemented. Backfill
   runs once at startup when enabled and can run periodically in a background
   maintenance thread.
-- There is not yet a measurement read/query endpoint; the authenticated history
-  API is a later Phase 26 milestone.
+- The history read API is disabled by default. When enabled, it requires a
+  configured Bearer token and reads from SQLite, JSONL, or a configured merged
+  view.
 - Successful upload diagnostics include client source address, request byte
   count, `device_id`, `sequence`, and duplicate status. Sensor values and the
   unbounded body are not written to the server event output.
@@ -110,14 +113,14 @@ The current configuration surface is TOML plus CLI overrides. Without
 
 ## Boundaries
 
-Durable SQLite/JSONL storage and upload ACK policy are implemented for Phase 26.
-Deployment service management, upload authentication/authorization, retention
-cleanup enforcement, and history reads remain future work.
+Durable SQLite/JSONL storage, upload ACK policy, and authenticated history
+reads are implemented for Phase 26. Deployment service management, upload
+authentication/authorization, and retention cleanup enforcement remain future
+work.
 
 Phase 26 continues to add the planned local operator surfaces:
 
 - Rich live dashboard and offline history views.
-- Bearer-protected history read endpoints.
 
 Phase 24 BLE upload planning does not add a server-side BLE protocol. If a
 future phone or gateway receives measurements over BLE and forwards them to the

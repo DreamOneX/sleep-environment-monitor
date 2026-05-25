@@ -25,6 +25,8 @@ The discovery document remains under `/.well-known/` so clients can find API det
 |---|---|---|
 | `GET` | `/api/v1/time` | Return server wall-clock time for firmware fallback sync. |
 | `POST` | `/api/v1/measurements` | Accept measurement uploads. |
+| `GET` | `/api/v1/history/measurements` | Return persisted measurements when history API is enabled. |
+| `GET` | `/api/v1/history/summary` | Return persisted measurement summary when history API is enabled. |
 | `GET` | `/.well-known/sleep-environment-monitor` | Return discovery metadata. |
 
 The formal server returns `404` for other `POST` paths.
@@ -54,6 +56,35 @@ Phase 24 BLE upload does not change this server contract. BLE is a firmware-side
 GATT upload path to a nearby central. If that central later forwards records to
 the server, it should submit the same JSON schema version 1 payload to
 `POST /api/v1/measurements`.
+
+## History Read API
+
+History routes are disabled by default. When `[history_api].enabled = true`,
+both routes require:
+
+```text
+Authorization: Bearer <configured-token>
+```
+
+`GET /api/v1/history/measurements` supports:
+
+- `device_id`
+- `start_unix_ms`
+- `end_unix_ms`
+- `limit` in `1..=1000`
+- `offset` greater than or equal to `0`
+
+The response contains `records`, `limit`, and `offset`. Each record includes
+server receive metadata, display time metadata, and the original
+schema-version-1 payload.
+
+`GET /api/v1/history/summary` supports `device_id`, `start_unix_ms`, and
+`end_unix_ms`. The response contains `count`, `devices`,
+`first_received_unix_ms`, `last_received_unix_ms`, and metric `averages`.
+
+History reads use `[history_api].read_source`. A missing configured source
+returns non-2xx. Merge conflicts return non-2xx when the configured merge
+strategy is `error`.
 
 ## Measurement Payload
 
@@ -138,6 +169,8 @@ Requirements:
   non-2xx.
 - Other `POST` paths return `404`.
 - `GET /api/v1/time` returns integer `unix_ms` and source metadata.
+- History routes are registered only when enabled and require a valid Bearer
+  token.
 - `GET /.well-known/sleep-environment-monitor` describes the active API
   paths and UDP discovery port.
 - UDP discovery responds only to the documented query payload.

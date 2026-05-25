@@ -5,11 +5,13 @@ from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from sleep_env_server.app import create_app
 from sleep_env_server.config import (
     AckPolicyConfig,
+    HistoryApiConfig,
     ServerConfig,
     StorageConfig,
     StorageTargetConfig,
@@ -35,6 +37,19 @@ def valid_measurement_payload() -> dict[str, object]:
         "mic_clip_count": 2,
         "error_flags": 17,
     }
+
+
+def sqlite_storage_config(tmp_path: Path) -> StorageConfig:
+    return replace(
+        StorageConfig(),
+        sqlite=StorageTargetConfig(
+            enabled=True,
+            path=str(tmp_path / "measurements.db"),
+            policy="no_limit",
+            ack=AckPolicyConfig(required_for_ack=True, sufficient_for_ack=True),
+        ),
+        jsonl=StorageTargetConfig(enabled=False),
+    )
 
 
 def test_valid_measurement_upload_returns_204_and_logs_bounded_metadata() -> None:
@@ -73,16 +88,7 @@ def test_duplicate_measurement_upload_returns_204_with_duplicate_log() -> None:
 def test_measurement_upload_persists_to_configured_storage(tmp_path: Path) -> None:
     stream = StringIO()
     output = ServerOutput("json", stream=stream)
-    storage = replace(
-        StorageConfig(),
-        sqlite=StorageTargetConfig(
-            enabled=True,
-            path=str(tmp_path / "measurements.db"),
-            policy="no_limit",
-            ack=AckPolicyConfig(required_for_ack=True, sufficient_for_ack=True),
-        ),
-        jsonl=StorageTargetConfig(enabled=False),
-    )
+    storage = sqlite_storage_config(tmp_path)
     sink = ConfiguredMeasurementSink(storage)
     app = create_app(sink=sink, output=output, clock=lambda: 1_900_000_000_007)
     client = TestClient(app)
@@ -98,17 +104,7 @@ def test_measurement_upload_returns_non_2xx_when_storage_ack_rejects(
 ) -> None:
     stream = StringIO()
     output = ServerOutput("json", stream=stream)
-    storage = replace(
-        StorageConfig(),
-        policy=StorageConfig().policy,
-        sqlite=StorageTargetConfig(
-            enabled=True,
-            path=str(tmp_path / "measurements.db"),
-            policy="no_limit",
-            ack=AckPolicyConfig(required_for_ack=True, sufficient_for_ack=True),
-        ),
-        jsonl=StorageTargetConfig(enabled=False),
-    )
+    storage = sqlite_storage_config(tmp_path)
     sink = ConfiguredMeasurementSink(storage)
     app = create_app(sink=sink, output=output, clock=lambda: 1_900_000_000_007)
     client = TestClient(app)
@@ -126,6 +122,121 @@ def test_measurement_upload_returns_non_2xx_when_storage_ack_rejects(
     assert events[-1]["event"] == "upload_rejected"
     assert events[-1]["conflict"] is True
     assert events[-1]["status_code"] == 409
+
+
+def test_history_api_is_not_registered_by_default() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/history/measurements")
+
+    assert response.status_code == 404
+
+
+def test_history_api_requires_bearer_token(tmp_path: Path) -> None:
+    sink = ConfiguredMeasurementSink(sqlite_storage_config(tmp_path))
+    app = create_app(
+        sink=sink,
+        history_api=HistoryApiConfig(enabled=True, bearer_token="secret"),
+    )
+    client = TestClient(app)
+
+    missing = client.get("/api/v1/history/measurements")
+    wrong = client.get(
+        "/api/v1/history/measurements",
+        headers={"Authorization": "Bearer wrong"},
+    )
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert wrong.status_code == 401
+
+
+def test_history_api_lists_paginated_measurements(tmp_path: Path) -> None:
+    sink = ConfiguredMeasurementSink(sqlite_storage_config(tmp_path))
+    app = create_app(
+        sink=sink,
+        clock=lambda: 1_900_000_000_007,
+        history_api=HistoryApiConfig(
+            enabled=True,
+            bearer_token="secret",
+            read_source="sqlite",
+        ),
+    )
+    client = TestClient(app)
+    first = valid_measurement_payload()
+    second = valid_measurement_payload()
+    second["sequence"] = 8
+
+    assert client.post("/api/v1/measurements", json=first).status_code == 204
+    assert client.post("/api/v1/measurements", json=second).status_code == 204
+    response = client.get(
+        "/api/v1/history/measurements?limit=1&offset=1",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 1
+    assert body["offset"] == 1
+    assert len(body["records"]) == 1
+    assert body["records"][0]["payload"]["sequence"] == 8
+
+
+def test_history_api_returns_summary(tmp_path: Path) -> None:
+    sink = ConfiguredMeasurementSink(sqlite_storage_config(tmp_path))
+    app = create_app(
+        sink=sink,
+        clock=lambda: 1_900_000_000_007,
+        history_api=HistoryApiConfig(
+            enabled=True,
+            bearer_token="secret",
+            read_source="sqlite",
+        ),
+    )
+    client = TestClient(app)
+    first = valid_measurement_payload()
+    second = valid_measurement_payload()
+    second["sequence"] = 8
+    second["temperature_c"] = 23.5
+
+    assert client.post("/api/v1/measurements", json=first).status_code == 204
+    assert client.post("/api/v1/measurements", json=second).status_code == 204
+    response = client.get(
+        "/api/v1/history/summary",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert body["devices"] == ["sleep-env-esp32c3"]
+    assert body["averages"]["temperature_c"] == pytest.approx(22.5)
+
+
+def test_history_api_validates_query_and_missing_source(tmp_path: Path) -> None:
+    sink = ConfiguredMeasurementSink(
+        replace(
+            StorageConfig(),
+            sqlite=StorageTargetConfig(enabled=False),
+            jsonl=StorageTargetConfig(enabled=False),
+        )
+    )
+    app = create_app(
+        sink=sink,
+        history_api=HistoryApiConfig(
+            enabled=True,
+            bearer_token="secret",
+            read_source="sqlite",
+        ),
+    )
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret"}
+
+    invalid = client.get("/api/v1/history/measurements?limit=0", headers=headers)
+    missing = client.get("/api/v1/history/measurements", headers=headers)
+
+    assert invalid.status_code == 422
+    assert missing.status_code == 503
 
 
 def test_invalid_json_returns_non_2xx() -> None:

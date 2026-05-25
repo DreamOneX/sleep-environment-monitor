@@ -691,6 +691,102 @@ def build_configured_stores(config: StorageConfig) -> tuple[ConfiguredStore, ...
     return tuple(stores)
 
 
+def list_configured_history_records(
+    stores: tuple[ConfiguredStore, ...],
+    *,
+    read_source: str,
+    merge_sources: tuple[str, ...] = ("sqlite", "jsonl"),
+    merge_conflict: str = "error",
+    device_id: str | None = None,
+    start_unix_ms: int | None = None,
+    end_unix_ms: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[MeasurementRecord]:
+    """Lists records from one configured source or a merged view."""
+    configured_by_target = {configured.target: configured for configured in stores}
+    if read_source != "merge":
+        configured = configured_by_target.get(read_source)
+        if configured is None:
+            raise ValueError(f"history source is not configured: {read_source}")
+        return configured.store.list_records(
+            device_id=device_id,
+            start_unix_ms=start_unix_ms,
+            end_unix_ms=end_unix_ms,
+            limit=limit,
+            offset=offset,
+        )
+
+    records_by_key: dict[tuple[str, int], MeasurementRecord] = {}
+    used_sources = 0
+    for source in merge_sources:
+        configured = configured_by_target.get(source)
+        if configured is None:
+            continue
+        used_sources += 1
+        records = configured.store.list_records(
+            device_id=device_id,
+            start_unix_ms=start_unix_ms,
+            end_unix_ms=end_unix_ms,
+            limit=1_000_000,
+        )
+        for record in records:
+            _merge_history_record(records_by_key, record, merge_conflict)
+
+    if used_sources == 0:
+        raise ValueError("no configured history sources are available")
+    records = list(records_by_key.values())
+    records.sort(key=lambda record: (record.display_unix_ms, *record.key))
+    return records[offset : offset + limit]
+
+
+def summarize_configured_history_records(
+    stores: tuple[ConfiguredStore, ...],
+    *,
+    read_source: str,
+    merge_sources: tuple[str, ...] = ("sqlite", "jsonl"),
+    merge_conflict: str = "error",
+    device_id: str | None = None,
+    start_unix_ms: int | None = None,
+    end_unix_ms: int | None = None,
+) -> HistorySummary:
+    """Summarizes records from one configured source or a merged view."""
+    return summarize_records(
+        list_configured_history_records(
+            stores,
+            read_source=read_source,
+            merge_sources=merge_sources,
+            merge_conflict=merge_conflict,
+            device_id=device_id,
+            start_unix_ms=start_unix_ms,
+            end_unix_ms=end_unix_ms,
+            limit=1_000_000,
+        )
+    )
+
+
+def history_record_to_dict(record: MeasurementRecord) -> dict[str, Any]:
+    """Returns a public history representation for API and CLI output."""
+    return {
+        "received_unix_ms": record.received_unix_ms,
+        "source": record.source,
+        "display_unix_ms": record.display_unix_ms,
+        "display_time_source": record.display_time_source,
+        "payload": record.upload.model_dump(mode="json"),
+    }
+
+
+def history_summary_to_dict(summary: HistorySummary) -> dict[str, Any]:
+    """Returns a public summary representation for API and CLI output."""
+    return {
+        "count": summary.count,
+        "devices": list(summary.devices),
+        "first_received_unix_ms": summary.first_received_unix_ms,
+        "last_received_unix_ms": summary.last_received_unix_ms,
+        "averages": summary.averages,
+    }
+
+
 def _configured_store(
     name: str,
     target: StorageTargetConfig,
@@ -714,6 +810,36 @@ def _configured_store(
         target=name,
         store=store,
         ack=_effective_ack(target, profile),
+    )
+
+
+def _merge_history_record(
+    records_by_key: dict[tuple[str, int], MeasurementRecord],
+    record: MeasurementRecord,
+    merge_conflict: str,
+) -> None:
+    """Merges one record into a canonical history view."""
+    existing = records_by_key.get(record.key)
+    if existing is None:
+        records_by_key[record.key] = record
+        return
+    if existing.payload_json == record.payload_json:
+        return
+    if merge_conflict == "keep":
+        return
+    if merge_conflict == "overwrite":
+        records_by_key[record.key] = record
+        return
+    if merge_conflict == "earliest":
+        if record.display_unix_ms < existing.display_unix_ms:
+            records_by_key[record.key] = record
+        return
+    if merge_conflict == "latest":
+        if record.display_unix_ms > existing.display_unix_ms:
+            records_by_key[record.key] = record
+        return
+    raise ValueError(
+        f"history merge conflict for {record.upload.device_id}:{record.upload.sequence}"
     )
 
 

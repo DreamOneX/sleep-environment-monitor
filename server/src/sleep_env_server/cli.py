@@ -137,7 +137,7 @@ def run_serve(
         stream=stream,
     )
     sink = ConfiguredMeasurementSink(app_config.storage)
-    app = create_app(config, sink=sink, output=output)
+    app = create_app(config, sink=sink, output=output, history_api=app_config.history_api)
     discovery = UdpDiscoveryResponder(config, output)
     maintenance: StorageMaintenanceThread | None = None
 

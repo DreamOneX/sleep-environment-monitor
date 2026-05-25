@@ -8,12 +8,13 @@ Implementation status through Milestone 65:
 - TOML loading, XDG default generation, and CLI overrides are implemented.
 - SQLite and JSONL stores are implemented with canonical reads, duplicate
   handling, summaries, and JSONL compaction.
-- `sleep-env-server serve` routes uploads through configured durable stores and
-  applies the configured ACK policy before returning HTTP 2xx.
+- `sleep-env-server serve` routes uploads through configured durable stores,
+  applies the configured ACK policy before returning HTTP 2xx, and registers
+  Bearer-protected history read endpoints when enabled.
 - Startup and periodic backfill helpers copy missing canonical records between
   enabled stores.
-- Retention cleanup, authenticated history API, Rich live dashboard, and local
-  history CLI remain pending for later Phase 26 milestones.
+- Retention cleanup, Rich live dashboard, and local history CLI remain pending
+  for later Phase 26 milestones.
 
 The implementation must preserve the existing firmware-facing REST and UDP
 contract. Firmware still uploads measurements to `POST /api/v1/measurements`
@@ -123,7 +124,7 @@ History API is disabled by default. When enabled, it requires:
 Authorization: Bearer <configured-token>
 ```
 
-The first planned read endpoints are:
+Implemented read endpoints are:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -132,6 +133,18 @@ The first planned read endpoints are:
 
 The read source is configurable. It may be a specific backend or a merged view
 that applies configured deduplication and conflict rules.
+
+Supported query parameters:
+
+- `device_id`
+- `start_unix_ms`
+- `end_unix_ms`
+- `limit` and `offset` for `/history/measurements`
+
+`/history/measurements` returns `records`, `limit`, and `offset`. Each record
+contains receive/display time metadata plus the original schema-version-1
+payload. `/history/summary` returns count, device ids, first/last receive time,
+and metric averages.
 
 ## Rich Output
 

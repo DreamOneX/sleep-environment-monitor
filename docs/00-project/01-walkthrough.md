@@ -3867,3 +3867,58 @@ Milestone commit message:
 ```text
 feat: add storage ack policy and backfill
 ```
+
+## Milestone 66: Authenticated Server History API
+
+This milestone implements the Phase 26 authenticated history read endpoints.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to mark the Bearer-protected history endpoints implemented and document query
+  parameters and response shape.
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md) so current
+  behavior includes optional authenticated history reads.
+- Updated [../20-server/01-rest-api.md](../20-server/01-rest-api.md) with the
+  `/api/v1/history/measurements` and `/api/v1/history/summary` contract.
+
+Implementation:
+
+- Added history read helpers for single-backend and merged SQLite/JSONL
+  history views.
+- Added public record and summary dictionary helpers shared by HTTP and later
+  CLI output.
+- Registered history routes only when `[history_api].enabled = true`.
+- Required `Authorization: Bearer <configured-token>` for both history routes.
+- Added device and display-time filters, pagination for measurements, summary
+  output, missing-source handling, and merge-conflict handling.
+- Passed the loaded history API configuration from `sleep-env-server serve` to
+  the FastAPI application.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 73 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 17 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- No human-assisted or hardware verification was required for this server
+  milestone. Human-assisted verification remains skipped unless a later user
+  message changes that availability assumption.
+
+Milestone commit message:
+
+```text
+feat: add authenticated history api
+```

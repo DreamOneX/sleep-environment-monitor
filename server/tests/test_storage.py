@@ -14,6 +14,7 @@ from sleep_env_server.storage import (
     SQLiteMeasurementStore,
     StorageWriteResult,
     canonical_payload_json,
+    list_configured_history_records,
     summarize_records,
 )
 
@@ -324,3 +325,36 @@ def test_configured_sink_reconcile_copies_missing_records_between_stores(
     assert copied == 2
     assert [item.upload.sequence for item in sqlite.list_records()] == [1, 2]
     assert [item.upload.sequence for item in jsonl.list_records()] == [1, 2]
+
+
+def test_list_configured_history_records_can_merge_sources(tmp_path: Path) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    sqlite.write(record(1))
+    jsonl.write(record(2))
+    stores = (
+        ConfiguredStore(target="sqlite", store=sqlite, ack=AckPolicyConfig()),
+        ConfiguredStore(target="jsonl", store=jsonl, ack=AckPolicyConfig()),
+    )
+
+    records = list_configured_history_records(stores, read_source="merge")
+
+    assert [item.upload.sequence for item in records] == [1, 2]
+
+
+def test_list_configured_history_records_reports_merge_conflict(tmp_path: Path) -> None:
+    sqlite = SQLiteMeasurementStore(tmp_path / "measurements.db")
+    jsonl = JsonlMeasurementStore(tmp_path / "measurements.jsonl")
+    sqlite.write(record(1))
+    jsonl.write(record(1, temperature_c=30.0))
+    stores = (
+        ConfiguredStore(target="sqlite", store=sqlite, ack=AckPolicyConfig()),
+        ConfiguredStore(target="jsonl", store=jsonl, ack=AckPolicyConfig()),
+    )
+
+    try:
+        list_configured_history_records(stores, read_source="merge")
+    except ValueError as exc:
+        assert "history merge conflict" in str(exc)
+    else:
+        raise AssertionError("expected merge conflict")

@@ -3652,3 +3652,41 @@ Milestone commit message:
 ```text
 refactor: split Phase 24 maintenance modules
 ```
+
+## Milestone 61: Current Server Behavior Documentation
+
+This milestone clarifies the already implemented Phase 23 server behavior. It
+does not change server code, the REST/UDP protocol, firmware behavior, or
+hardware state.
+
+Documentation update:
+
+- Expanded [../20-server/00-overview.md](../20-server/00-overview.md) with a
+  `Current Observable Behavior` section derived from the formal server source
+  and unit tests.
+- Documented current HTTP behavior, schema validation limits, process-local
+  duplicate handling, bounded diagnostics, UDP discovery behavior, CLI
+  commands, and unsupported persistence/query/auth/configuration capabilities.
+- Made explicit that duplicate keys retain the first accepted in-memory model,
+  and that the server does not currently enforce a relationship between
+  `time_status` and `wall_clock_unix_ms`.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 40 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 16 server files formatted.
+
+Milestone commit message:
+
+```text
+docs: describe current server behavior
+```

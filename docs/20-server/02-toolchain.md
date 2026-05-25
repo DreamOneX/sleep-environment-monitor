@@ -57,7 +57,8 @@ server/
     ├── test_config.py
     ├── test_discovery.py
     ├── test_models.py
-    └── test_output.py
+    ├── test_output.py
+    └── test_storage.py
 ```
 
 `server/post_receiver.py` is a compatibility wrapper. It dispatches to

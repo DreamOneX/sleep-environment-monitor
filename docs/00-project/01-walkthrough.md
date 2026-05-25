@@ -3922,3 +3922,61 @@ Milestone commit message:
 ```text
 feat: add authenticated history api
 ```
+
+## Milestone 67: Rich Output And Local History CLI
+
+This milestone implements Rich local operator output and the offline history
+CLI for Phase 26.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to mark Rich serve output and `sleep-env-server history` implemented.
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md) with the
+  current Rich live dashboard and local history CLI behavior.
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) with `history`
+  options and output behavior.
+- Updated [../20-server/02-toolchain.md](../20-server/02-toolchain.md) so the
+  documented test layout includes `test_storage.py`.
+
+Implementation:
+
+- Added a Rich-only live measurement dashboard update from the upload route.
+  Plain and JSON output modes do not emit the dashboard, preserving script
+  stability.
+- Added `sleep-env-server history` with `auto`, `rich`, `plain`, and `json`
+  output modes.
+- Added local history filters for device id, display-time range, read source,
+  and recent-row limit.
+- Added local summary, recent row, and ASCII metric trend rendering.
+- Added deterministic tests for history CLI output modes, JSON/Rich history
+  output, trend generation, history snapshot rendering, and Rich live dashboard
+  rendering.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 80 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 17 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- No human-assisted or hardware verification was required for this server
+  milestone. Interactive terminal inspection was not required; Rich output was
+  validated through deterministic stream-backed tests.
+
+Milestone commit message:
+
+```text
+feat: add rich history output
+```

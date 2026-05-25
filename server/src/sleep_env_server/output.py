@@ -40,6 +40,7 @@ class ServerOutput:
             highlight=False,
             markup=False,
         )
+        self._recent_measurements: list[dict[str, object]] = []
 
     def startup(self, config: ServerConfig, log_level: str) -> None:
         """Writes server startup metadata."""
@@ -116,6 +117,69 @@ class ServerOutput:
         """Writes one storage reconciliation event."""
         self.emit("storage_reconciled", copied=copied)
 
+    def measurement_dashboard(
+        self,
+        *,
+        device_id: str,
+        sequence: int,
+        temperature_c: float | None,
+        humidity_percent: float | None,
+        lux: float | None,
+        mic_db_rel: float,
+        duplicate: bool,
+    ) -> None:
+        """Writes a Rich-only live measurement dashboard snapshot."""
+        if self.mode != "rich":
+            return
+        self._recent_measurements.append(
+            {
+                "device_id": device_id,
+                "sequence": sequence,
+                "temperature_c": temperature_c,
+                "humidity_percent": humidity_percent,
+                "lux": lux,
+                "mic_db_rel": mic_db_rel,
+                "duplicate": duplicate,
+            }
+        )
+        self._recent_measurements = self._recent_measurements[-20:]
+
+        recent_table = Table(title="Live Measurements", show_header=True, header_style="bold")
+        recent_table.add_column("Device")
+        recent_table.add_column("Seq", justify="right")
+        recent_table.add_column("Temp", justify="right")
+        recent_table.add_column("RH", justify="right")
+        recent_table.add_column("Lux", justify="right")
+        recent_table.add_column("dB", justify="right")
+        recent_table.add_column("Dup")
+        for item in self._recent_measurements[-5:]:
+            recent_table.add_row(
+                str(item["device_id"]),
+                str(item["sequence"]),
+                _format_optional_number(item["temperature_c"]),
+                _format_optional_number(item["humidity_percent"]),
+                _format_optional_number(item["lux"]),
+                _format_optional_number(item["mic_db_rel"]),
+                str(item["duplicate"]),
+            )
+        self._console.print(recent_table)
+
+        trend_table = Table(title="Live Trends", show_header=True, header_style="bold")
+        trend_table.add_column("Metric")
+        trend_table.add_column("Trend")
+        for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel"):
+            trend_table.add_row(
+                metric,
+                _ascii_trend(
+                    [
+                        float(value)
+                        for item in self._recent_measurements
+                        if (value := item[metric]) is not None
+                    ]
+                ),
+            )
+        self._console.print(trend_table)
+
     def shutdown_requested(self) -> None:
         """Writes interrupt-driven shutdown metadata."""
         self.emit("shutdown_requested")
@@ -173,6 +237,58 @@ class ServerOutput:
             self.stream.write(f"udp_response.{key}={value}\n")
         self.stream.flush()
 
+    def history_snapshot(
+        self,
+        *,
+        summary: dict[str, Any],
+        records: list[dict[str, Any]],
+        trends: dict[str, str],
+    ) -> None:
+        """Writes local history summary, recent rows, and metric trends."""
+        if self.mode == "json":
+            self._write_json_line(
+                {
+                    "event": "history_snapshot",
+                    "summary": summary,
+                    "records": records,
+                    "trends": trends,
+                }
+            )
+            return
+
+        if self.mode == "rich":
+            self._print_history_rich(summary=summary, records=records, trends=trends)
+            return
+
+        self.stream.write("history summary\n")
+        self.stream.write(f"count={summary['count']}\n")
+        self.stream.write(f"devices={','.join(summary['devices'])}\n")
+        self.stream.write(f"first_received_unix_ms={summary['first_received_unix_ms']}\n")
+        self.stream.write(f"last_received_unix_ms={summary['last_received_unix_ms']}\n")
+        for key, value in summary["averages"].items():
+            self.stream.write(f"average.{key}={value:.3f}\n")
+        self.stream.write("recent measurements\n")
+        for record in records:
+            payload = record["payload"]
+            self.stream.write(
+                " ".join(
+                    (
+                        f"display_unix_ms={record['display_unix_ms']}",
+                        f"device_id={payload['device_id']}",
+                        f"sequence={payload['sequence']}",
+                        f"temperature_c={payload['temperature_c']}",
+                        f"humidity_percent={payload['humidity_percent']}",
+                        f"lux={payload['lux']}",
+                        f"mic_db_rel={payload['mic_db_rel']}",
+                    )
+                )
+                + "\n"
+            )
+        self.stream.write("metric trends\n")
+        for metric, trend in trends.items():
+            self.stream.write(f"{metric}={trend}\n")
+        self.stream.flush()
+
     def emit(self, event: str, **fields: Any) -> None:
         """Writes one event in the selected output mode."""
         if self.mode == "json":
@@ -192,6 +308,53 @@ class ServerOutput:
         self.stream.write(json.dumps(payload, separators=(",", ":"), sort_keys=True))
         self.stream.write("\n")
         self.stream.flush()
+
+    def _print_history_rich(
+        self,
+        *,
+        summary: dict[str, Any],
+        records: list[dict[str, Any]],
+        trends: dict[str, str],
+    ) -> None:
+        """Writes Rich tables for local history output."""
+        summary_table = Table(title="History Summary", show_header=True, header_style="bold")
+        summary_table.add_column("Field")
+        summary_table.add_column("Value")
+        summary_table.add_row("count", str(summary["count"]))
+        summary_table.add_row("devices", ", ".join(summary["devices"]))
+        summary_table.add_row("first_received_unix_ms", str(summary["first_received_unix_ms"]))
+        summary_table.add_row("last_received_unix_ms", str(summary["last_received_unix_ms"]))
+        for key, value in summary["averages"].items():
+            summary_table.add_row(f"average.{key}", f"{value:.3f}")
+        self._console.print(summary_table)
+
+        records_table = Table(title="Recent Measurements", show_header=True, header_style="bold")
+        records_table.add_column("Display ms")
+        records_table.add_column("Device")
+        records_table.add_column("Seq", justify="right")
+        records_table.add_column("Temp", justify="right")
+        records_table.add_column("RH", justify="right")
+        records_table.add_column("Lux", justify="right")
+        records_table.add_column("dB", justify="right")
+        for record in records:
+            payload = record["payload"]
+            records_table.add_row(
+                str(record["display_unix_ms"]),
+                str(payload["device_id"]),
+                str(payload["sequence"]),
+                _format_optional_number(payload["temperature_c"]),
+                _format_optional_number(payload["humidity_percent"]),
+                _format_optional_number(payload["lux"]),
+                _format_optional_number(payload["mic_db_rel"]),
+            )
+        self._console.print(records_table)
+
+        trends_table = Table(title="Metric Trends", show_header=True, header_style="bold")
+        trends_table.add_column("Metric")
+        trends_table.add_column("Trend")
+        for metric, trend in trends.items():
+            trends_table.add_row(metric, trend)
+        self._console.print(trends_table)
 
 
 class NullOutput:
@@ -221,3 +384,42 @@ class NullOutput:
         reason: str,
     ) -> None:
         """Ignores upload rejection metadata."""
+
+    def measurement_dashboard(
+        self,
+        *,
+        device_id: str,
+        sequence: int,
+        temperature_c: float | None,
+        humidity_percent: float | None,
+        lux: float | None,
+        mic_db_rel: float,
+        duplicate: bool,
+    ) -> None:
+        """Ignores dashboard measurement updates."""
+
+
+def _format_optional_number(value: object) -> str:
+    """Formats optional numeric values for tables."""
+    if value is None:
+        return ""
+    if isinstance(value, int | float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _ascii_trend(values: list[float]) -> str:
+    """Builds a compact ASCII trend for Rich tables."""
+    if not values:
+        return ""
+    values = values[-20:]
+    if len(values) == 1:
+        return f"{values[0]:.2f}"
+    minimum = min(values)
+    maximum = max(values)
+    if minimum == maximum:
+        return f"{'=' * len(values)} {minimum:.2f}"
+    ramp = " .:-=+*#%@"
+    span = maximum - minimum
+    chars = [ramp[round((value - minimum) / span * (len(ramp) - 1))] for value in values]
+    return f"{''.join(chars)} {minimum:.2f}..{maximum:.2f}"

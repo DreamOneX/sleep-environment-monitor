@@ -52,6 +52,19 @@ class UploadOutput(Protocol):
     ) -> None:
         """Writes bounded upload rejection metadata."""
 
+    def measurement_dashboard(
+        self,
+        *,
+        device_id: str,
+        sequence: int,
+        temperature_c: float | None,
+        humidity_percent: float | None,
+        lux: float | None,
+        mic_db_rel: float,
+        duplicate: bool,
+    ) -> None:
+        """Writes a local live measurement dashboard update."""
+
 
 def current_unix_ms() -> int:
     """Returns the current Unix time in milliseconds."""
@@ -112,6 +125,15 @@ def create_app(
             byte_count=len(body),
             device_id=upload.device_id,
             sequence=upload.sequence,
+            duplicate=accepted.duplicate,
+        )
+        active_output.measurement_dashboard(
+            device_id=upload.device_id,
+            sequence=upload.sequence,
+            temperature_c=upload.temperature_c,
+            humidity_percent=upload.humidity_percent,
+            lux=upload.lux,
+            mic_db_rel=upload.mic_db_rel,
             duplicate=accepted.duplicate,
         )
         return Response(status_code=204)

@@ -3,7 +3,7 @@
 This document defines the planned Phase 26 server persistence, TOML
 configuration, history API, and Rich display behavior.
 
-Implementation status through Milestone 65:
+Implementation status through Milestone 67:
 
 - TOML loading, XDG default generation, and CLI overrides are implemented.
 - SQLite and JSONL stores are implemented with canonical reads, duplicate
@@ -13,8 +13,9 @@ Implementation status through Milestone 65:
   Bearer-protected history read endpoints when enabled.
 - Startup and periodic backfill helpers copy missing canonical records between
   enabled stores.
-- Retention cleanup, Rich live dashboard, and local history CLI remain pending
-  for later Phase 26 milestones.
+- Rich serve output shows a local live measurements/trends dashboard, and
+  `sleep-env-server history` prints summary, recent rows, and metric trends.
+- Retention cleanup remains pending for a later Phase 26 milestone.
 
 The implementation must preserve the existing firmware-facing REST and UDP
 contract. Firmware still uploads measurements to `POST /api/v1/measurements`
@@ -148,16 +149,14 @@ and metric averages.
 
 ## Rich Output
 
-Interactive `serve` sessions use a Rich dashboard unless disabled by output
-mode. JSON and plain output remain stable for scripts.
+Interactive `serve` sessions use Rich output unless disabled by output mode.
+JSON and plain output remain stable for scripts.
 
-The live dashboard shows the current process receive stream:
+The live dashboard currently shows the current process receive stream:
 
+- Recent accepted measurements.
 - Recent temperature, humidity, lux, and relative sound dB trends.
-- Upload count and duplicate count.
-- Backend write status.
-- ACK and backfill status.
-- Conflict and retention warnings.
+- Duplicate status for displayed rows.
 
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

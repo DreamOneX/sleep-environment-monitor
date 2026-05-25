@@ -79,3 +79,82 @@ def test_discovery_snapshot_json_contains_document_and_udp_payload() -> None:
     event = json.loads(stream.getvalue())
     assert event["document"]["measurement_upload"] == "/api/v1/measurements"
     assert event["udp_response"]["host"] == "10.0.0.5"
+
+
+def test_history_snapshot_json_contains_summary_records_and_trends() -> None:
+    stream = StringIO()
+    output = ServerOutput("json", stream=stream)
+
+    output.history_snapshot(
+        summary={
+            "count": 1,
+            "devices": ["device-1"],
+            "first_received_unix_ms": 1000,
+            "last_received_unix_ms": 1000,
+            "averages": {"temperature_c": 21.5},
+        },
+        records=[
+            {
+                "received_unix_ms": 1000,
+                "source": "test",
+                "display_unix_ms": 900,
+                "display_time_source": "device_reported",
+                "payload": {
+                    "device_id": "device-1",
+                    "sequence": 1,
+                    "temperature_c": 21.5,
+                    "humidity_percent": 45.0,
+                    "lux": 10.0,
+                    "mic_db_rel": 20.0,
+                },
+            }
+        ],
+        trends={"temperature_c": ".@"},
+    )
+
+    event = json.loads(stream.getvalue())
+    assert event["event"] == "history_snapshot"
+    assert event["summary"]["count"] == 1
+    assert event["records"][0]["payload"]["sequence"] == 1
+    assert event["trends"]["temperature_c"] == ".@"
+
+
+def test_history_snapshot_rich_output_is_callable() -> None:
+    stream = StringIO()
+    output = ServerOutput("rich", stream=stream, force_terminal=False)
+
+    output.history_snapshot(
+        summary={
+            "count": 0,
+            "devices": [],
+            "first_received_unix_ms": None,
+            "last_received_unix_ms": None,
+            "averages": {},
+        },
+        records=[],
+        trends={"temperature_c": ""},
+    )
+
+    text = stream.getvalue()
+    assert "History Summary" in text
+    assert "Recent Measurements" in text
+    assert "Metric Trends" in text
+
+
+def test_measurement_dashboard_rich_output_is_callable() -> None:
+    stream = StringIO()
+    output = ServerOutput("rich", stream=stream, force_terminal=False)
+
+    output.measurement_dashboard(
+        device_id="device-1",
+        sequence=1,
+        temperature_c=21.5,
+        humidity_percent=45.0,
+        lux=10.0,
+        mic_db_rel=20.0,
+        duplicate=False,
+    )
+
+    text = stream.getvalue()
+    assert "Live Measurements" in text
+    assert "Live Trends" in text

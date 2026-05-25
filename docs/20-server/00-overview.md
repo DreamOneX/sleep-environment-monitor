@@ -79,6 +79,9 @@ The accepted upload model currently enforces:
 - Successful upload diagnostics include client source address, request byte
   count, `device_id`, `sequence`, and duplicate status. Sensor values and the
   unbounded body are not written to the server event output.
+- In Rich `serve` mode, accepted uploads also update a local live table and
+  simple ASCII trend rows for temperature, humidity, lux, and relative sound
+  dB. Plain and JSON output modes do not emit this dashboard.
 - Storage ACK failures emit bounded rejection diagnostics and return non-2xx to
   preserve the firmware retry contract.
 - There is no HTTP authentication, authorization, or transport-security setup
@@ -104,6 +107,7 @@ The accepted upload model currently enforces:
 | `sleep-env-server serve` | Loads TOML configuration, starts configured storage and optional maintenance backfill, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
 | `sleep-env-server check-config` | Validates XDG or explicit TOML plus CLI overrides without opening sockets and prints a plain `config_ok` event on success. |
 | `sleep-env-server print-discovery` | Prints the HTTP discovery document and an example UDP discovery response in `rich`, `plain`, or `json` output. |
+| `sleep-env-server history` | Reads configured local storage directly and prints summary, recent measurements, and simple metric trends in `rich`, `plain`, or `json` output. |
 | `python3 server/post_receiver.py` | Compatibility entry point; inserts `serve` when invoked without an explicit subcommand. |
 
 The current configuration surface is TOML plus CLI overrides. Without
@@ -113,14 +117,10 @@ The current configuration surface is TOML plus CLI overrides. Without
 
 ## Boundaries
 
-Durable SQLite/JSONL storage, upload ACK policy, and authenticated history
-reads are implemented for Phase 26. Deployment service management, upload
-authentication/authorization, and retention cleanup enforcement remain future
-work.
-
-Phase 26 continues to add the planned local operator surfaces:
-
-- Rich live dashboard and offline history views.
+Durable SQLite/JSONL storage, upload ACK policy, authenticated history reads,
+Rich local output, and the offline history CLI are implemented for Phase 26.
+Deployment service management, upload authentication/authorization, and
+retention cleanup enforcement remain future work.
 
 Phase 24 BLE upload planning does not add a server-side BLE protocol. If a
 future phone or gateway receives measurements over BLE and forwards them to the

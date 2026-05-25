@@ -99,9 +99,27 @@ Behavior:
 
 Prints persisted measurement summaries, recent rows, and simple metric trends.
 
+Options:
+
+```text
+--config PATH
+--output auto|rich|plain|json
+--read-source merge|sqlite|jsonl
+--device-id DEVICE_ID
+--start-unix-ms UNIX_MS
+--end-unix-ms UNIX_MS
+--limit COUNT
+```
+
 Behavior:
 
 - Read from the configured history source.
+- Use `[history_cli].read_source`, `[history_cli].tail_count`, and
+  `[history_cli].metrics` when corresponding CLI options are omitted.
+- Use the history merge source/conflict settings from `[history_api]` for local
+  merged reads.
+- Show summary counts, device ids, receive time bounds, recent rows, and simple
+  ASCII metric trends.
 - Support Rich output for humans.
 - Support plain or JSON output for tests and scripts.
 - Require no HTTP token when reading local storage directly.

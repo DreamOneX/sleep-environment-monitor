@@ -223,9 +223,9 @@ live measurement charts.
 - [x] Add Textual dependency and `sleep-env-server tui` command shell.
 - [x] Route upload, storage, discovery, and shutdown events into the TUI.
 - [x] Simplify `serve` output to logs/events and remove live chart rendering.
-- [ ] Cover TUI smoke behavior, event bridge delivery, and service logging with
+- [x] Cover TUI smoke behavior, event bridge delivery, and service logging with
   automated hardware-free tests.
-- [ ] Record milestone validation evidence and commit every Phase 27 milestone
+- [x] Record milestone validation evidence and commit every Phase 27 milestone
   separately.
 
 ## Future Security, Configuration, And Hardware Validation

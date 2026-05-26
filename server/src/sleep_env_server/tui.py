@@ -113,7 +113,9 @@ class ServerTuiApp(App[None]):
         *,
         start_runtime: bool = True,
         event_queue: queue.Queue[ServerEvent] | None = None,
-        runtime_starter: Callable[[AppConfig, TuiEventOutput], RuntimeHandle] = start_server_runtime,
+        runtime_starter: Callable[
+            [AppConfig, TuiEventOutput], RuntimeHandle
+        ] = start_server_runtime,
     ) -> None:
         """Initializes the TUI with server endpoint metadata."""
         super().__init__()

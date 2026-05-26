@@ -4212,3 +4212,54 @@ Milestone commit message:
 ```text
 feat: simplify serve logging output
 ```
+
+## Milestone 73: Server TUI Final Validation
+
+This milestone completes Phase 27 automated validation and records the final
+server TUI acceptance evidence.
+
+Documentation update:
+
+- Updated [03-todo.md](03-todo.md) to mark Phase 27 automated TUI/logging
+  coverage and per-milestone commits complete.
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to replace the remaining dashboard-status wording with TUI event/status
+  panels.
+
+Implementation:
+
+- Restored the `ConfiguredMeasurementSink` import required by the `history`
+  command after the `serve` runtime refactor.
+- Manually applied the Ruff format suggestion for the long TUI runtime-starter
+  type annotation.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- Initial full validation found two issues: `run_history` was missing
+  `ConfiguredMeasurementSink`, and `tui.py` needed manual formatting.
+- After fixes, `uv run pytest` passed 95 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible `sleep-env-server tui` inspection remains skipped under the
+  current no-human-cooperation assumption. The TUI startup, event bridge,
+  measurement rendering, runtime lifecycle, and keyboard exit behavior are
+  covered by automated Textual tests.
+
+Milestone commit message:
+
+```text
+test: cover server tui runtime
+```

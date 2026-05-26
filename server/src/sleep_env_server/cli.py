@@ -25,6 +25,7 @@ from sleep_env_server.logging_config import configure_service_logging
 from sleep_env_server.output import OutputMode, ServerOutput
 from sleep_env_server.runtime import start_server_runtime
 from sleep_env_server.storage import (
+    ConfiguredMeasurementSink,
     MeasurementRecord,
     history_record_to_dict,
     history_summary_to_dict,

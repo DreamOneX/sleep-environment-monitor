@@ -77,7 +77,8 @@ When `required_for_ack = false`:
 
 - A valid upload may return `204` even if all storage writes fail.
 - Backend-level ACK settings are ignored.
-- Failures are reported through bounded diagnostics and dashboard status.
+- Failures are reported through bounded diagnostics and, in TUI mode, the
+  operator event/status panels.
 
 When `required_for_ack = true`:
 

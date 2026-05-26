@@ -4263,3 +4263,49 @@ Milestone commit message:
 ```text
 test: cover server tui runtime
 ```
+
+## Milestone 74: Server TUI Audit Coverage
+
+This milestone strengthens Phase 27 completion evidence after a
+requirement-by-requirement audit.
+
+Documentation update:
+
+- Added this walkthrough entry to record the audit-driven coverage additions
+  and final validation results.
+
+Implementation:
+
+- Added direct TUI event bridge coverage for storage reconciliation, UDP
+  discovery start/failure, shutdown, and stopped events.
+- Added direct plain service logging coverage alongside the existing Rich and
+  JSONL logging tests.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 97 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible `sleep-env-server tui` inspection remains skipped under the
+  current no-human-cooperation assumption. The explicit event bridge, logging,
+  TUI smoke, runtime lifecycle, measurement rendering, and keyboard exit paths
+  are covered by automated tests.
+
+Milestone commit message:
+
+```text
+test: strengthen server tui audit coverage
+```

@@ -182,3 +182,13 @@ def test_service_logging_rich_handler_is_callable() -> None:
     logging.getLogger("uvicorn").info("server ready")
 
     assert "server ready" in stream.getvalue()
+
+
+def test_service_logging_plain_handler_is_callable() -> None:
+    stream = StringIO()
+    configure_service_logging("plain", stream=stream, log_level="info")
+
+    logging.getLogger("uvicorn").info("server ready")
+
+    text = stream.getvalue()
+    assert "INFO uvicorn server ready" in text

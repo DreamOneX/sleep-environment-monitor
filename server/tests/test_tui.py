@@ -69,6 +69,29 @@ def test_tui_event_output_queues_measurement_events() -> None:
     assert event.fields["temperature_c"] == 21.5
 
 
+def test_tui_event_output_queues_storage_udp_and_shutdown_events() -> None:
+    events: queue.Queue[ServerEvent] = queue.Queue()
+    output = TuiEventOutput(events)
+
+    output.storage_reconciled(copied=2)
+    output.udp_started(ServerConfig(host="127.0.0.1", udp_discovery_port=39023))
+    output.udp_disabled("address already in use")
+    output.shutdown_requested()
+    output.stopped()
+
+    queued = [events.get_nowait() for _ in range(5)]
+    assert [event.name for event in queued] == [
+        "storage_reconciled",
+        "udp_discovery_started",
+        "udp_discovery_disabled",
+        "shutdown_requested",
+        "server_stopped",
+    ]
+    assert queued[0].fields["copied"] == 2
+    assert queued[1].fields["udp_discovery_port"] == 39023
+    assert queued[2].fields["error"] == "address already in use"
+
+
 def test_server_tui_app_drains_measurement_events() -> None:
     async def run() -> None:
         events: queue.Queue[ServerEvent] = queue.Queue()

@@ -223,7 +223,7 @@ def run_serve(
 def run_tui(args: argparse.Namespace) -> int:
     """Runs the Textual local operator UI."""
     app_config = app_config_from_args(args)
-    ServerTuiApp(app_config.server).run()
+    ServerTuiApp(app_config).run()
     return 0
 
 

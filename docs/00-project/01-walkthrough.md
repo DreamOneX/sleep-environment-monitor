@@ -4117,3 +4117,48 @@ Milestone commit message:
 ```text
 feat: add server tui command shell
 ```
+
+## Milestone 71: Server Events Into TUI
+
+This milestone connects the TUI shell to the service runtime through a
+thread-safe event bridge.
+
+Documentation update:
+
+- Updated [03-todo.md](03-todo.md) to mark TUI event routing complete.
+
+Implementation:
+
+- Added a shared runtime lifecycle helper that starts configured storage,
+  startup reconciliation, retention cleanup, background maintenance, UDP
+  discovery, and Uvicorn in background threads.
+- Added `TuiEventOutput`, a queue-backed server output adapter for upload,
+  storage, UDP discovery, measurement, shutdown, and stopped events.
+- Updated the Textual app to consume queued events, render bounded event logs,
+  update recent measurement rows, and recalculate metric trends.
+- Made runtime startup injectable so TUI lifecycle tests do not open sockets.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_tui.py tests/test_cli.py::test_tui_defaults_match_firmware_fallback
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff src/sleep_env_server/tui.py src/sleep_env_server/runtime.py tests/test_tui.py
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted TUI/CLI tests passed.
+- Ruff initially reported import ordering in `tui.py`; it was fixed manually.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Full terminal operation requires a human-visible TUI session and remains
+  skipped under the current no-human-cooperation assumption.
+
+Milestone commit message:
+
+```text
+feat: route server events into tui
+```

@@ -87,6 +87,17 @@ def test_serve_defaults_match_firmware_fallback() -> None:
     assert args.log_level is None
 
 
+def test_tui_defaults_match_firmware_fallback() -> None:
+    args = parse_args(["tui"])
+    config = config_from_args(args)
+
+    assert config.host == "0.0.0.0"
+    assert config.port == 8080
+    assert config.udp_discovery_port == 39022
+    assert config.log_level == "info"
+    assert args.log_level is None
+
+
 def test_serve_explicit_host_ports_and_log_level_are_applied() -> None:
     args = parse_args(
         [

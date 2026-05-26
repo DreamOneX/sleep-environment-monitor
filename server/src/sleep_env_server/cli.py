@@ -33,6 +33,7 @@ from sleep_env_server.storage import (
     list_configured_history_records,
     summarize_records,
 )
+from sleep_env_server.tui import ServerTuiApp
 
 PRINT_OUTPUT_MODES = ("rich", "plain", "json")
 HISTORY_OUTPUT_MODES = ("auto", "rich", "plain", "json")
@@ -72,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     output_group.add_argument("--json-log", action="store_true")
     output_group.add_argument("--no-rich", action="store_true")
     serve.set_defaults(handler=run_serve)
+
+    tui = subparsers.add_parser("tui", help="run HTTP API and UDP discovery in a TUI")
+    add_config_arguments(tui)
+    tui.add_argument("--log-level", choices=LOG_LEVELS, default=None)
+    tui.set_defaults(handler=run_tui)
 
     check = subparsers.add_parser("check-config", help="validate server configuration")
     add_config_arguments(check)
@@ -211,6 +217,13 @@ def run_serve(
         discovery.stop()
         discovery.join(timeout=1.0)
         output.stopped()
+    return 0
+
+
+def run_tui(args: argparse.Namespace) -> int:
+    """Runs the Textual local operator UI."""
+    app_config = app_config_from_args(args)
+    ServerTuiApp(app_config.server).run()
     return 0
 
 

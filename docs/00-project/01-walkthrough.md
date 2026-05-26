@@ -4074,3 +4074,46 @@ Milestone commit message:
 ```text
 docs: plan server tui runtime
 ```
+
+## Milestone 70: Server TUI Command Shell
+
+This milestone adds the Textual dependency and a minimal `tui` command shell
+without starting the service runtime inside the TUI yet.
+
+Documentation update:
+
+- Updated [../20-server/02-toolchain.md](../20-server/02-toolchain.md) with the
+  Textual dependency, `tui` command, `tui.py` module, and `test_tui.py`.
+- Updated [03-todo.md](03-todo.md) to mark the dependency and command shell
+  task complete.
+
+Implementation:
+
+- Added `textual>=8.2,<9` to [../../server/pyproject.toml](../../server/pyproject.toml)
+  and refreshed [../../server/uv.lock](../../server/uv.lock).
+- Added `sleep-env-server tui` argument parsing with the same server config and
+  log-level overrides as `serve`.
+- Added a minimal Textual app shell with service status, measurement table,
+  trend table, event panel, help panel, and quit/clear/refresh bindings.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_cli.py::test_tui_defaults_match_firmware_fallback tests/test_tui.py
+```
+
+Observed validation results:
+
+- The initial smoke test exposed a Textual 8.2.7 API difference: `Static`
+  exposes `content`, not `renderable`.
+- After updating the test, the targeted CLI/TUI tests passed.
+
+Manual verification:
+
+- Full terminal operation is deferred until the service runtime is connected.
+
+Milestone commit message:
+
+```text
+feat: add server tui command shell
+```

@@ -14,6 +14,7 @@ Implemented defaults:
 - ASGI server: Uvicorn.
 - Data validation: Pydantic models.
 - Human-readable console output: Rich.
+- Full-screen terminal UI: Textual.
 - CLI implementation: Python stdlib `argparse`.
 - Configuration parser: Python stdlib `tomllib`.
 - Durable local storage: Python stdlib `sqlite3` and JSONL files.
@@ -24,6 +25,7 @@ Primary commands:
 
 ```bash
 uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
+uv run sleep-env-server tui --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
 uv run sleep-env-server check-config
 uv run sleep-env-server print-discovery
 uv run sleep-env-server history
@@ -50,7 +52,8 @@ server/
 │       ├── discovery.py
 │       ├── models.py
 │       ├── output.py
-│       └── storage.py
+│       ├── storage.py
+│       └── tui.py
 └── tests/
     ├── test_api.py
     ├── test_cli.py
@@ -58,7 +61,8 @@ server/
     ├── test_discovery.py
     ├── test_models.py
     ├── test_output.py
-    └── test_storage.py
+    ├── test_storage.py
+    └── test_tui.py
 ```
 
 `server/post_receiver.py` is a compatibility wrapper. It dispatches to
@@ -183,6 +187,10 @@ Required coverage:
   - Plain or machine-readable output path remains testable.
   - Upload acceptance logs include source and payload size or equivalent
     diagnostic metadata without dumping unbounded payloads.
+- TUI:
+  - `tui` parses the same server configuration overrides as `serve`.
+  - Textual smoke startup and keyboard exit behavior remain testable without
+    opening network sockets.
 
 ## Unit Test Quality
 

@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "pydantic>=2.8.0",
     "rich>=13.7.0",
+    "textual>=8.2,<9",
     "uvicorn[standard]>=0.30.0",
 ]
 

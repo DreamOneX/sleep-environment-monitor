@@ -220,7 +220,7 @@ Phase 27 moves local interactive server operation to a dedicated Textual TUI.
 live measurement charts.
 
 - [x] Added documentation-first Phase 27 TUI plan.
-- [ ] Add Textual dependency and `sleep-env-server tui` command shell.
+- [x] Add Textual dependency and `sleep-env-server tui` command shell.
 - [ ] Route upload, storage, discovery, and shutdown events into the TUI.
 - [ ] Simplify `serve` output to logs/events and remove live chart rendering.
 - [ ] Cover TUI smoke behavior, event bridge delivery, and service logging with

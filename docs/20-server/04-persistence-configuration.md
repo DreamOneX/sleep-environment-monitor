@@ -1,7 +1,7 @@
 # Server Persistence And Configuration
 
-This document defines the planned Phase 26 server persistence, TOML
-configuration, history API, and Rich display behavior.
+This document defines the implemented server persistence, TOML configuration,
+history API, and local operator display behavior.
 
 Implementation status through Milestone 68:
 
@@ -13,8 +13,9 @@ Implementation status through Milestone 68:
   Bearer-protected history read endpoints when enabled.
 - Startup and periodic backfill helpers copy missing canonical records between
   enabled stores.
-- Rich serve output shows a local live measurements/trends dashboard, and
-  `sleep-env-server history` prints summary, recent rows, and metric trends.
+- Phase 26 Rich serve output showed a local live measurements/trends dashboard.
+  Phase 27 replaces that serve chart with a dedicated Textual TUI entry point.
+- `sleep-env-server history` prints summary, recent rows, and metric trends.
 - Retention cleanup is enforced on startup and in the periodic maintenance loop.
 
 The implementation must preserve the existing firmware-facing REST and UDP
@@ -151,16 +152,19 @@ contains receive/display time metadata plus the original schema-version-1
 payload. `/history/summary` returns count, device ids, first/last receive time,
 and metric averages.
 
-## Rich Output
+## Local Operator Output
 
-Interactive `serve` sessions use Rich output unless disabled by output mode.
-JSON and plain output remain stable for scripts.
+`sleep-env-server serve` is the service/process entry point. It emits bounded
+plain, JSONL, or Rich logs and does not render live measurement charts.
 
-The live dashboard currently shows the current process receive stream:
+`sleep-env-server tui` is the full-screen local operator entry point. It starts
+the same HTTP API, UDP discovery responder, storage, backfill, and retention
+maintenance as `serve`, then presents the current process receive stream:
 
 - Recent accepted measurements.
 - Recent temperature, humidity, lux, and relative sound dB trends.
 - Duplicate status for displayed rows.
+- Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

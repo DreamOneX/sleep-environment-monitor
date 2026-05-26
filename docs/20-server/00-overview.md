@@ -26,10 +26,10 @@ The formal server:
   NTP is unavailable.
 - Publishes a discovery document for automatic endpoint discovery.
 - Responds to the UDP discovery query used by Phase 22 firmware.
-- Provides an `argparse` CLI for serving, configuration checks, and discovery
-  metadata inspection.
-- Uses FastAPI, Uvicorn, Pydantic, and Rich instead of raw `http.server`
-  request handling.
+- Provides an `argparse` CLI for serving, TUI operation, configuration checks,
+  and discovery metadata inspection.
+- Uses FastAPI, Uvicorn, Pydantic, Rich, and Textual instead of raw
+  `http.server` request handling.
 - Keeps Ruff formatter and linter output advisory and check-only.
 
 ## Current Observable Behavior
@@ -79,9 +79,9 @@ The accepted upload model currently enforces:
 - Successful upload diagnostics include client source address, request byte
   count, `device_id`, `sequence`, and duplicate status. Sensor values and the
   unbounded body are not written to the server event output.
-- In Rich `serve` mode, accepted uploads also update a local live table and
-  simple ASCII trend rows for temperature, humidity, lux, and relative sound
-  dB. Plain and JSON output modes do not emit this dashboard.
+- `serve` emits bounded service diagnostics only. The full-screen
+  `sleep-env-server tui` command owns local live measurement tables, trend
+  rows, and event panels.
 - Storage ACK failures emit bounded rejection diagnostics and return non-2xx to
   preserve the firmware retry contract.
 - There is no HTTP authentication, authorization, or transport-security setup
@@ -104,7 +104,8 @@ The accepted upload model currently enforces:
 
 | Command | Current behavior |
 |---|---|
-| `sleep-env-server serve` | Loads TOML configuration, starts configured storage plus maintenance backfill/retention, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich event output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. |
+| `sleep-env-server serve` | Loads TOML configuration, starts configured storage plus maintenance backfill/retention, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Rich log output is used for an interactive stdout unless `--no-rich` is passed; `--json-log` selects JSONL event output. It does not render live charts. |
+| `sleep-env-server tui` | Starts the same configured service stack as `serve` and owns a Textual full-screen local operator view for status, recent measurements, metric trends, and bounded events. |
 | `sleep-env-server check-config` | Validates XDG or explicit TOML plus CLI overrides without opening sockets and prints a plain `config_ok` event on success. |
 | `sleep-env-server print-discovery` | Prints the HTTP discovery document and an example UDP discovery response in `rich`, `plain`, or `json` output. |
 | `sleep-env-server history` | Reads configured local storage directly and prints summary, recent measurements, and simple metric trends in `rich`, `plain`, or `json` output. |
@@ -118,7 +119,8 @@ The current configuration surface is TOML plus CLI overrides. Without
 ## Boundaries
 
 Durable SQLite/JSONL storage, upload ACK policy, authenticated history reads,
-Rich local output, and the offline history CLI are implemented for Phase 26.
+Rich local output, Textual TUI operation, and the offline history CLI are
+implemented for local operation.
 Deployment service management, upload authentication/authorization, and
 production deployment hardening remain future work.
 
@@ -131,8 +133,8 @@ server, it should use the existing REST API contract.
 - [01-rest-api.md](01-rest-api.md): firmware/server REST API contract.
 - [02-toolchain.md](02-toolchain.md): Python toolchain, style policy,
   formatter/linter policy, and unit-test expectations.
-- [03-cli.md](03-cli.md): `argparse` command surface.
+- [03-cli.md](03-cli.md): `argparse` command surface and TUI entry point.
 - [04-persistence-configuration.md](04-persistence-configuration.md): persistence,
-  TOML configuration, history API, and Rich display plan.
+  TOML configuration, history API, and local display behavior.
 - [../10-firmware/03-network.md](../10-firmware/03-network.md): firmware network responsibilities.
 - [../30-integration/00-network-roadmap.md](../30-integration/00-network-roadmap.md): cross-component roadmap.

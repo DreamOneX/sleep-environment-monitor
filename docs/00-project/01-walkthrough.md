@@ -4037,3 +4037,40 @@ Milestone commit message:
 ```text
 feat: complete server retention policies
 ```
+
+## Milestone 69: Server TUI Runtime Plan
+
+This milestone records the documentation-first plan for Phase 27 before code
+changes.
+
+Documentation update:
+
+- Added Phase 27 to [00-development-plan.md](00-development-plan.md) with the
+  Textual TUI goal, work items, automated tests, verification commands, and
+  per-milestone commit requirement.
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) so `serve` is the
+  scriptable service entry point and `tui` is the full-screen local operator
+  entry point.
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  and [../20-server/00-overview.md](../20-server/00-overview.md) to replace
+  the old Rich serve chart direction with Textual TUI operation.
+- Updated [../../server/README.md](../../server/README.md) and
+  [03-todo.md](03-todo.md) with the Phase 27 command and checklist.
+
+Implementation:
+
+- No runtime code changed in this milestone.
+
+Validation commands:
+
+- Documentation-only milestone; no runtime validation required before commit.
+
+Manual verification:
+
+- Not applicable for this documentation milestone.
+
+Milestone commit message:
+
+```text
+docs: plan server tui runtime
+```

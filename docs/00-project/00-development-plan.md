@@ -2795,6 +2795,89 @@ feat: persist and display server measurements
 
 ---
 
+# Phase 27: Server TUI Runtime
+
+## Goal
+
+Move local server operation out of the ad hoc `serve` Rich chart output and
+into a dedicated Textual terminal UI while preserving `serve` as the scriptable
+service entry point.
+
+Documentation comes first. Each Phase 27 milestone must update relevant docs,
+record completion evidence in [01-walkthrough.md](01-walkthrough.md), and end
+with at least one commit.
+
+## Work Items
+
+- Update [../20-server/03-cli.md](../20-server/03-cli.md),
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md),
+  and [../../server/README.md](../../server/README.md) before implementation.
+- Add Textual as the server TUI runtime dependency.
+- Add `sleep-env-server tui` as the full-screen local operator entry point.
+- Keep `sleep-env-server serve` for service/process use; it must no longer
+  print live measurement charts.
+- Route server upload, storage, UDP discovery, and shutdown events through a
+  bounded event bridge that can feed either logs or the TUI.
+- Use Rich logging for human `serve` output and keep JSONL output for machine
+  consumption.
+- Ensure Uvicorn logs do not corrupt the Textual screen in TUI mode.
+- Keep REST, UDP discovery, storage, history API, TOML configuration, and
+  compatibility wrapper behavior unchanged.
+
+## Unit Tests
+
+All Phase 27 tests must remain hardware-free.
+
+Required coverage:
+
+- `tui` argument parsing and config override behavior.
+- `serve` output selection and absence of live chart rendering.
+- Rich/plain/JSON service logging paths without dumping unbounded payloads.
+- Event bridge delivery for upload, storage, UDP discovery, and shutdown
+  events.
+- Textual app smoke startup with deterministic, in-process events.
+- Keyboard exit behavior for the TUI app.
+
+## Verification
+
+Run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+Manual terminal verification is useful but not required for automated
+acceptance:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server tui --host 127.0.0.1 --port 8080
+```
+
+If no human operator is available, mark the manual TUI run as skipped rather
+than repeatedly checking it.
+
+## Done When
+
+- `sleep-env-server tui` starts a Textual full-screen view with service status,
+  recent measurements, metric trends, and bounded event logs.
+- `sleep-env-server serve` starts the same HTTP and UDP service behavior but
+  emits only logs/events, not live charts.
+- JSONL output remains stable for scripts and tests.
+- Uvicorn, upload, storage, discovery, and shutdown diagnostics are visible in
+  the appropriate log or TUI surface.
+- Existing REST and storage tests continue to pass.
+- Each milestone has at least one commit and walkthrough evidence.
+
+## Git Commit Message
+
+```text
+feat: add server tui runtime
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.

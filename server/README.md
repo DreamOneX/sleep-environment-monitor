@@ -2,9 +2,10 @@
 
 This directory contains the formal measurement ingestion server.
 
-The Phase 23 server is a Python package built with FastAPI, Uvicorn, Pydantic,
-Rich, `argparse`, pytest, and Ruff. It preserves the Phase 22 firmware/server
-contract while replacing the stdlib-only receiver implementation.
+The Phase 23+ server is a Python package built with FastAPI, Uvicorn,
+Pydantic, Rich, Textual, `argparse`, pytest, and Ruff. It preserves the Phase
+22 firmware/server contract while replacing the stdlib-only receiver
+implementation.
 
 ## Commands
 
@@ -12,8 +13,10 @@ Run commands from this directory:
 
 ```bash
 uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
+uv run sleep-env-server tui --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
 uv run sleep-env-server check-config
 uv run sleep-env-server print-discovery
+uv run sleep-env-server history
 ```
 
 Legacy hardware validation commands still work:
@@ -78,7 +81,8 @@ server/
 │   ├── discovery.py
 │   ├── models.py
 │   ├── output.py
-│   └── storage.py
+│   ├── storage.py
+│   └── tui.py
 └── tests/
 ```
 

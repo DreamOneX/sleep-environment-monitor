@@ -24,6 +24,7 @@ Subcommands:
 
 ```bash
 sleep-env-server serve
+sleep-env-server tui
 sleep-env-server check-config
 sleep-env-server print-discovery
 sleep-env-server history
@@ -65,9 +66,37 @@ Behavior:
 - Start the FastAPI/Uvicorn HTTP server.
 - Start the UDP discovery responder on the configured port.
 - Print Rich startup information for local operation unless disabled.
-- In interactive Rich mode, show the live measurement/status dashboard.
+- Do not render live measurement charts. `serve` is the scriptable service
+  entry point; use `tui` for the full-screen local operator view.
 - Expose the same API paths as the Phase 22 contract.
 - Shut down cleanly on interrupt.
+
+## `tui`
+
+Runs the HTTP API and UDP discovery responder under a Textual full-screen
+terminal UI.
+
+Options:
+
+```text
+--host HOST
+--port PORT
+--udp-discovery-port PORT
+--log-level LEVEL
+--config PATH
+```
+
+Behavior:
+
+- Load the same TOML configuration and CLI overrides as `serve`.
+- Start the same configured storage, backfill, retention, FastAPI/Uvicorn HTTP
+  service, and UDP discovery responder.
+- Show service status, recent measurements, metric trends, and bounded event
+  logs in a full-screen TUI.
+- Keep Uvicorn and server diagnostics inside the TUI event panel rather than
+  writing over the terminal screen.
+- Support `q` and `Ctrl+C` as operator exit paths.
+- Preserve REST, UDP discovery, and upload ACK behavior exactly as `serve`.
 
 ## `check-config`
 
@@ -142,9 +171,12 @@ Invalid arguments should fail before opening HTTP or UDP sockets.
 CLI tests should cover:
 
 - Default `serve` configuration.
+- Default `tui` configuration.
 - Explicit host and ports.
 - Log level parsing.
 - Rich output enable/disable behavior.
+- `serve` does not render live measurement charts.
+- Textual TUI smoke startup and keyboard exit behavior.
 - JSON/plain output switches for `print-discovery`.
 - XDG default config generation and explicit config loading.
 - Storage ACK policy parsing.

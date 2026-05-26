@@ -15,6 +15,7 @@ from sleep_env_server.cli import (
     run_check_config,
     run_history,
     run_print_discovery,
+    run_serve,
     select_history_output_mode,
     select_serve_output_mode,
 )
@@ -145,6 +146,55 @@ def test_serve_output_modes_are_selected_from_flags_and_tty() -> None:
         )
         == "rich"
     )
+
+
+def test_run_serve_uses_runtime_without_live_chart(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeThread:
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, timeout: float | None = None) -> None:
+            return None
+
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.uvicorn_thread = FakeThread()
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    fake = FakeRuntime()
+
+    def start_fake_runtime(app_config: object, output: object) -> FakeRuntime:
+        output.startup(app_config.server, app_config.server.log_level)
+        output.measurement_dashboard(
+            device_id="device-1",
+            sequence=1,
+            temperature_c=21.5,
+            humidity_percent=45.0,
+            lux=12.0,
+            mic_db_rel=20.0,
+            duplicate=False,
+        )
+        return fake
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("sleep_env_server.cli.start_server_runtime", start_fake_runtime)
+    stream = StringIO()
+    args = parse_args(["serve"])
+
+    result = run_serve(args, stream=stream, stdout_isatty=True)
+
+    assert result == 0
+    assert fake.stopped is True
+    text = stream.getvalue()
+    assert "server_starting" in text
+    assert "Live Measurements" not in text
+    assert "Live Trends" not in text
 
 
 def test_history_output_modes_are_selected_from_flags_config_and_tty() -> None:

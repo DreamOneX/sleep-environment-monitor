@@ -7,7 +7,6 @@ import sys
 from collections.abc import Sequence
 from typing import TextIO
 
-from sleep_env_server.app import create_app
 from sleep_env_server.config import (
     LOG_LEVELS,
     READ_SOURCES,
@@ -19,15 +18,14 @@ from sleep_env_server.config import (
 from sleep_env_server.discovery import (
     DISCOVERY_QUERY,
     HostResolver,
-    UdpDiscoveryResponder,
     build_udp_discovery_payload,
     local_address_for_peer,
 )
+from sleep_env_server.logging_config import configure_service_logging
 from sleep_env_server.output import OutputMode, ServerOutput
+from sleep_env_server.runtime import start_server_runtime
 from sleep_env_server.storage import (
-    ConfiguredMeasurementSink,
     MeasurementRecord,
-    StorageMaintenanceThread,
     history_record_to_dict,
     history_summary_to_dict,
     list_configured_history_records,
@@ -177,45 +175,31 @@ def run_serve(
     stdout_isatty: bool | None = None,
 ) -> int:
     """Runs the HTTP API and UDP discovery responder."""
-    import uvicorn
-
     app_config = app_config_from_args(args)
-    config = app_config.server
     is_tty = sys.stdout.isatty() if stdout_isatty is None else stdout_isatty
+    output_mode = select_serve_output_mode(
+        args,
+        stdout_isatty=is_tty,
+        configured_mode=app_config.output.mode,
+    )
     output = ServerOutput(
-        select_serve_output_mode(
-            args,
-            stdout_isatty=is_tty,
-            configured_mode=app_config.output.mode,
-        ),
+        output_mode,
         stream=stream,
     )
-    sink = ConfiguredMeasurementSink(app_config.storage)
-    app = create_app(config, sink=sink, output=output, history_api=app_config.history_api)
-    discovery = UdpDiscoveryResponder(config, output)
-    maintenance: StorageMaintenanceThread | None = None
+    configure_service_logging(
+        output_mode,
+        stream=output.stream,
+        log_level=app_config.server.log_level,
+    )
+    runtime = start_server_runtime(app_config, output)
 
-    output.startup(config, config.log_level)
-    if app_config.storage.reconcile_on_start:
-        output.storage_reconciled(copied=sink.reconcile_once())
-    sink.enforce_retention_once()
-    if app_config.storage.reconcile_interval_seconds > 0 and sink.stores:
-        maintenance = StorageMaintenanceThread(
-            sink,
-            app_config.storage.reconcile_interval_seconds,
-        )
-        maintenance.start()
-    discovery.start()
     try:
-        uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level)
+        while runtime.uvicorn_thread.is_alive():
+            runtime.uvicorn_thread.join(timeout=0.25)
     except KeyboardInterrupt:
         output.shutdown_requested()
     finally:
-        if maintenance is not None:
-            maintenance.stop()
-            maintenance.join(timeout=1.0)
-        discovery.stop()
-        discovery.join(timeout=1.0)
+        runtime.stop()
         output.stopped()
     return 0
 

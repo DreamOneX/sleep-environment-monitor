@@ -79,8 +79,10 @@ server/
 │   ├── cli.py
 │   ├── config.py
 │   ├── discovery.py
+│   ├── logging_config.py
 │   ├── models.py
 │   ├── output.py
+│   ├── runtime.py
 │   ├── storage.py
 │   └── tui.py
 └── tests/

@@ -40,7 +40,6 @@ class ServerOutput:
             highlight=False,
             markup=False,
         )
-        self._recent_measurements: list[dict[str, object]] = []
 
     def startup(self, config: ServerConfig, log_level: str) -> None:
         """Writes server startup metadata."""
@@ -128,57 +127,7 @@ class ServerOutput:
         mic_db_rel: float,
         duplicate: bool,
     ) -> None:
-        """Writes a Rich-only live measurement dashboard snapshot."""
-        if self.mode != "rich":
-            return
-        self._recent_measurements.append(
-            {
-                "device_id": device_id,
-                "sequence": sequence,
-                "temperature_c": temperature_c,
-                "humidity_percent": humidity_percent,
-                "lux": lux,
-                "mic_db_rel": mic_db_rel,
-                "duplicate": duplicate,
-            }
-        )
-        self._recent_measurements = self._recent_measurements[-20:]
-
-        recent_table = Table(title="Live Measurements", show_header=True, header_style="bold")
-        recent_table.add_column("Device")
-        recent_table.add_column("Seq", justify="right")
-        recent_table.add_column("Temp", justify="right")
-        recent_table.add_column("RH", justify="right")
-        recent_table.add_column("Lux", justify="right")
-        recent_table.add_column("dB", justify="right")
-        recent_table.add_column("Dup")
-        for item in self._recent_measurements[-5:]:
-            recent_table.add_row(
-                str(item["device_id"]),
-                str(item["sequence"]),
-                _format_optional_number(item["temperature_c"]),
-                _format_optional_number(item["humidity_percent"]),
-                _format_optional_number(item["lux"]),
-                _format_optional_number(item["mic_db_rel"]),
-                str(item["duplicate"]),
-            )
-        self._console.print(recent_table)
-
-        trend_table = Table(title="Live Trends", show_header=True, header_style="bold")
-        trend_table.add_column("Metric")
-        trend_table.add_column("Trend")
-        for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel"):
-            trend_table.add_row(
-                metric,
-                _ascii_trend(
-                    [
-                        float(value)
-                        for item in self._recent_measurements
-                        if (value := item[metric]) is not None
-                    ]
-                ),
-            )
-        self._console.print(trend_table)
+        """Ignores live chart updates for the scriptable service output."""
 
     def shutdown_requested(self) -> None:
         """Writes interrupt-driven shutdown metadata."""
@@ -406,20 +355,3 @@ def _format_optional_number(value: object) -> str:
     if isinstance(value, int | float):
         return f"{value:.2f}"
     return str(value)
-
-
-def _ascii_trend(values: list[float]) -> str:
-    """Builds a compact ASCII trend for Rich tables."""
-    if not values:
-        return ""
-    values = values[-20:]
-    if len(values) == 1:
-        return f"{values[0]:.2f}"
-    minimum = min(values)
-    maximum = max(values)
-    if minimum == maximum:
-        return f"{'=' * len(values)} {minimum:.2f}"
-    ramp = " .:-=+*#%@"
-    span = maximum - minimum
-    chars = [ramp[round((value - minimum) / span * (len(ramp) - 1))] for value in values]
-    return f"{''.join(chars)} {minimum:.2f}..{maximum:.2f}"

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from io import StringIO
 
 from sleep_env_server.config import ServerConfig
 from sleep_env_server.discovery import DISCOVERY_QUERY, build_udp_discovery_payload
+from sleep_env_server.logging_config import configure_service_logging
 from sleep_env_server.output import ServerOutput
 
 
@@ -141,7 +143,7 @@ def test_history_snapshot_rich_output_is_callable() -> None:
     assert "Metric Trends" in text
 
 
-def test_measurement_dashboard_rich_output_is_callable() -> None:
+def test_service_output_ignores_measurement_dashboard() -> None:
     stream = StringIO()
     output = ServerOutput("rich", stream=stream, force_terminal=False)
 
@@ -155,6 +157,28 @@ def test_measurement_dashboard_rich_output_is_callable() -> None:
         duplicate=False,
     )
 
-    text = stream.getvalue()
-    assert "Live Measurements" in text
-    assert "Live Trends" in text
+    assert stream.getvalue() == ""
+
+
+def test_service_logging_json_handler_writes_jsonl() -> None:
+    stream = StringIO()
+    configure_service_logging("json", stream=stream, log_level="info")
+
+    logging.getLogger("uvicorn").info("server ready")
+
+    event = json.loads(stream.getvalue())
+    assert event == {
+        "event": "log",
+        "level": "info",
+        "logger": "uvicorn",
+        "message": "server ready",
+    }
+
+
+def test_service_logging_rich_handler_is_callable() -> None:
+    stream = StringIO()
+    configure_service_logging("rich", stream=stream, log_level="info", force_terminal=False)
+
+    logging.getLogger("uvicorn").info("server ready")
+
+    assert "server ready" in stream.getvalue()

@@ -13,7 +13,7 @@ Implemented defaults:
 - Web framework: FastAPI.
 - ASGI server: Uvicorn.
 - Data validation: Pydantic models.
-- Human-readable console output: Rich.
+- Human-readable console output and service logging: Rich.
 - Full-screen terminal UI: Textual.
 - CLI implementation: Python stdlib `argparse`.
 - Configuration parser: Python stdlib `tomllib`.
@@ -50,8 +50,10 @@ server/
 │       ├── cli.py
 │       ├── config.py
 │       ├── discovery.py
+│       ├── logging_config.py
 │       ├── models.py
 │       ├── output.py
+│       ├── runtime.py
 │       ├── storage.py
 │       └── tui.py
 └── tests/

@@ -4162,3 +4162,53 @@ Milestone commit message:
 ```text
 feat: route server events into tui
 ```
+
+## Milestone 72: Serve Logging Without Charts
+
+This milestone returns `serve` to service/process output and removes the old
+Rich live chart path.
+
+Documentation update:
+
+- Updated [../20-server/02-toolchain.md](../20-server/02-toolchain.md) and
+  [../../server/README.md](../../server/README.md) with the logging/runtime
+  helper modules.
+- Updated [03-todo.md](03-todo.md) to mark the `serve` logging simplification
+  complete.
+
+Implementation:
+
+- Added a logging configuration helper for Uvicorn and package logs.
+- Added RichHandler-backed service logging for human `serve` output and JSONL
+  logging for machine output.
+- Updated the shared runtime to disable Uvicorn's default terminal log
+  configuration and access log noise.
+- Reworked `run_serve` to use the shared runtime lifecycle helper.
+- Changed `ServerOutput.measurement_dashboard()` into a no-op so `serve` never
+  renders live measurement charts. `TuiEventOutput` remains responsible for
+  TUI measurement table and trend events.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_output.py tests/test_tui.py tests/test_cli.py::test_serve_output_modes_are_selected_from_flags_and_tty tests/test_cli.py::test_run_serve_uses_runtime_without_live_chart
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff src/sleep_env_server/output.py src/sleep_env_server/cli.py src/sleep_env_server/runtime.py src/sleep_env_server/logging_config.py tests/test_output.py tests/test_cli.py
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted output/TUI/CLI tests passed.
+- Ruff completed without diagnostics.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption.
+
+Milestone commit message:
+
+```text
+feat: simplify serve logging output
+```

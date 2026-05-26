@@ -69,6 +69,8 @@ def start_server_runtime(app_config: AppConfig, output: ServerOutput) -> ServerR
         host=config.host,
         port=config.port,
         log_level=config.log_level,
+        log_config=None,
+        access_log=False,
     )
     uvicorn_server = uvicorn.Server(uvicorn_config)
     uvicorn_thread = threading.Thread(

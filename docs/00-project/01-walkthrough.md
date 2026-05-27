@@ -4346,3 +4346,61 @@ Milestone commit message:
 ```text
 docs: plan server tui polish and help
 ```
+
+## Milestone 76: Server TUI Polish And Help Implementation
+
+This milestone implements the Phase 28 TUI visual polish, transparent mode,
+and service help/output cleanup.
+
+Documentation update:
+
+- Updated [03-todo.md](03-todo.md) to mark Phase 28 implementation and
+  automated coverage complete.
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md) and
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  so the command summary and local-operator behavior match the implemented
+  `serve --rich-log`, `tui --transparent`, metric-card, event-log, and help
+  behavior.
+
+Implementation:
+
+- Added `[tui]` TOML parsing with `theme = "graphite"` and
+  `transparent = false`.
+- Added `sleep-env-server tui --transparent` as a CLI override for transparent
+  Textual styling.
+- Reworked the TUI into a graphite/cyan/emerald/amber/rose operator surface
+  with a status strip, metric cards, recent measurements, trends, bounded
+  events, and toggleable help.
+- Changed `serve` to plain service output by default, kept `--json-log` as
+  JSONL, and made styled Rich logging explicit with `--rich-log`.
+- Improved root, `serve`, `tui`, and `history` help text, and made a bare
+  `sleep-env-server` invocation print root help before returning status `2`.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 104 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible transparent TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated tests cover default and
+  transparent TUI startup, help toggling, metric updates, serve output
+  selection, and CLI help text.
+
+Milestone commit message:
+
+```text
+feat: polish server tui and help
+```

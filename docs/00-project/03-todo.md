@@ -1,6 +1,6 @@
 # Project Todo List
 
-Last updated: 2026-05-26.
+Last updated: 2026-05-27.
 
 This file is the current project task ledger. Any future task status change,
 acceptance result, or newly discovered risk must be synchronized here in the
@@ -231,16 +231,18 @@ live measurement charts.
 ## Phase 28 Server TUI Visual Polish And Serve Help
 
 Phase 28 makes the Textual operator UI visually usable and makes `serve` help
-and output behavior predictable.
+and output behavior predictable. The remaining human-visible transparent TUI
+inspection is skipped under the current no-human-cooperation assumption; the
+automated Textual smoke and CSS class tests cover the configured behavior.
 
 - [x] Added documentation-first Phase 28 TUI polish/help plan.
-- [ ] Add `[tui]` TOML configuration and `tui --transparent`.
-- [ ] Redesign the TUI with a modern graphite theme and transparent mode.
-- [ ] Add in-TUI help for operator actions.
-- [ ] Clean up `serve` output modes and CLI help text.
-- [ ] Cover TUI theme/transparent/help and serve help/output behavior with
+- [x] Add `[tui]` TOML configuration and `tui --transparent`.
+- [x] Redesign the TUI with a modern graphite theme and transparent mode.
+- [x] Add in-TUI help for operator actions.
+- [x] Clean up `serve` output modes and CLI help text.
+- [x] Cover TUI theme/transparent/help and serve help/output behavior with
   automated hardware-free tests.
-- [ ] Record milestone validation evidence and commit every Phase 28 milestone
+- [x] Record milestone validation evidence and commit every Phase 28 milestone
   separately.
 
 ## Future Security, Configuration, And Hardware Validation

@@ -22,6 +22,7 @@ APP_DIR_NAME = "sleep-env-server"
 CONFIG_FILE_NAME = "config.toml"
 LOG_LEVELS = ("debug", "info", "warning", "error")
 OUTPUT_MODES = ("auto", "rich", "plain", "json")
+TUI_THEMES = ("graphite",)
 READ_SOURCES = ("merge", "sqlite", "jsonl")
 DEDUP_STRATEGIES = ("keep_first", "keep_last", "overwrite", "reject")
 CONFLICT_STRATEGIES = ("overwrite", "keep", "earliest", "latest", "error")
@@ -220,6 +221,18 @@ class OutputConfig:
 
 
 @dataclass(frozen=True)
+class TuiConfig:
+    """Textual TUI visual configuration."""
+
+    theme: Literal["graphite"] = "graphite"
+    transparent: bool = False
+
+    def __post_init__(self) -> None:
+        """Validates TUI configuration."""
+        validate_choice(self.theme, TUI_THEMES, "tui.theme")
+
+
+@dataclass(frozen=True)
 class AckPolicyConfig:
     """Per-policy or per-target ACK behavior."""
 
@@ -400,6 +413,7 @@ class AppConfig:
 
     server: ServerConfig = field(default_factory=ServerConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    tui: TuiConfig = field(default_factory=TuiConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     history_api: HistoryApiConfig = field(default_factory=HistoryApiConfig)
     history_cli: HistoryCliConfig = field(default_factory=HistoryCliConfig)
@@ -412,6 +426,7 @@ def app_config_from_mapping(data: Mapping[str, Any]) -> AppConfig:
     return AppConfig(
         server=_parse_server(_table(data, "server")),
         output=_parse_output(_table(data, "output")),
+        tui=_parse_tui(_table(data, "tui")),
         storage=_parse_storage(_table(data, "storage")),
         history_api=_parse_history_api(_table(data, "history_api")),
         history_cli=_parse_history_cli(_table(data, "history_cli")),
@@ -440,6 +455,7 @@ def apply_cli_overrides(config: AppConfig, args: Any) -> AppConfig:
     """Applies command-line overrides to an app config."""
     server = config.server
     output = config.output
+    tui = config.tui
 
     for attr in ("host", "port", "udp_discovery_port", "log_level"):
         value = getattr(args, attr, None)
@@ -448,10 +464,15 @@ def apply_cli_overrides(config: AppConfig, args: Any) -> AppConfig:
 
     if getattr(args, "json_log", False):
         output = replace(output, mode="json")
+    elif getattr(args, "rich_log", False):
+        output = replace(output, mode="rich")
     elif getattr(args, "no_rich", False):
         output = replace(output, mode="plain")
 
-    return replace(config, server=server, output=output)
+    if getattr(args, "transparent", False):
+        tui = replace(tui, transparent=True)
+
+    return replace(config, server=server, output=output, tui=tui)
 
 
 def _parse_server(data: Mapping[str, Any]) -> ServerConfig:
@@ -470,6 +491,14 @@ def _parse_output(data: Mapping[str, Any]) -> OutputConfig:
     return OutputConfig(
         mode=_str(data, "mode", "auto"),  # type: ignore[arg-type]
         dashboard=_bool(data, "dashboard", True),
+    )
+
+
+def _parse_tui(data: Mapping[str, Any]) -> TuiConfig:
+    """Parses the ``tui`` table."""
+    return TuiConfig(
+        theme=_str(data, "theme", "graphite"),  # type: ignore[arg-type]
+        transparent=_bool(data, "transparent", False),
     )
 
 

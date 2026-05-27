@@ -62,42 +62,111 @@ def nonnegative_int_argument(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Builds the CLI argument parser."""
-    parser = argparse.ArgumentParser(prog="sleep-env-server")
+    formatter = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(
+        prog="sleep-env-server",
+        description="Sleep environment monitor ingestion server.",
+        epilog="""examples:
+  sleep-env-server serve --host 0.0.0.0 --port 8080
+  sleep-env-server serve --json-log
+  sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
+  sleep-env-server history --limit 20
+""",
+        formatter_class=formatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    serve = subparsers.add_parser("serve", help="run HTTP API and UDP discovery")
+    serve = subparsers.add_parser(
+        "serve",
+        help="run HTTP API and UDP discovery as a service",
+        description="Run the ingestion service with clean log/event output.",
+        epilog="""examples:
+  sleep-env-server serve --host 0.0.0.0 --port 8080
+  sleep-env-server serve --json-log
+  sleep-env-server serve --rich-log
+""",
+        formatter_class=formatter,
+    )
     add_config_arguments(serve)
-    serve.add_argument("--log-level", choices=LOG_LEVELS, default=None)
+    serve.add_argument("--log-level", choices=LOG_LEVELS, default=None, help="server log level")
     output_group = serve.add_mutually_exclusive_group()
-    output_group.add_argument("--json-log", action="store_true")
-    output_group.add_argument("--no-rich", action="store_true")
+    output_group.add_argument("--json-log", action="store_true", help="emit machine JSONL logs")
+    output_group.add_argument("--rich-log", action="store_true", help="emit styled Rich logs")
+    output_group.add_argument("--no-rich", action="store_true", help=argparse.SUPPRESS)
     serve.set_defaults(handler=run_serve)
 
-    tui = subparsers.add_parser("tui", help="run HTTP API and UDP discovery in a TUI")
+    tui = subparsers.add_parser(
+        "tui",
+        help="run HTTP API and UDP discovery in a full-screen TUI",
+        description="Run the ingestion service with the full-screen TUI operator view.",
+        epilog="""examples:
+  sleep-env-server tui --host 0.0.0.0 --port 8080
+  sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
+""",
+        formatter_class=formatter,
+    )
     add_config_arguments(tui)
-    tui.add_argument("--log-level", choices=LOG_LEVELS, default=None)
+    tui.add_argument("--log-level", choices=LOG_LEVELS, default=None, help="server log level")
+    tui.add_argument(
+        "--transparent",
+        action="store_true",
+        help="let terminal transparency show through the TUI background",
+    )
     tui.set_defaults(handler=run_tui)
 
-    check = subparsers.add_parser("check-config", help="validate server configuration")
+    check = subparsers.add_parser(
+        "check-config",
+        help="validate server configuration",
+        description="Validate TOML configuration and CLI overrides without opening sockets.",
+        formatter_class=formatter,
+    )
     add_config_arguments(check)
     check.set_defaults(handler=run_check_config)
 
     print_discovery = subparsers.add_parser(
         "print-discovery",
         help="print HTTP and UDP discovery metadata",
+        description="Print the discovery document and UDP response payload.",
+        formatter_class=formatter,
     )
     add_config_arguments(print_discovery)
-    print_discovery.add_argument("--output", choices=PRINT_OUTPUT_MODES, default="rich")
+    print_discovery.add_argument(
+        "--output",
+        choices=PRINT_OUTPUT_MODES,
+        default="rich",
+        help="output format",
+    )
     print_discovery.set_defaults(handler=run_print_discovery)
 
-    history = subparsers.add_parser("history", help="print persisted measurement history")
-    history.add_argument("--config", default=None)
-    history.add_argument("--output", choices=HISTORY_OUTPUT_MODES, default="auto")
-    history.add_argument("--read-source", choices=READ_SOURCES, default=None)
-    history.add_argument("--device-id", default=None)
-    history.add_argument("--start-unix-ms", type=nonnegative_int_argument, default=None)
-    history.add_argument("--end-unix-ms", type=nonnegative_int_argument, default=None)
-    history.add_argument("--limit", type=nonnegative_int_argument, default=None)
+    history = subparsers.add_parser(
+        "history",
+        help="print persisted measurement history",
+        description="Read local persisted history without starting the HTTP service.",
+        epilog="""examples:
+  sleep-env-server history --limit 20
+  sleep-env-server history --output json --device-id sleep-env-esp32c3
+""",
+        formatter_class=formatter,
+    )
+    history.add_argument("--config", default=None, help="TOML configuration path")
+    history.add_argument(
+        "--output", choices=HISTORY_OUTPUT_MODES, default="auto", help="output format"
+    )
+    history.add_argument("--read-source", choices=READ_SOURCES, default=None, help="history source")
+    history.add_argument("--device-id", default=None, help="filter by device id")
+    history.add_argument(
+        "--start-unix-ms",
+        type=nonnegative_int_argument,
+        default=None,
+        help="inclusive display-time start in Unix milliseconds",
+    )
+    history.add_argument(
+        "--end-unix-ms",
+        type=nonnegative_int_argument,
+        default=None,
+        help="inclusive display-time end in Unix milliseconds",
+    )
+    history.add_argument("--limit", type=nonnegative_int_argument, default=None, help="tail count")
     history.set_defaults(handler=run_history)
 
     return parser
@@ -105,10 +174,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def add_config_arguments(parser: argparse.ArgumentParser) -> None:
     """Adds common server configuration flags to a subparser."""
-    parser.add_argument("--config", default=None)
-    parser.add_argument("--host", default=None)
-    parser.add_argument("--port", type=port_argument, default=None)
-    parser.add_argument("--udp-discovery-port", type=port_argument, default=None)
+    parser.add_argument("--config", default=None, help="TOML configuration path")
+    parser.add_argument("--host", default=None, help="HTTP bind host")
+    parser.add_argument("--port", type=port_argument, default=None, help="HTTP bind port")
+    parser.add_argument(
+        "--udp-discovery-port",
+        type=port_argument,
+        default=None,
+        help="UDP discovery port",
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -139,17 +213,13 @@ def select_serve_output_mode(
     """Selects the serve output mode from parsed flags, config, and stdout state."""
     if getattr(args, "json_log", False):
         return "json"
+    if getattr(args, "rich_log", False):
+        return "rich"
     if getattr(args, "no_rich", False):
         return "plain"
     if configured_mode == "json":
         return "json"
-    if configured_mode == "plain":
-        return "plain"
-    if configured_mode == "rich":
-        return "rich"
-    if not stdout_isatty:
-        return "plain"
-    return "rich"
+    return "plain"
 
 
 def select_history_output_mode(
@@ -323,7 +393,11 @@ def _metric_trend(values: list[float]) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entrypoint."""
-    args = parse_args(argv)
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if not effective_argv:
+        build_parser().print_help()
+        return 2
+    args = parse_args(effective_argv)
     try:
         return args.handler(args)
     except ValueError as exc:

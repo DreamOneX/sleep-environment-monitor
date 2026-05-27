@@ -117,6 +117,8 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.server.log_level == "debug"
     assert config.output.mode == "plain"
     assert config.output.dashboard is False
+    assert config.tui.theme == "graphite"
+    assert config.tui.transparent is False
     assert config.storage.required_for_ack is False
     assert config.storage.jsonl.enabled is True
     assert config.history_cli.tail_count == 5
@@ -146,6 +148,18 @@ def test_storage_policy_retention_limits_are_parsed(tmp_path: Path) -> None:
     profile = config.storage.policy.profiles["default"]
     assert profile.limit.time_limit == "2h"
     assert profile.limit.size_limit == "4MB"
+
+
+def test_tui_config_is_parsed() -> None:
+    config = app_config_from_mapping({"tui": {"theme": "graphite", "transparent": True}})
+
+    assert config.tui.theme == "graphite"
+    assert config.tui.transparent is True
+
+
+def test_tui_rejects_unknown_theme() -> None:
+    with pytest.raises(ValueError, match="tui.theme"):
+        app_config_from_mapping({"tui": {"theme": "purple-rain"}})
 
 
 def test_history_api_requires_token_when_enabled() -> None:

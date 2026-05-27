@@ -3,7 +3,7 @@
 This document defines the implemented server persistence, TOML configuration,
 history API, and local operator display behavior.
 
-Implementation status through Milestone 68:
+Implementation status through Phase 28:
 
 - TOML loading, XDG default generation, and CLI overrides are implemented.
 - SQLite and JSONL stores are implemented with canonical reads, duplicate
@@ -14,7 +14,8 @@ Implementation status through Milestone 68:
 - Startup and periodic backfill helpers copy missing canonical records between
   enabled stores.
 - Phase 26 Rich serve output showed a local live measurements/trends dashboard.
-  Phase 27 replaces that serve chart with a dedicated Textual TUI entry point.
+  Phase 27 replaces that serve chart with a dedicated Textual TUI entry point,
+  and Phase 28 makes Rich service logging explicit through `serve --rich-log`.
 - `sleep-env-server history` prints summary, recent rows, and metric trends.
 - Retention cleanup is enforced on startup and in the periodic maintenance loop.
 
@@ -156,16 +157,19 @@ and metric averages.
 ## Local Operator Output
 
 `sleep-env-server serve` is the service/process entry point. It emits bounded
-plain, JSONL, or Rich logs and does not render live measurement charts.
+plain logs by default, JSONL logs with `--json-log`, or Rich logs with
+`--rich-log`, and does not render live measurement charts.
 
 `sleep-env-server tui` is the full-screen local operator entry point. It starts
 the same HTTP API, UDP discovery responder, storage, backfill, and retention
 maintenance as `serve`, then presents the current process receive stream:
 
+- Top-line temperature, humidity, lux, and relative sound dB metric cards.
 - Recent accepted measurements.
 - Recent temperature, humidity, lux, and relative sound dB trends.
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
+- Built-in help for `q`, `Ctrl+C`, `c`, `r`, and `?`.
 
 TUI visual configuration lives under `[tui]`:
 

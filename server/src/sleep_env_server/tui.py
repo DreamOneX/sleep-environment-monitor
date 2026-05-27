@@ -74,29 +74,118 @@ class ServerTuiApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
+        background: #0b0f14;
+        color: #d7e0ea;
+    }
+
+    Screen.transparent {
+        background: transparent;
+    }
+
+    Header, Footer {
+        background: #101820;
+        color: #d7e0ea;
+    }
+
+    Screen.transparent Header,
+    Screen.transparent Footer,
+    Screen.transparent #status,
+    Screen.transparent #metrics,
+    Screen.transparent #main,
+    Screen.transparent #events,
+    Screen.transparent #help-panel,
+    Screen.transparent .metric,
+    Screen.transparent .panel-title,
+    Screen.transparent DataTable {
+        background: transparent;
     }
 
     #status {
         height: 3;
         padding: 0 1;
-        border: solid $accent;
+        content-align: left middle;
+        background: #101820;
+        border-bottom: solid #243244;
+        color: #d7e0ea;
+    }
+
+    #metrics {
+        height: 4;
+        padding: 0 1;
+        background: #0b0f14;
+    }
+
+    .metric {
+        width: 1fr;
+        height: 3;
+        margin-right: 1;
+        padding: 0 1;
+        content-align: left middle;
+        background: #111827;
+        border: solid #243244;
+        color: #d7e0ea;
+    }
+
+    #metric-temperature {
+        border: solid #22d3ee;
+    }
+
+    #metric-humidity {
+        border: solid #10b981;
+    }
+
+    #metric-lux {
+        border: solid #f59e0b;
+    }
+
+    #metric-sound {
+        border: solid #f43f5e;
     }
 
     #main {
         height: 1fr;
+        padding: 0 1;
+        background: #0b0f14;
     }
 
     #measurements-panel {
         width: 2fr;
+        margin-right: 1;
     }
 
     #side-panel {
         width: 1fr;
     }
 
-    DataTable, RichLog {
+    .panel-title {
+        height: 1;
+        color: #94a3b8;
+        text-style: bold;
+        background: #0b0f14;
+    }
+
+    DataTable {
         height: 1fr;
-        border: solid $primary;
+        background: #111827;
+        color: #d7e0ea;
+        border: solid #243244;
+    }
+
+    #events {
+        height: 7;
+        margin: 0 1;
+        background: #111827;
+        color: #d7e0ea;
+        border: solid #243244;
+    }
+
+    #help-panel {
+        height: 3;
+        padding: 0 1;
+        content-align: left middle;
+        background: #0b0f14;
+        color: #94a3b8;
+        border-top: solid #243244;
     }
     """
 
@@ -105,6 +194,7 @@ class ServerTuiApp(App[None]):
         ("ctrl+c", "quit", "Quit"),
         ("c", "clear_events", "Clear events"),
         ("r", "refresh", "Refresh"),
+        ("?", "toggle_help", "Help"),
     ]
 
     def __init__(
@@ -127,22 +217,35 @@ class ServerTuiApp(App[None]):
         self.runtime_starter = runtime_starter
         self.runtime: RuntimeHandle | None = None
         self._recent_measurements: deque[dict[str, Any]] = deque(maxlen=50)
+        self._help_expanded = False
 
     def compose(self) -> ComposeResult:
         """Builds the static TUI layout."""
         yield Header(show_clock=True)
         yield Static(self._status_text(), id="status")
+        with Horizontal(id="metrics"):
+            yield Static(_metric_card("TEMP", None, "C"), id="metric-temperature", classes="metric")
+            yield Static(
+                _metric_card("HUMIDITY", None, "%"), id="metric-humidity", classes="metric"
+            )
+            yield Static(_metric_card("LIGHT", None, "lx"), id="metric-lux", classes="metric")
+            yield Static(_metric_card("SOUND", None, "dB"), id="metric-sound", classes="metric")
         with Horizontal(id="main"):
             with Vertical(id="measurements-panel"):
+                yield Static("MEASUREMENTS", classes="panel-title")
                 yield DataTable(id="measurements")
-                yield RichLog(id="events", highlight=False, markup=False, wrap=True)
             with Vertical(id="side-panel"):
+                yield Static("TRENDS", classes="panel-title")
                 yield DataTable(id="trends")
-                yield RichLog(id="help", highlight=False, markup=False, wrap=True)
+        yield Static("EVENTS", classes="panel-title")
+        yield RichLog(id="events", highlight=False, markup=False, wrap=True)
+        yield Static(self._help_text(), id="help-panel")
         yield Footer()
 
     def on_mount(self) -> None:
         """Initializes table headers and static operator hints."""
+        self.screen.set_class(self.app_config.tui.transparent, "transparent")
+
         measurements = self.query_one("#measurements", DataTable)
         measurements.cursor_type = "row"
         measurements.add_columns("Device", "Seq", "Temp", "RH", "Lux", "dB", "Dup")
@@ -154,12 +257,8 @@ class ServerTuiApp(App[None]):
             trends.add_row(metric, "")
 
         events = self.query_one("#events", RichLog)
-        events.write("server_tui_ready")
+        events.write("server ready")
 
-        help_log = self.query_one("#help", RichLog)
-        help_log.write("q / Ctrl+C: quit")
-        help_log.write("c: clear events")
-        help_log.write("r: refresh")
         self.set_interval(0.1, self.drain_events)
         if self.start_runtime:
             self.runtime = self.runtime_starter(self.app_config, self.output)
@@ -170,7 +269,12 @@ class ServerTuiApp(App[None]):
 
     def action_refresh(self) -> None:
         """Records a manual refresh request in the event panel."""
-        self.query_one("#events", RichLog).write("refresh_requested")
+        self.query_one("#events", RichLog).write("manual refresh requested")
+
+    def action_toggle_help(self) -> None:
+        """Toggles expanded operator help."""
+        self._help_expanded = not self._help_expanded
+        self.query_one("#help-panel", Static).update(self._help_text())
 
     def on_unmount(self) -> None:
         """Stops the service runtime when the TUI exits."""
@@ -190,10 +294,12 @@ class ServerTuiApp(App[None]):
 
     def _status_text(self) -> str:
         """Returns the one-line service status summary."""
+        transparent = "transparent" if self.app_config.tui.transparent else "solid"
         return (
             f"HTTP {self.config.host}:{self.config.port} | "
             f"UDP discovery {self.config.udp_discovery_port} | "
-            f"API {self.config.api_base}"
+            f"API {self.config.api_base} | "
+            f"theme {self.app_config.tui.theme}/{transparent}"
         )
 
     def _apply_event(self, event: ServerEvent) -> None:
@@ -203,6 +309,7 @@ class ServerTuiApp(App[None]):
             return
 
         self._recent_measurements.append(event.fields)
+        self._update_metric_cards(event.fields)
         measurements = self.query_one("#measurements", DataTable)
         measurements.clear()
         for item in list(self._recent_measurements)[-20:]:
@@ -226,11 +333,74 @@ class ServerTuiApp(App[None]):
             ]
             trends.add_row(metric, _metric_trend(values[-24:]))
 
+    def _help_text(self) -> str:
+        """Returns compact or expanded operator help."""
+        if self._help_expanded:
+            return (
+                "q quit | Ctrl+C quit | c clear event log | r record refresh request | "
+                "? collapse help | serve remains the scriptable log mode"
+            )
+        return "q quit | c clear events | r refresh | ? help"
+
+    def _update_metric_cards(self, item: dict[str, Any]) -> None:
+        """Updates the top metric strip from the latest accepted measurement."""
+        self.query_one("#metric-temperature", Static).update(
+            _metric_card("TEMP", item.get("temperature_c"), "C")
+        )
+        self.query_one("#metric-humidity", Static).update(
+            _metric_card("HUMIDITY", item.get("humidity_percent"), "%")
+        )
+        self.query_one("#metric-lux", Static).update(_metric_card("LIGHT", item.get("lux"), "lx"))
+        self.query_one("#metric-sound", Static).update(
+            _metric_card("SOUND", item.get("mic_db_rel"), "dB")
+        )
+
 
 def _format_event(event: ServerEvent) -> str:
     """Formats one bounded event for the TUI log panel."""
-    parts = " ".join(f"{key}={value}" for key, value in event.fields.items())
-    return f"{event.name} {parts}".rstrip()
+    if event.name == "measurement":
+        return (
+            "measurement "
+            f"{event.fields.get('device_id', '')} "
+            f"seq {event.fields.get('sequence', '')} "
+            f"temp {_format_optional_number(event.fields.get('temperature_c'))} "
+            f"rh {_format_optional_number(event.fields.get('humidity_percent'))} "
+            f"lux {_format_optional_number(event.fields.get('lux'))}"
+        )
+    if event.name == "upload_accepted":
+        duplicate = " duplicate" if event.fields.get("duplicate") else ""
+        return (
+            "accepted "
+            f"{event.fields.get('device_id', '')} "
+            f"seq {event.fields.get('sequence', '')}{duplicate}"
+        )
+    if event.name == "upload_rejected":
+        return (
+            "rejected "
+            f"{event.fields.get('device_id', '')} "
+            f"seq {event.fields.get('sequence', '')} "
+            f"status {event.fields.get('status_code', '')}"
+        )
+    if event.name == "udp_discovery_started":
+        return f"udp discovery listening on {event.fields.get('udp_discovery_port', '')}"
+    if event.name == "udp_discovery_disabled":
+        return f"udp discovery disabled: {event.fields.get('error', '')}"
+    if event.name == "storage_reconciled":
+        return f"storage reconciled, copied {event.fields.get('copied', 0)} records"
+    if event.name == "shutdown_requested":
+        return "shutdown requested"
+    if event.name == "server_stopped":
+        return "server stopped"
+    if event.fields:
+        parts = " ".join(f"{key}={value}" for key, value in event.fields.items())
+        return f"{event.name} {parts}".rstrip()
+    return event.name
+
+
+def _metric_card(label: str, value: object, unit: str) -> str:
+    """Formats one top-strip metric card."""
+    formatted = "--" if value is None else _format_optional_number(value)
+    return f"{label}\n{formatted} {unit}"
 
 
 def _format_optional_number(value: object) -> str:

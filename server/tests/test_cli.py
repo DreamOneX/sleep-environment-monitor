@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from sleep_env_server.cli import (
+    app_config_from_args,
     build_metric_trends,
     config_from_args,
     main,
@@ -99,6 +100,18 @@ def test_tui_defaults_match_firmware_fallback() -> None:
     assert args.log_level is None
 
 
+def test_tui_transparent_override_is_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    args = parse_args(["tui", "--transparent"])
+    config = app_config_from_args(args)
+
+    assert config.server.host == "0.0.0.0"
+    assert config.tui.transparent is True
+    assert args.transparent is True
+
+
 def test_serve_explicit_host_ports_and_log_level_are_applied() -> None:
     args = parse_args(
         [
@@ -123,28 +136,40 @@ def test_serve_explicit_host_ports_and_log_level_are_applied() -> None:
 
 def test_serve_output_modes_are_selected_from_flags_and_tty() -> None:
     assert (
-        select_serve_output_mode(Namespace(json_log=True, no_rich=False), stdout_isatty=True)
+        select_serve_output_mode(
+            Namespace(json_log=True, rich_log=False, no_rich=False),
+            stdout_isatty=True,
+        )
         == "json"
     )
     assert (
-        select_serve_output_mode(Namespace(json_log=False, no_rich=True), stdout_isatty=True)
-        == "plain"
-    )
-    assert (
-        select_serve_output_mode(Namespace(json_log=False, no_rich=False), stdout_isatty=True)
+        select_serve_output_mode(
+            Namespace(json_log=False, rich_log=True, no_rich=False),
+            stdout_isatty=False,
+        )
         == "rich"
     )
     assert (
-        select_serve_output_mode(Namespace(json_log=False, no_rich=False), stdout_isatty=False)
+        select_serve_output_mode(
+            Namespace(json_log=False, rich_log=False, no_rich=True),
+            stdout_isatty=True,
+        )
         == "plain"
     )
     assert (
         select_serve_output_mode(
-            Namespace(json_log=False, no_rich=False),
-            stdout_isatty=False,
+            Namespace(json_log=False, rich_log=False, no_rich=False),
+            stdout_isatty=True,
+        )
+        == "plain"
+    )
+    assert (
+        select_serve_output_mode(
+            Namespace(json_log=False, rich_log=False, no_rich=False),
+            stdout_isatty=True,
             configured_mode="rich",
         )
-        == "rich"
+        == "plain"
     )
 
 
@@ -214,7 +239,44 @@ def test_history_output_modes_are_selected_from_flags_config_and_tty() -> None:
 
 def test_json_log_and_no_rich_are_mutually_exclusive() -> None:
     with pytest.raises(SystemExit):
-        parse_args(["serve", "--json-log", "--no-rich"])
+        parse_args(["serve", "--json-log", "--rich-log"])
+
+
+def test_help_text_includes_examples_and_output_modes(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--help"])
+    root = capsys.readouterr().out
+    assert "examples:" in root
+    assert "sleep-env-server tui --transparent" in root
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve", "--help"])
+    serve = capsys.readouterr().out
+    assert "--rich-log" in serve
+    assert "--json-log" in serve
+    assert "Run the ingestion service with clean log/event output." in serve
+
+    with pytest.raises(SystemExit):
+        parse_args(["tui", "--help"])
+    tui = capsys.readouterr().out
+    assert "--transparent" in tui
+    assert "full-screen TUI" in tui
+
+    with pytest.raises(SystemExit):
+        parse_args(["history", "--help"])
+    history = capsys.readouterr().out
+    assert "--device-id" in history
+    assert "examples:" in history
+
+
+def test_main_without_subcommand_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    result = main([])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "Sleep environment monitor ingestion server." in captured.out
+    assert "serve" in captured.out
+    assert captured.err == ""
 
 
 def test_invalid_port_is_rejected() -> None:

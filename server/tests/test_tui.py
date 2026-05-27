@@ -24,9 +24,34 @@ def test_server_tui_app_smoke_startup_and_quit() -> None:
         async with app.run_test() as pilot:
             status = app.query_one("#status", Static)
             assert "127.0.0.1:8081" in str(status.content)
+            assert "theme graphite/solid" in str(status.content)
             assert len(app.query_one("#measurements", DataTable).ordered_columns) == 7
             assert app.query_one("#events", RichLog) is not None
+            assert app.query_one("#help-panel", Static) is not None
             await pilot.press("q")
+
+    asyncio.run(run())
+
+
+def test_server_tui_app_transparent_mode_class() -> None:
+    async def run() -> None:
+        app_config = AppConfig(tui=AppConfig().tui.__class__(transparent=True))
+        app = ServerTuiApp(app_config, start_runtime=False)
+        async with app.run_test():
+            assert app.screen.has_class("transparent")
+            assert "transparent" in str(app.query_one("#status", Static).content)
+
+    asyncio.run(run())
+
+
+def test_server_tui_app_help_toggle() -> None:
+    async def run() -> None:
+        app = ServerTuiApp(AppConfig(), start_runtime=False)
+        async with app.run_test() as pilot:
+            help_panel = app.query_one("#help-panel", Static)
+            assert "q quit" in str(help_panel.content)
+            await pilot.press("?")
+            assert "collapse help" in str(help_panel.content)
 
     asyncio.run(run())
 
@@ -115,6 +140,7 @@ def test_server_tui_app_drains_measurement_events() -> None:
             measurements = app.query_one("#measurements", DataTable)
             assert measurements.row_count == 1
             assert app.query_one("#trends", DataTable).row_count == 4
+            assert "21.50 C" in str(app.query_one("#metric-temperature", Static).content)
 
     asyncio.run(run())
 

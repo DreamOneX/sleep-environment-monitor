@@ -4309,3 +4309,40 @@ Milestone commit message:
 ```text
 test: strengthen server tui audit coverage
 ```
+
+## Milestone 75: Server TUI Polish And Help Plan
+
+This milestone records the documentation-first plan for Phase 28 before code
+changes.
+
+Documentation update:
+
+- Added Phase 28 to [00-development-plan.md](00-development-plan.md) with the
+  modern TUI palette, transparent mode, serve output cleanup, CLI help
+  requirements, tests, verification, and per-milestone commit rule.
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) with the planned
+  `serve --rich-log`, `tui --transparent`, and operator shortcut behavior.
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  with planned `[tui]` visual configuration and transparent-background
+  semantics.
+- Updated [../../server/README.md](../../server/README.md),
+  [../../server/config.example.toml](../../server/config.example.toml), and
+  [03-todo.md](03-todo.md) with the Phase 28 command/config surface.
+
+Implementation:
+
+- No runtime code changed in this milestone.
+
+Validation commands:
+
+- Documentation-only milestone; no runtime validation required before commit.
+
+Manual verification:
+
+- Not applicable for this documentation milestone.
+
+Milestone commit message:
+
+```text
+docs: plan server tui polish and help
+```

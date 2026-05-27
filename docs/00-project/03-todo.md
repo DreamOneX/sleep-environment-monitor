@@ -228,6 +228,21 @@ live measurement charts.
 - [x] Record milestone validation evidence and commit every Phase 27 milestone
   separately.
 
+## Phase 28 Server TUI Visual Polish And Serve Help
+
+Phase 28 makes the Textual operator UI visually usable and makes `serve` help
+and output behavior predictable.
+
+- [x] Added documentation-first Phase 28 TUI polish/help plan.
+- [ ] Add `[tui]` TOML configuration and `tui --transparent`.
+- [ ] Redesign the TUI with a modern graphite theme and transparent mode.
+- [ ] Add in-TUI help for operator actions.
+- [ ] Clean up `serve` output modes and CLI help text.
+- [ ] Cover TUI theme/transparent/help and serve help/output behavior with
+  automated hardware-free tests.
+- [ ] Record milestone validation evidence and commit every Phase 28 milestone
+  separately.
+
 ## Future Security, Configuration, And Hardware Validation
 
 - [ ] Replace bring-up Wi-Fi defaults with a deployment-safe credential model.

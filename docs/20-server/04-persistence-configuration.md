@@ -167,5 +167,13 @@ maintenance as `serve`, then presents the current process receive stream:
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 
+TUI visual configuration lives under `[tui]`:
+
+- `theme = "graphite"` selects the modern graphite/cyan/emerald/amber/rose
+  palette.
+- `transparent = true` uses transparent Textual backgrounds so terminals with
+  window transparency can show through. This is terminal background
+  transparency, not an operating-system window alpha setting.
+
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

@@ -9,6 +9,10 @@ log_level = "info"
 mode = "auto" # auto, rich, plain, json
 dashboard = true
 
+[tui]
+theme = "graphite"
+transparent = false
+
 [storage]
 enabled = true
 required_for_ack = true

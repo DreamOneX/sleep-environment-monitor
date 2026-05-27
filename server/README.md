@@ -14,10 +14,15 @@ Run commands from this directory:
 ```bash
 uv run sleep-env-server serve --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
 uv run sleep-env-server tui --host 0.0.0.0 --port 8080 --udp-discovery-port 39022
+uv run sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
 uv run sleep-env-server check-config
 uv run sleep-env-server print-discovery
 uv run sleep-env-server history
 ```
+
+Use `serve` for scripts, system services, and logs. Use `tui` for the
+full-screen local operator interface. `serve --json-log` emits machine-readable
+JSONL, while `serve --rich-log` enables styled human logs explicitly.
 
 Legacy hardware validation commands still work:
 

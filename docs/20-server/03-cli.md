@@ -42,7 +42,7 @@ Options:
 --udp-discovery-port PORT
 --log-level LEVEL
 --json-log
---no-rich
+--rich-log
 --config PATH
 ```
 
@@ -53,8 +53,9 @@ host: 0.0.0.0
 port: 8080
 udp-discovery-port: 39022
 log-level: info
-rich: enabled when stdout is interactive
+output: plain service events by default
 json-log: disabled
+rich-log: disabled
 ```
 
 Behavior:
@@ -65,7 +66,9 @@ Behavior:
   background storage maintenance loop when at least one backend is active.
 - Start the FastAPI/Uvicorn HTTP server.
 - Start the UDP discovery responder on the configured port.
-- Print Rich startup information for local operation unless disabled.
+- Print plain service events by default.
+- Print JSONL service events when `--json-log` is used.
+- Use styled Rich service logging only when `--rich-log` is used.
 - Do not render live measurement charts. `serve` is the scriptable service
   entry point; use `tui` for the full-screen local operator view.
 - Expose the same API paths as the Phase 22 contract.
@@ -83,6 +86,7 @@ Options:
 --port PORT
 --udp-discovery-port PORT
 --log-level LEVEL
+--transparent
 --config PATH
 ```
 
@@ -93,9 +97,12 @@ Behavior:
   service, and UDP discovery responder.
 - Show service status, recent measurements, metric trends, and bounded event
   logs in a full-screen TUI.
+- Use a modern graphite theme by default.
+- Enable transparent-background styling with `[tui].transparent = true` or
+  `--transparent` for terminals that already provide window transparency.
 - Keep Uvicorn and server diagnostics inside the TUI event panel rather than
   writing over the terminal screen.
-- Support `q` and `Ctrl+C` as operator exit paths.
+- Support `q`, `Ctrl+C`, `c`, `r`, and `?` as operator actions.
 - Preserve REST, UDP discovery, and upload ACK behavior exactly as `serve`.
 
 ## `check-config`
@@ -175,6 +182,8 @@ CLI tests should cover:
 - Explicit host and ports.
 - Log level parsing.
 - Rich output enable/disable behavior.
+- `serve --rich-log` explicit Rich logging behavior.
+- `tui --transparent` configuration override.
 - `serve` does not render live measurement charts.
 - Textual TUI smoke startup and keyboard exit behavior.
 - JSON/plain output switches for `print-discovery`.

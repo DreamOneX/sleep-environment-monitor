@@ -2878,6 +2878,99 @@ feat: add server tui runtime
 
 ---
 
+# Phase 28: Server TUI Visual Polish And Serve Help
+
+## Goal
+
+Replace the bare Textual debug-style TUI with a modern, readable operator
+surface that supports an explicit transparent mode, and clean up `serve` so it
+has clear help and predictable service output.
+
+Documentation comes first. Each Phase 28 milestone must update relevant docs,
+record completion evidence in [01-walkthrough.md](01-walkthrough.md), and end
+with at least one commit.
+
+## Work Items
+
+- Update [../20-server/03-cli.md](../20-server/03-cli.md),
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md),
+  [../../server/README.md](../../server/README.md), and
+  [../../server/config.example.toml](../../server/config.example.toml) before
+  implementation.
+- Add a `[tui]` TOML table with `theme = "graphite"` and
+  `transparent = false`.
+- Add `sleep-env-server tui --transparent` to enable transparent background
+  mode for terminals that already have window transparency configured.
+- Redesign the Textual TUI with a modern graphite/cyan/emerald/amber/rose
+  palette, a clear status strip, metric summary, measurement table, trend
+  panel, and bounded event log.
+- Keep transparent mode readable by avoiding large opaque fills and by using
+  restrained borders and text contrast.
+- Add an in-TUI help surface for `q`, `Ctrl+C`, `c`, `r`, and `?`.
+- Make `serve` the plain, scriptable service entry point by default.
+- Keep `serve --json-log` as strict JSONL and make styled Rich service logging
+  explicit with `--rich-log`.
+- Improve root, `serve`, `tui`, and `history` help text with descriptions,
+  option help, defaults, and examples.
+- Preserve REST, UDP discovery, storage, history API, TOML configuration, and
+  compatibility wrapper behavior.
+
+## Unit Tests
+
+All Phase 28 tests must remain hardware-free.
+
+Required coverage:
+
+- `[tui]` config parsing and validation.
+- `tui --transparent` override behavior.
+- TUI smoke startup with default and transparent mode classes.
+- In-TUI help action visibility.
+- Measurement/event rendering does not fall back to the old raw debug layout.
+- Root, `serve`, `tui`, and `history` help include examples and option
+  descriptions.
+- `serve` default output is plain, `--json-log` is JSONL, and `--rich-log` is
+  the only RichHandler path.
+
+## Verification
+
+Run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+```
+
+Manual terminal verification is useful but not required for automated
+acceptance:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
+```
+
+If no human operator is available, mark the manual TUI run as skipped rather
+than repeatedly checking it.
+
+## Done When
+
+- `sleep-env-server tui` no longer looks like a debug panel and presents a
+  coherent modern terminal UI.
+- Transparent mode is available through TOML and CLI without degrading normal
+  default readability.
+- `serve` help and output modes are understandable from `--help`.
+- `serve` default output is clean and not Rich-styled unless `--rich-log` is
+  requested.
+- Existing REST, storage, history, and TUI tests continue to pass.
+- Each milestone has at least one commit and walkthrough evidence.
+
+## Git Commit Message
+
+```text
+feat: polish server tui and help
+```
+
+---
+
 # Final Required Unit Test Checklist
 
 All must be automated and hardware-free.

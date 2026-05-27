@@ -74,45 +74,17 @@ class ServerTuiApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
-        background: #0b0f14;
-        color: #d7e0ea;
-    }
-
-    Screen.transparent {
-        background: transparent;
-    }
-
-    Header, Footer {
-        background: #101820;
-        color: #d7e0ea;
-    }
-
-    Screen.transparent Header,
-    Screen.transparent Footer,
-    Screen.transparent #status,
-    Screen.transparent #metrics,
-    Screen.transparent #main,
-    Screen.transparent #events,
-    Screen.transparent #help-panel,
-    Screen.transparent .metric,
-    Screen.transparent .panel-title,
-    Screen.transparent DataTable {
-        background: transparent;
     }
 
     #status {
         height: 3;
         padding: 0 1;
         content-align: left middle;
-        background: #101820;
-        border-bottom: solid #243244;
-        color: #d7e0ea;
     }
 
     #metrics {
         height: 4;
         padding: 0 1;
-        background: #0b0f14;
     }
 
     .metric {
@@ -121,31 +93,11 @@ class ServerTuiApp(App[None]):
         margin-right: 1;
         padding: 0 1;
         content-align: left middle;
-        background: #111827;
-        border: solid #243244;
-        color: #d7e0ea;
-    }
-
-    #metric-temperature {
-        border: solid #22d3ee;
-    }
-
-    #metric-humidity {
-        border: solid #10b981;
-    }
-
-    #metric-lux {
-        border: solid #f59e0b;
-    }
-
-    #metric-sound {
-        border: solid #f43f5e;
     }
 
     #main {
         height: 1fr;
         padding: 0 1;
-        background: #0b0f14;
     }
 
     #measurements-panel {
@@ -159,33 +111,160 @@ class ServerTuiApp(App[None]):
 
     .panel-title {
         height: 1;
-        color: #94a3b8;
         text-style: bold;
-        background: #0b0f14;
     }
 
     DataTable {
         height: 1fr;
-        background: #111827;
-        color: #d7e0ea;
-        border: solid #243244;
     }
 
     #events {
         height: 7;
         margin: 0 1;
-        background: #111827;
-        color: #d7e0ea;
-        border: solid #243244;
     }
 
     #help-panel {
         height: 3;
         padding: 0 1;
         content-align: left middle;
+    }
+
+    Screen.theme_catppuccin_mocha {
+        background: #1e1e2e;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha Header,
+    Screen.theme_catppuccin_mocha Footer {
+        background: #181825;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha #status {
+        background: #181825;
+        border-bottom: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha #metrics,
+    Screen.theme_catppuccin_mocha #main,
+    Screen.theme_catppuccin_mocha .panel-title,
+    Screen.theme_catppuccin_mocha #help-panel {
+        background: #1e1e2e;
+    }
+
+    Screen.theme_catppuccin_mocha .metric {
+        background: #313244;
+        border: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha #metric-temperature {
+        border: solid #89dceb;
+    }
+
+    Screen.theme_catppuccin_mocha #metric-humidity {
+        border: solid #a6e3a1;
+    }
+
+    Screen.theme_catppuccin_mocha #metric-lux {
+        border: solid #f9e2af;
+    }
+
+    Screen.theme_catppuccin_mocha #metric-sound {
+        border: solid #f38ba8;
+    }
+
+    Screen.theme_catppuccin_mocha .panel-title {
+        color: #bac2de;
+    }
+
+    Screen.theme_catppuccin_mocha DataTable,
+    Screen.theme_catppuccin_mocha #events {
+        background: #181825;
+        border: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha #help-panel {
+        border-top: solid #45475a;
+        color: #a6adc8;
+    }
+
+    Screen.theme_graphite {
         background: #0b0f14;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite Header,
+    Screen.theme_graphite Footer {
+        background: #101820;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite #status {
+        background: #101820;
+        border-bottom: solid #243244;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite #metrics,
+    Screen.theme_graphite #main,
+    Screen.theme_graphite .panel-title,
+    Screen.theme_graphite #help-panel {
+        background: #0b0f14;
+    }
+
+    Screen.theme_graphite .metric {
+        background: #111827;
+        border: solid #243244;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite #metric-temperature {
+        border: solid #22d3ee;
+    }
+
+    Screen.theme_graphite #metric-humidity {
+        border: solid #10b981;
+    }
+
+    Screen.theme_graphite #metric-lux {
+        border: solid #f59e0b;
+    }
+
+    Screen.theme_graphite #metric-sound {
+        border: solid #f43f5e;
+    }
+
+    Screen.theme_graphite .panel-title {
+        color: #94a3b8;
+    }
+
+    Screen.theme_graphite DataTable,
+    Screen.theme_graphite #events {
+        background: #111827;
+        border: solid #243244;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite #help-panel {
         color: #94a3b8;
         border-top: solid #243244;
+    }
+
+    Screen.transparent,
+    Screen.transparent Header,
+    Screen.transparent Footer,
+    Screen.transparent #status,
+    Screen.transparent #metrics,
+    Screen.transparent #main,
+    Screen.transparent #events,
+    Screen.transparent #help-panel,
+    Screen.transparent .metric,
+    Screen.transparent .panel-title,
+    Screen.transparent DataTable {
+        background: transparent;
     }
     """
 
@@ -244,6 +323,11 @@ class ServerTuiApp(App[None]):
 
     def on_mount(self) -> None:
         """Initializes table headers and static operator hints."""
+        self.screen.set_class(
+            self.app_config.tui.theme == "catppuccin-mocha",
+            "theme_catppuccin_mocha",
+        )
+        self.screen.set_class(self.app_config.tui.theme == "graphite", "theme_graphite")
         self.screen.set_class(self.app_config.tui.transparent, "transparent")
 
         measurements = self.query_one("#measurements", DataTable)

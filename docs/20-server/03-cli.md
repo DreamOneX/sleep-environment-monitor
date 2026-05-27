@@ -95,9 +95,10 @@ Behavior:
 - Load the same TOML configuration and CLI overrides as `serve`.
 - Start the same configured storage, backfill, retention, FastAPI/Uvicorn HTTP
   service, and UDP discovery responder.
-- Show service status, recent measurements, metric trends, and bounded event
-  logs in a full-screen TUI.
-- Use a modern graphite theme by default.
+- Show service status, metric cards, recent measurements, metric trends, and
+  bounded event logs in a full-screen TUI.
+- Use Catppuccin Mocha by default. Existing `theme = "graphite"` configuration
+  remains accepted for compatibility.
 - Enable transparent-background styling with `[tui].transparent = true` or
   `--transparent` for terminals that already provide window transparency.
 - Keep Uvicorn and server diagnostics inside the TUI event panel rather than

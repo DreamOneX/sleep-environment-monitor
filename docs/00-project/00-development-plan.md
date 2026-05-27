@@ -2963,6 +2963,11 @@ than repeatedly checking it.
 - Existing REST, storage, history, and TUI tests continue to pass.
 - Each milestone has at least one commit and walkthrough evidence.
 
+## Follow-Up Theme Note
+
+Milestone 77 switches the TUI default palette to Catppuccin Mocha while keeping
+`theme = "graphite"` accepted for older local configuration.
+
 ## Git Commit Message
 
 ```text

@@ -237,7 +237,8 @@ automated Textual smoke and CSS class tests cover the configured behavior.
 
 - [x] Added documentation-first Phase 28 TUI polish/help plan.
 - [x] Add `[tui]` TOML configuration and `tui --transparent`.
-- [x] Redesign the TUI with a modern graphite theme and transparent mode.
+- [x] Redesign the TUI with a Catppuccin Mocha default theme, graphite
+  compatibility, and transparent mode.
 - [x] Add in-TUI help for operator actions.
 - [x] Clean up `serve` output modes and CLI help text.
 - [x] Cover TUI theme/transparent/help and serve help/output behavior with

@@ -22,7 +22,8 @@ APP_DIR_NAME = "sleep-env-server"
 CONFIG_FILE_NAME = "config.toml"
 LOG_LEVELS = ("debug", "info", "warning", "error")
 OUTPUT_MODES = ("auto", "rich", "plain", "json")
-TUI_THEMES = ("graphite",)
+DEFAULT_TUI_THEME = "catppuccin-mocha"
+TUI_THEMES = (DEFAULT_TUI_THEME, "graphite")
 READ_SOURCES = ("merge", "sqlite", "jsonl")
 DEDUP_STRATEGIES = ("keep_first", "keep_last", "overwrite", "reject")
 CONFLICT_STRATEGIES = ("overwrite", "keep", "earliest", "latest", "error")
@@ -224,7 +225,7 @@ class OutputConfig:
 class TuiConfig:
     """Textual TUI visual configuration."""
 
-    theme: Literal["graphite"] = "graphite"
+    theme: Literal["catppuccin-mocha", "graphite"] = DEFAULT_TUI_THEME
     transparent: bool = False
 
     def __post_init__(self) -> None:
@@ -497,7 +498,7 @@ def _parse_output(data: Mapping[str, Any]) -> OutputConfig:
 def _parse_tui(data: Mapping[str, Any]) -> TuiConfig:
     """Parses the ``tui`` table."""
     return TuiConfig(
-        theme=_str(data, "theme", "graphite"),  # type: ignore[arg-type]
+        theme=_str(data, "theme", DEFAULT_TUI_THEME),  # type: ignore[arg-type]
         transparent=_bool(data, "transparent", False),
     )
 

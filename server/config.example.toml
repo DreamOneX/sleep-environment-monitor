@@ -10,7 +10,7 @@ mode = "auto" # auto, rich, plain, json
 dashboard = true
 
 [tui]
-theme = "graphite"
+theme = "catppuccin-mocha"
 transparent = false
 
 [storage]

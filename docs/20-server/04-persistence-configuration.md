@@ -173,8 +173,9 @@ maintenance as `serve`, then presents the current process receive stream:
 
 TUI visual configuration lives under `[tui]`:
 
-- `theme = "graphite"` selects the modern graphite/cyan/emerald/amber/rose
-  palette.
+- `theme = "catppuccin-mocha"` selects the default Catppuccin Mocha palette.
+- `theme = "graphite"` remains accepted for compatibility with older local
+  configuration.
 - `transparent = true` uses transparent Textual backgrounds so terminals with
   window transparency can show through. This is terminal background
   transparency, not an operating-system window alpha setting.

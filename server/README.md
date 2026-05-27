@@ -23,6 +23,8 @@ uv run sleep-env-server history
 Use `serve` for scripts, system services, and logs. Use `tui` for the
 full-screen local operator interface. `serve --json-log` emits machine-readable
 JSONL, while `serve --rich-log` enables styled human logs explicitly.
+The TUI uses Catppuccin Mocha by default and supports transparent backgrounds
+with `tui --transparent`.
 
 Legacy hardware validation commands still work:
 

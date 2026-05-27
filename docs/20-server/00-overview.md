@@ -105,7 +105,7 @@ The accepted upload model currently enforces:
 | Command | Current behavior |
 |---|---|
 | `sleep-env-server serve` | Loads TOML configuration, starts configured storage plus maintenance backfill/retention, then starts Uvicorn HTTP serving and the UDP responder. Defaults to host `0.0.0.0`, HTTP port `8080`, UDP port `39022`, and log level `info`. Plain service events are the default; `--json-log` selects JSONL event output and `--rich-log` explicitly selects Rich logging. It does not render live charts. |
-| `sleep-env-server tui` | Starts the same configured service stack as `serve` and owns a Textual full-screen local operator view for status, metric cards, recent measurements, metric trends, bounded events, operator help, and optional transparent styling. |
+| `sleep-env-server tui` | Starts the same configured service stack as `serve` and owns a Textual full-screen local operator view for status, metric cards, recent measurements, metric trends, bounded events, operator help, Catppuccin Mocha default styling, and optional transparent styling. |
 | `sleep-env-server check-config` | Validates XDG or explicit TOML plus CLI overrides without opening sockets and prints a plain `config_ok` event on success. |
 | `sleep-env-server print-discovery` | Prints the HTTP discovery document and an example UDP discovery response in `rich`, `plain`, or `json` output. |
 | `sleep-env-server history` | Reads configured local storage directly and prints summary, recent measurements, and simple metric trends in `rich`, `plain`, or `json` output. |

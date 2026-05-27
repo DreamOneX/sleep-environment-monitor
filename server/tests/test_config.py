@@ -7,6 +7,7 @@ import pytest
 from sleep_env_server.config import (
     AppConfig,
     ServerConfig,
+    TuiConfig,
     app_config_from_mapping,
     default_config_path,
     load_app_config,
@@ -117,7 +118,7 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.server.log_level == "debug"
     assert config.output.mode == "plain"
     assert config.output.dashboard is False
-    assert config.tui.theme == "graphite"
+    assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is False
     assert config.storage.required_for_ack is False
     assert config.storage.jsonl.enabled is True
@@ -151,10 +152,14 @@ def test_storage_policy_retention_limits_are_parsed(tmp_path: Path) -> None:
 
 
 def test_tui_config_is_parsed() -> None:
-    config = app_config_from_mapping({"tui": {"theme": "graphite", "transparent": True}})
+    config = app_config_from_mapping({"tui": {"theme": "catppuccin-mocha", "transparent": True}})
 
-    assert config.tui.theme == "graphite"
+    assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is True
+
+
+def test_tui_accepts_graphite_compatibility_theme() -> None:
+    assert TuiConfig(theme="graphite").theme == "graphite"
 
 
 def test_tui_rejects_unknown_theme() -> None:

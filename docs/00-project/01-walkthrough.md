@@ -4404,3 +4404,59 @@ Milestone commit message:
 ```text
 feat: polish server tui and help
 ```
+
+## Milestone 77: Server TUI Catppuccin Theme
+
+This milestone applies Catppuccin Mocha as the default server TUI palette while
+preserving the previous graphite theme value for existing local configuration.
+
+Documentation update:
+
+- Updated [00-development-plan.md](00-development-plan.md) with the Phase 28
+  follow-up theme note.
+- Updated [03-todo.md](03-todo.md), [../20-server/00-overview.md](../20-server/00-overview.md),
+  [../20-server/03-cli.md](../20-server/03-cli.md),
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md),
+  [../../server/README.md](../../server/README.md), and
+  [../../server/config.example.toml](../../server/config.example.toml) to
+  document `theme = "catppuccin-mocha"` as the default and `theme = "graphite"`
+  as a compatibility option.
+
+Implementation:
+
+- Added `DEFAULT_TUI_THEME = "catppuccin-mocha"` and kept `graphite` as an
+  accepted `[tui].theme` value.
+- Split TUI colors into theme-specific screen classes, with Catppuccin Mocha as
+  the default and the previous graphite palette retained behind
+  `theme_graphite`.
+- Kept transparent mode as an overlay class so terminal transparency still
+  removes panel backgrounds without losing theme border and text colors.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 106 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI color inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual tests cover Catppuccin
+  default class selection, graphite compatibility, transparent mode, help
+  toggling, and measurement rendering.
+
+Milestone commit message:
+
+```text
+style: apply catppuccin server tui theme
+```

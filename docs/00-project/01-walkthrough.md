@@ -4512,3 +4512,57 @@ Milestone commit message:
 ```text
 fix: make server tui transparency reach root
 ```
+
+## Milestone 79: Server TUI Terminal Default Transparency
+
+This milestone corrects the transparent-mode rendering target from
+alpha-transparent black to terminal-default background. The previous root fix
+made Textual computed backgrounds alpha-transparent, but Rich renders those
+colors as truecolor black. Terminal window transparency requires default ANSI
+background instead.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to document `ansi_default` as the transparent-mode background target.
+
+Implementation:
+
+- Replaced transparent-mode widget backgrounds and background tints with
+  `ansi_default`.
+- Changed the Textual `App` root transparent-mode background from
+  `Color.parse("transparent")` to `Color.parse("ansi_default")`.
+- Updated TUI tests to assert default ANSI background (`ansi == -1`) for the
+  App root, Screen, status strip, measurements table, and event log.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- The targeted computed-style check showed App, Screen, status, DataTable,
+  RichLog, Header, and Footer backgrounds as `Color('default',
+  ColorType.DEFAULT)` / `ansi=-1`.
+- `uv run pytest` passed 106 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. The computed-style check verifies that the
+  root and key widgets now emit terminal-default backgrounds instead of black
+  truecolor backgrounds.
+
+Milestone commit message:
+
+```text
+fix: use terminal default background for transparent tui
+```

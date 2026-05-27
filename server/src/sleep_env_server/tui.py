@@ -269,12 +269,12 @@ class ServerTuiApp(App[None]):
     Screen.transparent .metric,
     Screen.transparent .panel-title,
     Screen.transparent DataTable {
-        background: transparent;
+        background: ansi_default;
     }
 
     Screen.transparent RichLog,
     Screen.transparent DataTable {
-        background-tint: transparent;
+        background-tint: ansi_default;
     }
 
     Screen.transparent DataTable > .datatable--header,
@@ -286,8 +286,8 @@ class ServerTuiApp(App[None]):
     Screen.transparent DataTable > .datatable--header-cursor,
     Screen.transparent DataTable > .datatable--header-hover,
     Screen.transparent DataTable > .datatable--hover {
-        background: transparent;
-        background-tint: transparent;
+        background: ansi_default;
+        background-tint: ansi_default;
     }
     """
 
@@ -348,7 +348,7 @@ class ServerTuiApp(App[None]):
         """Initializes table headers and static operator hints."""
         self.set_class(self.app_config.tui.transparent, "transparent")
         if self.app_config.tui.transparent:
-            self.styles.background = Color.parse("transparent")
+            self.styles.background = Color.parse("ansi_default")
         self.screen.set_class(
             self.app_config.tui.theme == "catppuccin-mocha",
             "theme_catppuccin_mocha",

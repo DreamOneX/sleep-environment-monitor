@@ -176,9 +176,10 @@ TUI visual configuration lives under `[tui]`:
 - `theme = "catppuccin-mocha"` selects the default Catppuccin Mocha palette.
 - `theme = "graphite"` remains accepted for compatibility with older local
   configuration.
-- `transparent = true` uses transparent Textual backgrounds so terminals with
-  window transparency can show through. This is terminal background
-  transparency, not an operating-system window alpha setting.
+- `transparent = true` uses transparent Textual root, screen, and widget
+  backgrounds so terminals with window transparency can show through. This is
+  terminal background transparency, not an operating-system window alpha
+  setting.
 
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

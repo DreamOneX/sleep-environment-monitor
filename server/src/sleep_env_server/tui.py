@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from textual.app import App, ComposeResult
+from textual.color import Color
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 
@@ -256,6 +257,10 @@ class ServerTuiApp(App[None]):
     Screen.transparent,
     Screen.transparent Header,
     Screen.transparent Footer,
+    Screen.transparent FooterLabel,
+    Screen.transparent FooterKey,
+    Screen.transparent HorizontalGroup,
+    Screen.transparent KeyGroup,
     Screen.transparent #status,
     Screen.transparent #metrics,
     Screen.transparent #main,
@@ -265,6 +270,24 @@ class ServerTuiApp(App[None]):
     Screen.transparent .panel-title,
     Screen.transparent DataTable {
         background: transparent;
+    }
+
+    Screen.transparent RichLog,
+    Screen.transparent DataTable {
+        background-tint: transparent;
+    }
+
+    Screen.transparent DataTable > .datatable--header,
+    Screen.transparent DataTable > .datatable--fixed,
+    Screen.transparent DataTable > .datatable--odd-row,
+    Screen.transparent DataTable > .datatable--even-row,
+    Screen.transparent DataTable > .datatable--cursor,
+    Screen.transparent DataTable > .datatable--fixed-cursor,
+    Screen.transparent DataTable > .datatable--header-cursor,
+    Screen.transparent DataTable > .datatable--header-hover,
+    Screen.transparent DataTable > .datatable--hover {
+        background: transparent;
+        background-tint: transparent;
     }
     """
 
@@ -323,6 +346,9 @@ class ServerTuiApp(App[None]):
 
     def on_mount(self) -> None:
         """Initializes table headers and static operator hints."""
+        self.set_class(self.app_config.tui.transparent, "transparent")
+        if self.app_config.tui.transparent:
+            self.styles.background = Color.parse("transparent")
         self.screen.set_class(
             self.app_config.tui.theme == "catppuccin-mocha",
             "theme_catppuccin_mocha",

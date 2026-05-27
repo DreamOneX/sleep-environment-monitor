@@ -4460,3 +4460,55 @@ Milestone commit message:
 ```text
 style: apply catppuccin server tui theme
 ```
+
+## Milestone 78: Server TUI Transparent Root Fix
+
+This milestone fixes transparent TUI mode so it reaches the Textual application
+root instead of only transparent child panels.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to clarify that transparent mode applies to the Textual root, screen, and
+  widgets.
+
+Implementation:
+
+- In `sleep-env-server tui --transparent`, set the Textual `App` root
+  background directly to `transparent`; Textual 8.2.7 does not apply an
+  `App.transparent { background: transparent; }` CSS selector to the root
+  computed background.
+- Extended transparent CSS to cover footer labels/groups, RichLog tint, and
+  DataTable internal row/header/cursor component backgrounds.
+- Strengthened automated TUI tests to assert the App root, Screen,
+  measurements table, and event log computed backgrounds are transparent.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- The targeted computed-style check showed App, Screen, status, DataTable,
+  RichLog, Header, and Footer backgrounds as `Color(..., a=0)`.
+- `uv run pytest` passed 106 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. The computed-style check verifies the root
+  and key widgets now use transparent backgrounds.
+
+Milestone commit message:
+
+```text
+fix: make server tui transparency reach root
+```

@@ -39,7 +39,12 @@ def test_server_tui_app_transparent_mode_class() -> None:
         app_config = AppConfig(tui=AppConfig().tui.__class__(transparent=True))
         app = ServerTuiApp(app_config, start_runtime=False)
         async with app.run_test():
+            assert app.has_class("transparent")
+            assert app.styles.background.is_transparent
             assert app.screen.has_class("transparent")
+            assert app.screen.styles.background.is_transparent
+            assert app.query_one("#measurements", DataTable).styles.background.is_transparent
+            assert app.query_one("#events", RichLog).styles.background.is_transparent
             assert "transparent" in str(app.query_one("#status", Static).content)
 
     asyncio.run(run())

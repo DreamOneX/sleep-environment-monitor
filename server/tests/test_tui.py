@@ -6,7 +6,7 @@ import queue
 from textual.command import CommandPalette
 from textual.widgets import DataTable, RichLog, Static
 
-from sleep_env_server.config import AppConfig, ServerConfig
+from sleep_env_server.config import AppConfig, ServerConfig, TuiConfig
 from sleep_env_server.tui import ServerEvent, ServerTuiApp, TuiEventOutput
 
 
@@ -25,6 +25,7 @@ def test_server_tui_app_smoke_startup_and_quit() -> None:
         async with app.run_test() as pilot:
             status = app.query_one("#status", Static)
             assert "127.0.0.1:8081" in str(status.content)
+            assert "Service STOPPED" in str(status.content)
             assert "theme catppuccin-mocha/solid" in str(status.content)
             assert app.screen.has_class("theme_catppuccin_mocha")
             assert len(app.query_one("#measurements", DataTable).ordered_columns) == 7
@@ -65,7 +66,9 @@ def test_server_tui_app_help_toggle() -> None:
         async with app.run_test() as pilot:
             help_panel = app.query_one("#help-panel", Static)
             assert "q quit" in str(help_panel.content)
+            assert "s start/stop" in str(help_panel.content)
             await pilot.press("?")
+            assert "s start/stop service" in str(help_panel.content)
             assert "collapse help" in str(help_panel.content)
 
     asyncio.run(run())
@@ -111,7 +114,7 @@ def test_server_tui_command_palette_uses_catppuccin_theme() -> None:
             )
             assert str(
                 command_list.get_component_rich_style("option-list--option-highlighted")
-            ) == ("bold #89b4fa on #313244")
+            ) == ("bold #f5e0dc on #45475a")
 
     asyncio.run(run())
 
@@ -244,6 +247,24 @@ def test_server_tui_app_graphite_theme_class() -> None:
     asyncio.run(run())
 
 
+def test_server_tui_app_uses_configured_no_autostart() -> None:
+    async def run() -> None:
+        started: list[AppConfig] = []
+
+        def starter(app_config: AppConfig, output: TuiEventOutput) -> FakeRuntime:
+            started.append(app_config)
+            return FakeRuntime()
+
+        app_config = AppConfig(tui=TuiConfig(autostart=False))
+        app = ServerTuiApp(app_config, runtime_starter=starter)
+        async with app.run_test():
+            assert started == []
+            assert app.runtime is None
+            assert "Service STOPPED" in str(app.query_one("#status", Static).content)
+
+    asyncio.run(run())
+
+
 def test_server_tui_app_starts_and_stops_runtime_without_network() -> None:
     async def run() -> None:
         fake = FakeRuntime()
@@ -258,8 +279,39 @@ def test_server_tui_app_starts_and_stops_runtime_without_network() -> None:
         app = ServerTuiApp(app_config, runtime_starter=starter)
         async with app.run_test():
             assert started == [app_config]
+            assert "Service RUNNING" in str(app.query_one("#status", Static).content)
             app.drain_events()
 
         assert fake.stopped is True
+
+    asyncio.run(run())
+
+
+def test_server_tui_app_toggles_runtime_with_keyboard() -> None:
+    async def run() -> None:
+        fake = FakeRuntime()
+        started: list[AppConfig] = []
+
+        def starter(app_config: AppConfig, output: TuiEventOutput) -> FakeRuntime:
+            started.append(app_config)
+            output.startup(app_config.server, app_config.server.log_level)
+            return fake
+
+        app_config = AppConfig(tui=TuiConfig(autostart=False))
+        app = ServerTuiApp(app_config, runtime_starter=starter)
+        async with app.run_test() as pilot:
+            await pilot.press("s")
+            await pilot.pause()
+
+            assert started == [app_config]
+            assert app.runtime is fake
+            assert "Service RUNNING" in str(app.query_one("#status", Static).content)
+
+            await pilot.press("s")
+            await pilot.pause()
+
+            assert fake.stopped is True
+            assert app.runtime is None
+            assert "Service STOPPED" in str(app.query_one("#status", Static).content)
 
     asyncio.run(run())

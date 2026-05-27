@@ -120,6 +120,7 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.output.dashboard is False
     assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is False
+    assert config.tui.autostart is True
     assert config.storage.required_for_ack is False
     assert config.storage.jsonl.enabled is True
     assert config.history_cli.tail_count == 5
@@ -152,10 +153,13 @@ def test_storage_policy_retention_limits_are_parsed(tmp_path: Path) -> None:
 
 
 def test_tui_config_is_parsed() -> None:
-    config = app_config_from_mapping({"tui": {"theme": "catppuccin-mocha", "transparent": True}})
+    config = app_config_from_mapping(
+        {"tui": {"theme": "catppuccin-mocha", "transparent": True, "autostart": False}}
+    )
 
     assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is True
+    assert config.tui.autostart is False
 
 
 def test_tui_accepts_graphite_compatibility_theme() -> None:

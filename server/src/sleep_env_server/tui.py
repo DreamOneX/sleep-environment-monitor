@@ -249,8 +249,8 @@ class ServerTuiApp(App[None]):
     }
 
     CommandPalette.theme_catppuccin_mocha CommandList > .option-list--option-highlighted {
-        background: #313244;
-        color: #89b4fa;
+        background: #45475a;
+        color: #f5e0dc;
         text-style: bold;
     }
 
@@ -268,7 +268,8 @@ class ServerTuiApp(App[None]):
     }
 
     CommandPalette.theme_catppuccin_mocha > .command-palette--help-text {
-        color: #a6adc8;
+        color: #bac2de;
+        text-style: not bold;
     }
 
     CommandPalette.theme_catppuccin_mocha > .command-palette--highlight {
@@ -394,8 +395,8 @@ class ServerTuiApp(App[None]):
     }
 
     CommandPalette.theme_graphite CommandList > .option-list--option-highlighted {
-        background: #111827;
-        color: #22d3ee;
+        background: #243244;
+        color: #f8fafc;
         text-style: bold;
     }
 
@@ -413,7 +414,8 @@ class ServerTuiApp(App[None]):
     }
 
     CommandPalette.theme_graphite > .command-palette--help-text {
-        color: #94a3b8;
+        color: #cbd5e1;
+        text-style: not bold;
     }
 
     CommandPalette.theme_graphite > .command-palette--highlight {
@@ -472,6 +474,7 @@ class ServerTuiApp(App[None]):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("ctrl+c", "quit", "Quit"),
+        ("s", "toggle_service", "Service"),
         ("c", "clear_events", "Clear events"),
         ("r", "refresh", "Refresh"),
         ("?", "toggle_help", "Help"),
@@ -481,7 +484,7 @@ class ServerTuiApp(App[None]):
         self,
         app_config: AppConfig,
         *,
-        start_runtime: bool = True,
+        start_runtime: bool | None = None,
         event_queue: queue.Queue[ServerEvent] | None = None,
         runtime_starter: Callable[
             [AppConfig, TuiEventOutput], RuntimeHandle
@@ -493,7 +496,7 @@ class ServerTuiApp(App[None]):
             self.theme = "catppuccin-mocha"
         self.app_config = app_config
         self.config = app_config.server
-        self.start_runtime = start_runtime
+        self.start_runtime = app_config.tui.autostart if start_runtime is None else start_runtime
         self.event_queue = event_queue if event_queue is not None else queue.Queue()
         self.output = TuiEventOutput(self.event_queue)
         self.runtime_starter = runtime_starter
@@ -547,11 +550,14 @@ class ServerTuiApp(App[None]):
             trends.add_row(metric, "")
 
         events = self.query_one("#events", RichLog)
-        events.write("server ready")
+        events.write("tui ready")
 
         self.set_interval(0.1, self.drain_events)
         if self.start_runtime:
-            self.runtime = self.runtime_starter(self.app_config, self.output)
+            self._start_service()
+        else:
+            events.write("service stopped; press s to start")
+            self._update_status()
 
     def action_command_palette(self) -> None:
         """Shows the Textual command palette with the active TUI theme classes."""
@@ -567,6 +573,13 @@ class ServerTuiApp(App[None]):
         """Clears the bounded event panel."""
         self.query_one("#events", RichLog).clear()
 
+    def action_toggle_service(self) -> None:
+        """Starts or stops the managed server runtime."""
+        if self.runtime is None:
+            self._start_service()
+        else:
+            self._stop_service()
+
     def action_refresh(self) -> None:
         """Records a manual refresh request in the event panel."""
         self.query_one("#events", RichLog).write("manual refresh requested")
@@ -579,9 +592,7 @@ class ServerTuiApp(App[None]):
     def on_unmount(self) -> None:
         """Stops the service runtime when the TUI exits."""
         if self.runtime is not None:
-            self.output.shutdown_requested()
-            self.runtime.stop()
-            self.output.stopped()
+            self._stop_service(update_status=False)
 
     def drain_events(self) -> None:
         """Consumes queued server events and refreshes visible widgets."""
@@ -595,12 +606,47 @@ class ServerTuiApp(App[None]):
     def _status_text(self) -> str:
         """Returns the one-line service status summary."""
         transparent = "transparent" if self.app_config.tui.transparent else "solid"
+        service = "RUNNING" if self.runtime is not None else "STOPPED"
         return (
+            f"Service {service} | "
             f"HTTP {self.config.host}:{self.config.port} | "
             f"UDP discovery {self.config.udp_discovery_port} | "
             f"API {self.config.api_base} | "
             f"theme {self.app_config.tui.theme}/{transparent}"
         )
+
+    def _start_service(self) -> None:
+        """Starts the server runtime if it is not already running."""
+        if self.runtime is not None:
+            self.query_one("#events", RichLog).write("service already running")
+            self._update_status()
+            return
+        self.query_one("#events", RichLog).write("service start requested")
+        try:
+            self.runtime = self.runtime_starter(self.app_config, self.output)
+        except Exception as exc:
+            self.runtime = None
+            self.query_one("#events", RichLog).write(f"service start failed: {exc}")
+        self._update_status()
+
+    def _stop_service(self, *, update_status: bool = True) -> None:
+        """Stops the server runtime if it is running."""
+        runtime = self.runtime
+        if runtime is None:
+            self.query_one("#events", RichLog).write("service already stopped")
+            if update_status:
+                self._update_status()
+            return
+        self.output.shutdown_requested()
+        runtime.stop()
+        self.runtime = None
+        self.output.stopped()
+        if update_status:
+            self._update_status()
+
+    def _update_status(self) -> None:
+        """Refreshes the status bar text from the current runtime state."""
+        self.query_one("#status", Static).update(self._status_text())
 
     def _command_palette_classes(self) -> tuple[str, ...]:
         """Returns theme classes for Textual's built-in command palette."""
@@ -648,10 +694,11 @@ class ServerTuiApp(App[None]):
         """Returns compact or expanded operator help."""
         if self._help_expanded:
             return (
-                "q quit | Ctrl+C quit | c clear event log | r record refresh request | "
-                "? collapse help | serve remains the scriptable log mode"
+                "s start/stop service | q quit | Ctrl+C quit | c clear event log | "
+                "r record refresh request | ? collapse help | "
+                "serve remains the scriptable log mode"
             )
-        return "q quit | c clear events | r refresh | ? help"
+        return "s start/stop | q quit | c clear events | r refresh | ? help"
 
     def _update_metric_cards(self, item: dict[str, Any]) -> None:
         """Updates the top metric strip from the latest accepted measurement."""

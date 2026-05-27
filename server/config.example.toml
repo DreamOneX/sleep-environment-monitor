@@ -12,6 +12,7 @@ dashboard = true
 [tui]
 theme = "catppuccin-mocha"
 transparent = false
+autostart = true
 
 [storage]
 enabled = true

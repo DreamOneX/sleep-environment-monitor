@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
   sleep-env-server serve --host 0.0.0.0 --port 8080
   sleep-env-server serve --json-log
   sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
+  sleep-env-server tui --no-autostart
   sleep-env-server history --limit 20
 """,
         formatter_class=formatter,
@@ -102,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""examples:
   sleep-env-server tui --host 0.0.0.0 --port 8080
   sleep-env-server tui --transparent --host 127.0.0.1 --port 8080
+  sleep-env-server tui --no-autostart
 """,
         formatter_class=formatter,
     )
@@ -111,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--transparent",
         action="store_true",
         help="let terminal transparency show through the TUI background",
+    )
+    tui.add_argument(
+        "--no-autostart",
+        action="store_true",
+        help="open the TUI with the HTTP/UDP service stopped",
     )
     tui.set_defaults(handler=run_tui)
 

@@ -4681,3 +4681,64 @@ Milestone commit message:
 ```text
 fix: theme server tui command palette
 ```
+
+## Milestone 82: Server TUI Service Controls
+
+This milestone lets the Textual TUI own the local service lifecycle directly
+instead of only starting the same stack on mount.
+
+Documentation update:
+
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md),
+  [../20-server/03-cli.md](../20-server/03-cli.md),
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md),
+  [../../server/README.md](../../server/README.md), and
+  [../../server/config.example.toml](../../server/config.example.toml) with
+  `[tui].autostart`, `tui --no-autostart`, and the in-TUI `s` start/stop
+  service action.
+
+Implementation:
+
+- Added `[tui].autostart = true` configuration parsing, preserving existing
+  automatic startup as the default behavior.
+- Added `sleep-env-server tui --no-autostart` as a CLI override for opening the
+  TUI with the HTTP/UDP service stopped.
+- Added a TUI service state indicator and `s` key binding that starts the
+  runtime when stopped and stops it when running.
+- Kept normal exit cleanup, while avoiding status-widget updates during Textual
+  unmount after the screen has been torn down.
+- Preserved the existing command palette style adjustment for highlighted
+  options and help text.
+
+Validation commands run:
+
+```bash
+cd server
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_config.py tests/test_cli.py tests/test_tui.py
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+cd ..
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted config, CLI, and TUI tests passed: 52 tests.
+- `uv run pytest` passed 112 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual tests cover no-autostart,
+  keyboard start/stop, status text, help text, command palette styling, and
+  transparent rendering.
+
+Milestone commit message:
+
+```text
+feat: add server tui service controls
+```

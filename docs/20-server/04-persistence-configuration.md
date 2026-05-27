@@ -169,7 +169,7 @@ maintenance as `serve`, then presents the current process receive stream:
 - Recent temperature, humidity, lux, and relative sound dB trends.
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
-- Built-in help for `q`, `Ctrl+C`, `c`, `r`, and `?`.
+- Built-in help for `s`, `q`, `Ctrl+C`, `c`, `r`, and `?`.
 - Textual command palette styling for the footer `Palette` action, using the
   same TUI theme colors for its modal background, search field, result list,
   highlighted command, and help text.
@@ -186,6 +186,10 @@ TUI visual configuration lives under `[tui]`:
   setting Textual converts the default background back into truecolor black in
   this environment. Textual/Rich alpha-transparent colors are intentionally not
   used because they also render as truecolor black here.
+- `autostart = true` starts HTTP serving, UDP discovery, storage backfill, and
+  retention maintenance when the TUI opens. Set it to `false`, or use
+  `sleep-env-server tui --no-autostart`, to open the TUI stopped and control the
+  service with `s`.
 - The built-in Textual command palette is treated as part of the TUI surface:
   its modal, search input, results, highlight, loading indicator, and help text
   follow the active theme and the same transparent-background rule.

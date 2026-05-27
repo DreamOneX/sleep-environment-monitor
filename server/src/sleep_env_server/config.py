@@ -227,6 +227,7 @@ class TuiConfig:
 
     theme: Literal["catppuccin-mocha", "graphite"] = DEFAULT_TUI_THEME
     transparent: bool = False
+    autostart: bool = True
 
     def __post_init__(self) -> None:
         """Validates TUI configuration."""
@@ -472,6 +473,8 @@ def apply_cli_overrides(config: AppConfig, args: Any) -> AppConfig:
 
     if getattr(args, "transparent", False):
         tui = replace(tui, transparent=True)
+    if getattr(args, "no_autostart", False):
+        tui = replace(tui, autostart=False)
 
     return replace(config, server=server, output=output, tui=tui)
 
@@ -500,6 +503,7 @@ def _parse_tui(data: Mapping[str, Any]) -> TuiConfig:
     return TuiConfig(
         theme=_str(data, "theme", DEFAULT_TUI_THEME),  # type: ignore[arg-type]
         transparent=_bool(data, "transparent", False),
+        autostart=_bool(data, "autostart", True),
     )
 
 

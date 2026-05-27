@@ -87,6 +87,7 @@ Options:
 --udp-discovery-port PORT
 --log-level LEVEL
 --transparent
+--no-autostart
 --config PATH
 ```
 
@@ -94,7 +95,9 @@ Behavior:
 
 - Load the same TOML configuration and CLI overrides as `serve`.
 - Start the same configured storage, backfill, retention, FastAPI/Uvicorn HTTP
-  service, and UDP discovery responder.
+  service, and UDP discovery responder by default.
+- Support `[tui].autostart = false` or `--no-autostart` to open the operator
+  interface with the service stopped.
 - Show service status, metric cards, recent measurements, metric trends, and
   bounded event logs in a full-screen TUI.
 - Use Catppuccin Mocha by default. Existing `theme = "graphite"` configuration
@@ -103,7 +106,8 @@ Behavior:
   `--transparent` for terminals that already provide window transparency.
 - Keep Uvicorn and server diagnostics inside the TUI event panel rather than
   writing over the terminal screen.
-- Support `q`, `Ctrl+C`, `c`, `r`, and `?` as operator actions.
+- Support `s`, `q`, `Ctrl+C`, `c`, `r`, and `?` as operator actions. `s`
+  starts the service when stopped and stops it when running.
 - Preserve REST, UDP discovery, and upload ACK behavior exactly as `serve`.
 
 ## `check-config`
@@ -185,6 +189,8 @@ CLI tests should cover:
 - Rich output enable/disable behavior.
 - `serve --rich-log` explicit Rich logging behavior.
 - `tui --transparent` configuration override.
+- `tui --no-autostart` configuration override.
+- Textual TUI service start/stop behavior.
 - `serve` does not render live measurement charts.
 - Textual TUI smoke startup and keyboard exit behavior.
 - JSON/plain output switches for `print-discovery`.

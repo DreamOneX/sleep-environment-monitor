@@ -17,9 +17,11 @@ from sleep_env_server.cli import (
     run_history,
     run_print_discovery,
     run_serve,
+    run_tui,
     select_history_output_mode,
     select_serve_output_mode,
 )
+from sleep_env_server.config import AppConfig
 from sleep_env_server.models import MeasurementUpload
 from sleep_env_server.storage import MeasurementRecord, SQLiteMeasurementStore
 
@@ -110,6 +112,46 @@ def test_tui_transparent_override_is_applied(
     assert config.server.host == "0.0.0.0"
     assert config.tui.transparent is True
     assert args.transparent is True
+
+
+def test_tui_no_autostart_override_is_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    args = parse_args(["tui", "--no-autostart"])
+    config = app_config_from_args(args)
+
+    assert config.tui.autostart is False
+    assert args.no_autostart is True
+
+
+def test_run_tui_uses_configured_autostart(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "server.toml"
+    config_path.write_text(
+        """
+        [tui]
+        autostart = false
+        """,
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    class FakeApp:
+        def __init__(self, app_config: AppConfig) -> None:
+            captured["app_config"] = app_config
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setattr("sleep_env_server.cli.ServerTuiApp", FakeApp)
+    args = parse_args(["tui", "--config", str(config_path)])
+
+    result = run_tui(args)
+
+    assert result == 0
+    assert isinstance(captured["app_config"], AppConfig)
+    assert captured["app_config"].tui.autostart is False
+    assert "ran" in captured
 
 
 def test_serve_explicit_host_ports_and_log_level_are_applied() -> None:
@@ -248,6 +290,7 @@ def test_help_text_includes_examples_and_output_modes(capsys: pytest.CaptureFixt
     root = capsys.readouterr().out
     assert "examples:" in root
     assert "sleep-env-server tui --transparent" in root
+    assert "sleep-env-server tui --no-autostart" in root
 
     with pytest.raises(SystemExit):
         parse_args(["serve", "--help"])
@@ -260,6 +303,7 @@ def test_help_text_includes_examples_and_output_modes(capsys: pytest.CaptureFixt
         parse_args(["tui", "--help"])
     tui = capsys.readouterr().out
     assert "--transparent" in tui
+    assert "--no-autostart" in tui
     assert "full-screen TUI" in tui
 
     with pytest.raises(SystemExit):

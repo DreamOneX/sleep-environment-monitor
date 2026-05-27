@@ -4566,3 +4566,58 @@ Milestone commit message:
 ```text
 fix: use terminal default background for transparent tui
 ```
+
+## Milestone 80: Server TUI Native ANSI Transparency
+
+This milestone fixes the remaining transparent-mode black background by keeping
+terminal-default backgrounds in Textual's native ANSI output path. The previous
+fix made computed styles use `ansi_default`, but Textual's default truecolor
+filter still converted that default background into a dark RGB background
+during rendering.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to document that transparent mode enables native ANSI color output so the
+  terminal-default background is emitted as `49m` instead of truecolor black.
+
+Implementation:
+
+- Initialized `ServerTuiApp` with `ansi_color=True` only when
+  `[tui].transparent = true` or `tui --transparent` is active.
+- Preserved normal theme truecolor behavior for solid Catppuccin Mocha and
+  graphite TUI modes.
+- Strengthened the transparent TUI test to render the compositor output and
+  assert that it uses default-background reset output, without ANSI black or
+  truecolor background sequences.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- The targeted transparent render check showed `native_ansi_color` enabled,
+  background SGR codes limited to `49`, no `40m`, and no `48;...` truecolor or
+  256-color background sequences.
+- `uv run pytest` passed 106 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated rendering checks verify that
+  transparent mode no longer emits black background escape sequences.
+
+Milestone commit message:
+
+```text
+fix: preserve native ansi backgrounds for transparent tui
+```

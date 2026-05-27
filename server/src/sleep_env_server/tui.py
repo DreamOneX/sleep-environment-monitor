@@ -310,7 +310,7 @@ class ServerTuiApp(App[None]):
         ] = start_server_runtime,
     ) -> None:
         """Initializes the TUI with server endpoint metadata."""
-        super().__init__()
+        super().__init__(ansi_color=True if app_config.tui.transparent else None)
         self.app_config = app_config
         self.config = app_config.server
         self.start_runtime = start_runtime

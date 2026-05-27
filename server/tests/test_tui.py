@@ -39,6 +39,8 @@ def test_server_tui_app_transparent_mode_class() -> None:
         app_config = AppConfig(tui=AppConfig().tui.__class__(transparent=True))
         app = ServerTuiApp(app_config, start_runtime=False)
         async with app.run_test():
+            sequence = app.screen._compositor.render_update(full=True).render_segments(app.console)
+            assert app.native_ansi_color is True
             assert app.has_class("transparent")
             assert app.styles.background.ansi == -1
             assert app.screen.has_class("transparent")
@@ -47,6 +49,11 @@ def test_server_tui_app_transparent_mode_class() -> None:
             assert app.query_one("#measurements", DataTable).styles.background.ansi == -1
             assert app.query_one("#events", RichLog).styles.background.ansi == -1
             assert "transparent" in str(app.query_one("#status", Static).content)
+            assert "\x1b[40m" not in sequence
+            assert "48;2;12;12;12" not in sequence
+            assert "48;2;0;0;0" not in sequence
+            assert "48;" not in sequence
+            assert "49m" in sequence
 
     asyncio.run(run())
 

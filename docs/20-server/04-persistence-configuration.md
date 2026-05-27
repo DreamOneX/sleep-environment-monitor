@@ -178,8 +178,11 @@ TUI visual configuration lives under `[tui]`:
   configuration.
 - `transparent = true` uses terminal-default `ansi_default` backgrounds for
   the Textual root, screen, and widgets so terminals with window transparency
-  can show through. Textual/Rich alpha-transparent colors are intentionally not
-  used because they render as truecolor black in this environment.
+  can show through. Transparent mode also enables Textual native ANSI color
+  output so the terminal-default background is emitted as `49m`; without that
+  setting Textual converts the default background back into truecolor black in
+  this environment. Textual/Rich alpha-transparent colors are intentionally not
+  used because they also render as truecolor black here.
 
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

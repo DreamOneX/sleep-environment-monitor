@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from textual.app import App, ComposeResult
 from textual.color import Color
+from textual.command import CommandPalette
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 
@@ -192,6 +193,89 @@ class ServerTuiApp(App[None]):
         color: #a6adc8;
     }
 
+    CommandPalette.theme_catppuccin_mocha {
+        background: #1e1e2e;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha > Vertical {
+        background: #181825;
+        border: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha #--results {
+        background: #181825;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha #--input {
+        background: #1e1e2e;
+        border: solid #89b4fa;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha SearchIcon {
+        color: #89b4fa;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandInput {
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandInput > .input--cursor {
+        background: #f5e0dc;
+        color: #11111b;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandInput > .input--selection {
+        background: #45475a;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandInput > .input--placeholder,
+    CommandPalette.theme_catppuccin_mocha CommandInput > .input--suggestion {
+        color: #6c7086;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandList {
+        background: #181825;
+        border-bottom: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandList > .option-list--option {
+        color: #cdd6f4;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandList > .option-list--option-highlighted {
+        background: #313244;
+        color: #89b4fa;
+        text-style: bold;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandList > .option-list--separator {
+        color: #585b70;
+    }
+
+    CommandPalette.theme_catppuccin_mocha CommandList > .option-list--option-disabled {
+        color: #6c7086;
+    }
+
+    CommandPalette.theme_catppuccin_mocha LoadingIndicator {
+        color: #89b4fa;
+        border-bottom: solid #45475a;
+    }
+
+    CommandPalette.theme_catppuccin_mocha > .command-palette--help-text {
+        color: #a6adc8;
+    }
+
+    CommandPalette.theme_catppuccin_mocha > .command-palette--highlight {
+        color: #f9e2af;
+        text-style: bold underline;
+    }
+
     Screen.theme_graphite {
         background: #0b0f14;
         color: #d7e0ea;
@@ -254,6 +338,89 @@ class ServerTuiApp(App[None]):
         border-top: solid #243244;
     }
 
+    CommandPalette.theme_graphite {
+        background: #0b0f14;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite > Vertical {
+        background: #101820;
+        border: solid #243244;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite #--results {
+        background: #101820;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite #--input {
+        background: #0b0f14;
+        border: solid #22d3ee;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite SearchIcon {
+        color: #22d3ee;
+    }
+
+    CommandPalette.theme_graphite CommandInput {
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite CommandInput > .input--cursor {
+        background: #d7e0ea;
+        color: #0b0f14;
+    }
+
+    CommandPalette.theme_graphite CommandInput > .input--selection {
+        background: #243244;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite CommandInput > .input--placeholder,
+    CommandPalette.theme_graphite CommandInput > .input--suggestion {
+        color: #64748b;
+    }
+
+    CommandPalette.theme_graphite CommandList {
+        background: #101820;
+        border-bottom: solid #243244;
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite CommandList > .option-list--option {
+        color: #d7e0ea;
+    }
+
+    CommandPalette.theme_graphite CommandList > .option-list--option-highlighted {
+        background: #111827;
+        color: #22d3ee;
+        text-style: bold;
+    }
+
+    CommandPalette.theme_graphite CommandList > .option-list--separator {
+        color: #475569;
+    }
+
+    CommandPalette.theme_graphite CommandList > .option-list--option-disabled {
+        color: #64748b;
+    }
+
+    CommandPalette.theme_graphite LoadingIndicator {
+        color: #22d3ee;
+        border-bottom: solid #243244;
+    }
+
+    CommandPalette.theme_graphite > .command-palette--help-text {
+        color: #94a3b8;
+    }
+
+    CommandPalette.theme_graphite > .command-palette--highlight {
+        color: #f59e0b;
+        text-style: bold underline;
+    }
+
     Screen.transparent,
     Screen.transparent Header,
     Screen.transparent Footer,
@@ -289,6 +456,17 @@ class ServerTuiApp(App[None]):
         background: ansi_default;
         background-tint: ansi_default;
     }
+
+    CommandPalette.transparent,
+    CommandPalette.transparent > Vertical,
+    CommandPalette.transparent #--input,
+    CommandPalette.transparent #--results,
+    CommandPalette.transparent CommandInput,
+    CommandPalette.transparent CommandList,
+    CommandPalette.transparent LoadingIndicator {
+        background: ansi_default;
+        background-tint: ansi_default;
+    }
     """
 
     BINDINGS = [
@@ -311,6 +489,8 @@ class ServerTuiApp(App[None]):
     ) -> None:
         """Initializes the TUI with server endpoint metadata."""
         super().__init__(ansi_color=True if app_config.tui.transparent else None)
+        if app_config.tui.theme == "catppuccin-mocha":
+            self.theme = "catppuccin-mocha"
         self.app_config = app_config
         self.config = app_config.server
         self.start_runtime = start_runtime
@@ -373,6 +553,16 @@ class ServerTuiApp(App[None]):
         if self.start_runtime:
             self.runtime = self.runtime_starter(self.app_config, self.output)
 
+    def action_command_palette(self) -> None:
+        """Shows the Textual command palette with the active TUI theme classes."""
+        if self.use_command_palette and not CommandPalette.is_open(self):
+            self.push_screen(
+                CommandPalette(
+                    id="--command-palette",
+                    classes=" ".join(self._command_palette_classes()),
+                )
+            )
+
     def action_clear_events(self) -> None:
         """Clears the bounded event panel."""
         self.query_one("#events", RichLog).clear()
@@ -411,6 +601,17 @@ class ServerTuiApp(App[None]):
             f"API {self.config.api_base} | "
             f"theme {self.app_config.tui.theme}/{transparent}"
         )
+
+    def _command_palette_classes(self) -> tuple[str, ...]:
+        """Returns theme classes for Textual's built-in command palette."""
+        classes = (
+            "theme_catppuccin_mocha"
+            if self.app_config.tui.theme == "catppuccin-mocha"
+            else "theme_graphite"
+        )
+        if self.app_config.tui.transparent:
+            return (classes, "transparent")
+        return (classes,)
 
     def _apply_event(self, event: ServerEvent) -> None:
         """Applies one server event to logs and measurement/trend widgets."""

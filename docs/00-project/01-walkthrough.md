@@ -4621,3 +4621,63 @@ Milestone commit message:
 ```text
 fix: preserve native ansi backgrounds for transparent tui
 ```
+
+## Milestone 81: Server TUI Command Palette Theme
+
+This milestone fixes the built-in Textual command palette opened from the
+footer `Palette` action / `Ctrl+P`. The main TUI was already Catppuccin-styled,
+but Textual's command palette used its own default modal, input, and result-list
+styles unless it was explicitly opened with the active TUI theme classes.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to document that the Textual command palette is part of the TUI visual
+  surface and follows the active theme and transparent-background rule.
+
+Implementation:
+
+- Set Textual's application theme to `catppuccin-mocha` when the server TUI
+  uses the Catppuccin theme, so built-in widget variables such as input cursor
+  and selection colors come from the same palette.
+- Overrode `action_command_palette` to open Textual's `CommandPalette` with the
+  active TUI theme class and transparent class.
+- Added Catppuccin Mocha and graphite styling for the command palette modal,
+  search input, search icon, result area, command list, selected item, loading
+  indicator, help text, and fuzzy-match highlight.
+- Extended transparent mode so command palette surfaces use terminal-default
+  backgrounds instead of opaque fills.
+
+Validation commands run from `server/`:
+
+```bash
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+git diff --check
+```
+
+Observed validation results:
+
+- `uv run pytest` passed 108 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+- Automated TUI tests now open `Ctrl+P` and verify command palette computed
+  styles for Catppuccin modal, input, results, list, icon, loading indicator,
+  cursor, placeholder, and highlighted command.
+- Transparent command palette tests verify key palette surfaces use
+  terminal-default background (`ansi == -1`) and the rendered output contains
+  `49m` without `40m` or `48;...` background sequences.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual style and render checks
+  cover the command palette behavior.
+
+Milestone commit message:
+
+```text
+fix: theme server tui command palette
+```

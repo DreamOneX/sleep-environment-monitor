@@ -170,6 +170,9 @@ maintenance as `serve`, then presents the current process receive stream:
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 - Built-in help for `q`, `Ctrl+C`, `c`, `r`, and `?`.
+- Textual command palette styling for the footer `Palette` action, using the
+  same TUI theme colors for its modal background, search field, result list,
+  highlighted command, and help text.
 
 TUI visual configuration lives under `[tui]`:
 
@@ -183,6 +186,9 @@ TUI visual configuration lives under `[tui]`:
   setting Textual converts the default background back into truecolor black in
   this environment. Textual/Rich alpha-transparent colors are intentionally not
   used because they also render as truecolor black here.
+- The built-in Textual command palette is treated as part of the TUI surface:
+  its modal, search input, results, highlight, loading indicator, and help text
+  follow the active theme and the same transparent-background rule.
 
 Offline history commands read configured storage and show summary, tail, and the
 same default metric trends.

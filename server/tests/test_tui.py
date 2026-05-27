@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import queue
 
+from textual.command import CommandPalette
 from textual.widgets import DataTable, RichLog, Static
 
 from sleep_env_server.config import AppConfig, ServerConfig
@@ -66,6 +67,79 @@ def test_server_tui_app_help_toggle() -> None:
             assert "q quit" in str(help_panel.content)
             await pilot.press("?")
             assert "collapse help" in str(help_panel.content)
+
+    asyncio.run(run())
+
+
+def test_server_tui_command_palette_uses_catppuccin_theme() -> None:
+    async def run() -> None:
+        app = ServerTuiApp(AppConfig(), start_runtime=False)
+        async with app.run_test(size=(100, 30)) as pilot:
+            assert app.theme == "catppuccin-mocha"
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+
+            assert isinstance(app.screen, CommandPalette)
+            assert app.screen.has_class("theme_catppuccin_mocha")
+            assert app.screen.styles.background.rgb == (30, 30, 46)
+            assert app.screen.styles.color.rgb == (205, 214, 244)
+
+            container = app.screen.query_one("#--container")
+            command_input_shell = app.screen.query_one("#--input")
+            command_input = app.screen.query_one("CommandInput")
+            command_list = app.screen.query_one("CommandList")
+            results = app.screen.query_one("#--results")
+            search_icon = app.screen.query_one("SearchIcon")
+            loading_indicator = app.screen.query_one("LoadingIndicator")
+
+            assert container.styles.background.rgb == (24, 24, 37)
+            assert container.styles.color.rgb == (205, 214, 244)
+            assert command_input_shell.styles.background.rgb == (30, 30, 46)
+            assert command_input_shell.styles.color.rgb == (205, 214, 244)
+            assert command_input.styles.color.rgb == (205, 214, 244)
+            assert results.styles.background.rgb == (24, 24, 37)
+            assert results.styles.color.rgb == (205, 214, 244)
+            assert command_list.styles.background.rgb == (24, 24, 37)
+            assert command_list.styles.color.rgb == (205, 214, 244)
+            assert search_icon.styles.color.rgb == (137, 180, 250)
+            assert loading_indicator.styles.color.rgb == (137, 180, 250)
+            assert str(command_input.get_component_rich_style("input--cursor")) == (
+                "#11111b on #f5e0dc"
+            )
+            assert str(command_input.get_component_rich_style("input--placeholder")) == (
+                "#6c7086 on #1e1e2e"
+            )
+            assert str(
+                command_list.get_component_rich_style("option-list--option-highlighted")
+            ) == ("bold #89b4fa on #313244")
+
+    asyncio.run(run())
+
+
+def test_server_tui_transparent_command_palette_uses_default_background() -> None:
+    async def run() -> None:
+        app_config = AppConfig(tui=AppConfig().tui.__class__(transparent=True))
+        app = ServerTuiApp(app_config, start_runtime=False)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+
+            assert isinstance(app.screen, CommandPalette)
+            assert app.screen.has_class("theme_catppuccin_mocha")
+            assert app.screen.has_class("transparent")
+            for selector in (
+                "#--container",
+                "#--input",
+                "#--results",
+                "CommandInput",
+                "CommandList",
+            ):
+                assert app.screen.query_one(selector).styles.background.ansi == -1
+
+            sequence = app.screen._compositor.render_update(full=True).render_segments(app.console)
+            assert "\x1b[40m" not in sequence
+            assert "48;" not in sequence
+            assert "49m" in sequence
 
     asyncio.run(run())
 

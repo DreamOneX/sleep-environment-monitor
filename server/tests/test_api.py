@@ -20,6 +20,37 @@ from sleep_env_server.output import ServerOutput
 from sleep_env_server.storage import ConfiguredMeasurementSink, InMemoryMeasurementSink
 
 
+class RecordingOutput(ServerOutput):
+    def __init__(self) -> None:
+        super().__init__("plain", stream=StringIO())
+        self.dashboard_events: list[dict[str, object]] = []
+
+    def measurement_dashboard(
+        self,
+        *,
+        received_unix_ms: int | None = None,
+        device_id: str,
+        sequence: int,
+        temperature_c: float | None,
+        humidity_percent: float | None,
+        lux: float | None,
+        mic_db_rel: float,
+        duplicate: bool,
+    ) -> None:
+        self.dashboard_events.append(
+            {
+                "received_unix_ms": received_unix_ms,
+                "device_id": device_id,
+                "sequence": sequence,
+                "temperature_c": temperature_c,
+                "humidity_percent": humidity_percent,
+                "lux": lux,
+                "mic_db_rel": mic_db_rel,
+                "duplicate": duplicate,
+            }
+        )
+
+
 def valid_measurement_payload() -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -97,6 +128,21 @@ def test_measurement_upload_persists_to_configured_storage(tmp_path: Path) -> No
 
     assert response.status_code == 204
     assert sink.stores[0].store.list_records()[0].upload.sequence == 7
+
+
+def test_measurement_dashboard_receives_server_receive_time() -> None:
+    output = RecordingOutput()
+    app = create_app(
+        sink=InMemoryMeasurementSink(),
+        output=output,
+        clock=lambda: 1_700_000_000_000,
+    )
+    client = TestClient(app)
+
+    response = client.post("/api/v1/measurements", json=valid_measurement_payload())
+
+    assert response.status_code == 204
+    assert output.dashboard_events[0]["received_unix_ms"] == 1_700_000_000_000
 
 
 def test_measurement_upload_returns_non_2xx_when_storage_ack_rejects(

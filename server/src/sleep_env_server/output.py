@@ -119,6 +119,7 @@ class ServerOutput:
     def measurement_dashboard(
         self,
         *,
+        received_unix_ms: int | None = None,
         device_id: str,
         sequence: int,
         temperature_c: float | None,
@@ -337,6 +338,7 @@ class NullOutput:
     def measurement_dashboard(
         self,
         *,
+        received_unix_ms: int | None = None,
         device_id: str,
         sequence: int,
         temperature_c: float | None,

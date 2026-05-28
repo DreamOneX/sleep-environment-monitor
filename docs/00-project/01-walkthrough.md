@@ -4854,3 +4854,63 @@ Milestone commit message:
 ```text
 feat: add server tui trend charts
 ```
+
+## Milestone 85: Server TUI Measurement Table Polish
+
+This milestone tightens the TUI chart headers and makes the live measurement
+table more useful for longer local sessions.
+
+Documentation update:
+
+- Updated [../20-server/03-cli.md](../20-server/03-cli.md) and
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  with `[tui].measurements_limit`, compact chart headers, human-readable
+  receive times, and metric-colored table cells.
+- Updated [../../server/config.example.toml](../../server/config.example.toml)
+  with `measurements_limit = 200`.
+
+Implementation:
+
+- Added `TuiConfig.measurements_limit`, parsed from `[tui]`, validated as
+  positive, with a default of `200`.
+- Passed `received_unix_ms` from the upload route into dashboard output and the
+  TUI event stream.
+- Added a `Time` column to the measurements table and formatted server receive
+  time as local `YYYY-MM-DD HH:MM:SS`.
+- Styled temperature, humidity, lux, and sound table cells with the same
+  Catppuccin/graphite accent colors as their metric cards.
+- Changed trend chart summary text into one compact title line:
+  latest, average, sample count, minimum, and maximum are separated with `|`.
+
+Validation commands run:
+
+```bash
+cd server
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_config.py::test_tui_config_is_parsed tests/test_config.py::test_tui_rejects_non_positive_measurement_limit tests/test_tui.py tests/test_api.py::test_measurement_dashboard_receives_server_receive_time
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+cd ..
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted config, TUI, and API tests passed: 18 tests.
+- `uv run pytest` passed 116 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated tests cover configured retention,
+  dashboard receive-time propagation, human-readable time content, metric cell
+  colors, and compact chart summary text.
+
+Milestone commit message:
+
+```text
+feat: polish server tui measurement table
+```

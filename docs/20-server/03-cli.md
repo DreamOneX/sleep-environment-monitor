@@ -98,8 +98,10 @@ Behavior:
   service, and UDP discovery responder by default.
 - Support `[tui].autostart = false` or `--no-autostart` to open the operator
   interface with the service stopped.
-- Show service status, metric cards, recent measurements, metric trends, and
-  bounded event logs in a full-screen TUI.
+- Show service status, metric cards, recent measurements, metric trend charts,
+  and bounded event logs in a full-screen TUI.
+- Use `[tui].measurements_limit` to control how many accepted measurements are
+  retained in the live TUI table and chart window.
 - Use Catppuccin Mocha by default. Existing `theme = "graphite"` configuration
   remains accepted for compatibility.
 - Enable transparent-background styling with `[tui].transparent = true` or

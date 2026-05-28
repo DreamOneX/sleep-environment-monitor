@@ -121,6 +121,7 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is False
     assert config.tui.autostart is True
+    assert config.tui.measurements_limit == 200
     assert config.storage.required_for_ack is False
     assert config.storage.jsonl.enabled is True
     assert config.history_cli.tail_count == 5
@@ -154,12 +155,25 @@ def test_storage_policy_retention_limits_are_parsed(tmp_path: Path) -> None:
 
 def test_tui_config_is_parsed() -> None:
     config = app_config_from_mapping(
-        {"tui": {"theme": "catppuccin-mocha", "transparent": True, "autostart": False}}
+        {
+            "tui": {
+                "theme": "catppuccin-mocha",
+                "transparent": True,
+                "autostart": False,
+                "measurements_limit": 500,
+            }
+        }
     )
 
     assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is True
     assert config.tui.autostart is False
+    assert config.tui.measurements_limit == 500
+
+
+def test_tui_rejects_non_positive_measurement_limit() -> None:
+    with pytest.raises(ValueError, match="measurements_limit"):
+        app_config_from_mapping({"tui": {"measurements_limit": 0}})
 
 
 def test_tui_accepts_graphite_compatibility_theme() -> None:

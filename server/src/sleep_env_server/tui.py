@@ -6,8 +6,10 @@ import queue
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.color import Color
 from textual.command import CommandPalette
@@ -18,6 +20,21 @@ from textual.widgets import DataTable, Footer, Header, RichLog, Static
 from sleep_env_server.config import AppConfig
 from sleep_env_server.output import ServerOutput
 from sleep_env_server.runtime import start_server_runtime
+
+METRIC_COLORS = {
+    "catppuccin-mocha": {
+        "temperature_c": "#89dceb",
+        "humidity_percent": "#a6e3a1",
+        "lux": "#f9e2af",
+        "mic_db_rel": "#f38ba8",
+    },
+    "graphite": {
+        "temperature_c": "#22d3ee",
+        "humidity_percent": "#10b981",
+        "lux": "#f59e0b",
+        "mic_db_rel": "#f43f5e",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +67,7 @@ class TuiEventOutput(ServerOutput):
     def measurement_dashboard(
         self,
         *,
+        received_unix_ms: int | None = None,
         device_id: str,
         sequence: int,
         temperature_c: float | None,
@@ -61,6 +79,7 @@ class TuiEventOutput(ServerOutput):
         """Queues one accepted measurement for TUI table and trend updates."""
         self.emit(
             "measurement",
+            received_unix_ms=received_unix_ms,
             device_id=device_id,
             sequence=sequence,
             temperature_c=temperature_c,
@@ -577,7 +596,9 @@ class ServerTuiApp(App[None]):
         self.output = TuiEventOutput(self.event_queue)
         self.runtime_starter = runtime_starter
         self.runtime: RuntimeHandle | None = None
-        self._recent_measurements: deque[dict[str, Any]] = deque(maxlen=50)
+        self._recent_measurements: deque[dict[str, Any]] = deque(
+            maxlen=app_config.tui.measurements_limit
+        )
         self._help_expanded = False
 
     def compose(self) -> ComposeResult:
@@ -630,7 +651,7 @@ class ServerTuiApp(App[None]):
 
         measurements = self.query_one("#measurements", DataTable)
         measurements.cursor_type = "row"
-        measurements.add_columns("Device", "Seq", "Temp", "RH", "Lux", "dB", "Dup")
+        measurements.add_columns("Time", "Device", "Seq", "Temp", "RH", "Lux", "dB", "Dup")
 
         events = self.query_one("#events", RichLog)
         events.write("tui ready")
@@ -753,18 +774,7 @@ class ServerTuiApp(App[None]):
         measurements = self.query_one("#measurements", DataTable)
         _replace_table_rows(
             measurements,
-            [
-                (
-                    str(item.get("device_id", "")),
-                    str(item.get("sequence", "")),
-                    _format_optional_number(item.get("temperature_c")),
-                    _format_optional_number(item.get("humidity_percent")),
-                    _format_optional_number(item.get("lux")),
-                    _format_optional_number(item.get("mic_db_rel")),
-                    str(item.get("duplicate", "")),
-                )
-                for item in list(self._recent_measurements)[-20:]
-            ],
+            [self._measurement_row(item) for item in self._recent_measurements],
         )
 
         self._update_trend_charts()
@@ -833,6 +843,20 @@ class ServerTuiApp(App[None]):
             )
         )
 
+    def _measurement_row(self, item: dict[str, Any]) -> tuple[object, ...]:
+        """Returns one styled measurement table row."""
+        theme = self.app_config.tui.theme
+        return (
+            _format_unix_ms(item.get("received_unix_ms")),
+            str(item.get("device_id", "")),
+            str(item.get("sequence", "")),
+            _metric_cell(theme, "temperature_c", item.get("temperature_c")),
+            _metric_cell(theme, "humidity_percent", item.get("humidity_percent")),
+            _metric_cell(theme, "lux", item.get("lux")),
+            _metric_cell(theme, "mic_db_rel", item.get("mic_db_rel")),
+            str(item.get("duplicate", "")),
+        )
+
 
 def _format_event(event: ServerEvent) -> str:
     """Formats one bounded event for the TUI log panel."""
@@ -875,7 +899,7 @@ def _format_event(event: ServerEvent) -> str:
     return event.name
 
 
-def _replace_table_rows(table: DataTable, rows: list[tuple[str, ...]]) -> None:
+def _replace_table_rows(table: DataTable, rows: list[tuple[object, ...]]) -> None:
     """Replaces table rows without snapping cursor or scroll back to origin."""
     cursor = table.cursor_coordinate
     scroll_x = table.scroll_x
@@ -898,14 +922,13 @@ def _recent_metric_values(
     measurements: deque[dict[str, Any]],
     metric: str,
     *,
-    limit: int = 24,
+    limit: int | None = None,
 ) -> list[float]:
     """Returns recent numeric values for one metric."""
-    return [
-        float(value)
-        for item in list(measurements)[-limit:]
-        if (value := item.get(metric)) is not None
-    ]
+    items = list(measurements)
+    if limit is not None:
+        items = items[-limit:]
+    return [float(value) for item in items if (value := item.get(metric)) is not None]
 
 
 def _metric_card(label: str, values: list[float], unit: str = "") -> str:
@@ -927,15 +950,14 @@ def _trend_chart(label: str, values: list[float], unit: str = "") -> str:
     """Builds a compact multi-line chart for one metric."""
     suffix = f" {unit}" if unit else ""
     if not values:
-        return f"{label}\nlatest --{suffix} avg -- n=0\nmin -- max --\n(no samples)"
+        return f"{label} latest --{suffix} avg -- n=0 | min -- max --\n(no samples)"
     minimum = min(values)
     maximum = max(values)
     average = sum(values) / len(values)
     latest = values[-1]
     return (
-        f"{label}\n"
-        f"latest {_format_optional_number(latest)}{suffix} "
-        f"avg {_format_optional_number(average)} n={len(values)}\n"
+        f"{label} latest {_format_optional_number(latest)}{suffix} "
+        f"avg {_format_optional_number(average)} n={len(values)} | "
         f"min {_format_optional_number(minimum)} max {_format_optional_number(maximum)}\n"
         f"{_ascii_chart(values, width=28, height=4)}"
     )
@@ -967,3 +989,16 @@ def _format_optional_number(value: object) -> str:
     if isinstance(value, int | float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _metric_cell(theme: str, metric: str, value: object) -> Text:
+    """Formats one colored metric table cell."""
+    color = METRIC_COLORS.get(theme, METRIC_COLORS["catppuccin-mocha"])[metric]
+    return Text(_format_optional_number(value), style=color)
+
+
+def _format_unix_ms(value: object) -> str:
+    """Formats a Unix millisecond timestamp as local human time."""
+    if not isinstance(value, int | float):
+        return ""
+    return datetime.fromtimestamp(value / 1000).astimezone().strftime("%Y-%m-%d %H:%M:%S")

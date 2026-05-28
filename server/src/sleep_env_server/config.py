@@ -23,6 +23,7 @@ CONFIG_FILE_NAME = "config.toml"
 LOG_LEVELS = ("debug", "info", "warning", "error")
 OUTPUT_MODES = ("auto", "rich", "plain", "json")
 DEFAULT_TUI_THEME = "catppuccin-mocha"
+DEFAULT_TUI_MEASUREMENTS_LIMIT = 200
 TUI_THEMES = (DEFAULT_TUI_THEME, "graphite")
 READ_SOURCES = ("merge", "sqlite", "jsonl")
 DEDUP_STRATEGIES = ("keep_first", "keep_last", "overwrite", "reject")
@@ -228,10 +229,13 @@ class TuiConfig:
     theme: Literal["catppuccin-mocha", "graphite"] = DEFAULT_TUI_THEME
     transparent: bool = False
     autostart: bool = True
+    measurements_limit: int = DEFAULT_TUI_MEASUREMENTS_LIMIT
 
     def __post_init__(self) -> None:
         """Validates TUI configuration."""
         validate_choice(self.theme, TUI_THEMES, "tui.theme")
+        if self.measurements_limit < 1:
+            raise ValueError("tui.measurements_limit must be positive")
 
 
 @dataclass(frozen=True)
@@ -504,6 +508,7 @@ def _parse_tui(data: Mapping[str, Any]) -> TuiConfig:
         theme=_str(data, "theme", DEFAULT_TUI_THEME),  # type: ignore[arg-type]
         transparent=_bool(data, "transparent", False),
         autostart=_bool(data, "autostart", True),
+        measurements_limit=_int(data, "measurements_limit", DEFAULT_TUI_MEASUREMENTS_LIMIT),
     )
 
 

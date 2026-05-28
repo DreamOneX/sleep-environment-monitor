@@ -55,6 +55,7 @@ class UploadOutput(Protocol):
     def measurement_dashboard(
         self,
         *,
+        received_unix_ms: int,
         device_id: str,
         sequence: int,
         temperature_c: float | None,
@@ -102,10 +103,11 @@ def create_app(
     async def upload_measurement(upload: MeasurementUpload, request: Request) -> Response:
         body = await request.body()
         source = request.client.host if request.client is not None else "unknown"
+        received_unix_ms = clock()
         accepted = _accept_measurement(
             active_sink,
             upload,
-            received_unix_ms=clock(),
+            received_unix_ms=received_unix_ms,
             source=source,
         )
         if not accepted.accepted:
@@ -128,6 +130,7 @@ def create_app(
             duplicate=accepted.duplicate,
         )
         active_output.measurement_dashboard(
+            received_unix_ms=received_unix_ms,
             device_id=upload.device_id,
             sequence=upload.sequence,
             temperature_c=upload.temperature_c,

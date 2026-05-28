@@ -28,7 +28,7 @@ def test_server_tui_app_smoke_startup_and_quit() -> None:
             assert "Service STOPPED" in str(status.content)
             assert "theme catppuccin-mocha/solid" in str(status.content)
             assert app.screen.has_class("theme_catppuccin_mocha")
-            assert len(app.query_one("#measurements", DataTable).ordered_columns) == 7
+            assert len(app.query_one("#measurements", DataTable).ordered_columns) == 8
             assert app.query_one("#events", RichLog) is not None
             assert app.query_one("#help-panel", Static) is not None
             await pilot.press("q")
@@ -171,6 +171,7 @@ def test_tui_event_output_queues_measurement_events() -> None:
     output = TuiEventOutput(events)
 
     output.measurement_dashboard(
+        received_unix_ms=1_700_000_000_000,
         device_id="device-1",
         sequence=42,
         temperature_c=21.5,
@@ -182,6 +183,7 @@ def test_tui_event_output_queues_measurement_events() -> None:
     event = events.get_nowait()
 
     assert event.name == "measurement"
+    assert event.fields["received_unix_ms"] == 1_700_000_000_000
     assert event.fields["temperature_c"] == 21.5
 
 
@@ -218,6 +220,7 @@ def test_server_tui_app_drains_measurement_events() -> None:
                     "measurement",
                     {
                         "device_id": "device-1",
+                        "received_unix_ms": 1_700_000_000_000,
                         "sequence": 42,
                         "duplicate": False,
                         "temperature_c": 21.5,
@@ -230,11 +233,17 @@ def test_server_tui_app_drains_measurement_events() -> None:
             app.drain_events()
             measurements = app.query_one("#measurements", DataTable)
             assert measurements.row_count == 1
+            row = measurements.get_row_at(0)
+            assert "-" in str(row[0])
+            assert ":" in str(row[0])
+            assert getattr(row[3], "style", None) == "#89dceb"
+            assert getattr(row[4], "style", None) == "#a6e3a1"
+            assert getattr(row[5], "style", None) == "#f9e2af"
+            assert getattr(row[6], "style", None) == "#f38ba8"
             assert "now 21.50 C" in str(app.query_one("#metric-temperature", Static).content)
             assert "avg 21.50 n=1" in str(app.query_one("#metric-temperature", Static).content)
             trend = str(app.query_one("#trend-temperature", Static).content)
-            assert "latest 21.50 C avg 21.50 n=1" in trend
-            assert "min 21.50 max 21.50" in trend
+            assert "TEMP latest 21.50 C avg 21.50 n=1 | min 21.50 max 21.50" in trend
 
     asyncio.run(run())
 
@@ -250,6 +259,7 @@ def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> N
                         "measurement",
                         {
                             "device_id": "device-1",
+                            "received_unix_ms": 1_700_000_000_000 + sequence,
                             "sequence": sequence,
                             "duplicate": False,
                             "temperature_c": 20.0 + sequence,
@@ -269,6 +279,7 @@ def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> N
                     "measurement",
                     {
                         "device_id": "device-1",
+                        "received_unix_ms": 1_700_000_000_004,
                         "sequence": 4,
                         "duplicate": False,
                         "temperature_c": 24.0,
@@ -285,9 +296,41 @@ def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> N
             assert "now 24.00 C" in str(app.query_one("#metric-temperature", Static).content)
             assert "avg 22.00 n=5" in str(app.query_one("#metric-temperature", Static).content)
             trend = str(app.query_one("#trend-temperature", Static).content)
-            assert "latest 24.00 C avg 22.00 n=5" in trend
-            assert "min 20.00 max 24.00" in trend
+            assert "TEMP latest 24.00 C avg 22.00 n=5 | min 20.00 max 24.00" in trend
             assert "█" in trend
+
+    asyncio.run(run())
+
+
+def test_server_tui_app_respects_measurements_limit() -> None:
+    async def run() -> None:
+        events: queue.Queue[ServerEvent] = queue.Queue()
+        app_config = AppConfig(tui=TuiConfig(measurements_limit=3))
+        app = ServerTuiApp(app_config, start_runtime=False, event_queue=events)
+        async with app.run_test():
+            for sequence in range(5):
+                events.put(
+                    ServerEvent(
+                        "measurement",
+                        {
+                            "device_id": "device-1",
+                            "received_unix_ms": 1_700_000_000_000 + sequence,
+                            "sequence": sequence,
+                            "duplicate": False,
+                            "temperature_c": 20.0 + sequence,
+                            "humidity_percent": 40.0 + sequence,
+                            "lux": 10.0 + sequence,
+                            "mic_db_rel": 30.0 + sequence,
+                        },
+                    )
+                )
+            app.drain_events()
+
+            measurements = app.query_one("#measurements", DataTable)
+            assert measurements.row_count == 3
+            assert [measurements.get_row_at(row)[2] for row in range(3)] == ["2", "3", "4"]
+            trend = str(app.query_one("#trend-temperature", Static).content)
+            assert "n=3" in trend
 
     asyncio.run(run())
 

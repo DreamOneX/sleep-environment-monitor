@@ -166,9 +166,11 @@ maintenance as `serve`, then presents the current process receive stream:
 
 - Top-line temperature, humidity, lux, and relative sound dB metric cards with
   current value, recent average, and sample count.
-- Recent accepted measurements.
+- Recent accepted measurements with a human-readable server receive time, plus
+  metric columns styled with the same colors as the metric cards.
 - Recent temperature, humidity, lux, and relative sound dB chart panels with a
-  multi-line plot plus latest, average, minimum, maximum, and sample count.
+  compact title line, latest, average, minimum, maximum, sample count, and a
+  multi-line plot.
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 - Built-in help for `s`, `q`, `Ctrl+C`, `c`, `r`, and `?`.
@@ -192,6 +194,8 @@ TUI visual configuration lives under `[tui]`:
   retention maintenance when the TUI opens. Set it to `false`, or use
   `sleep-env-server tui --no-autostart`, to open the TUI stopped and control the
   service with `s`.
+- `measurements_limit = 200` controls how many accepted measurements are kept
+  in the live TUI table and chart window.
 - The built-in Textual command palette is treated as part of the TUI surface:
   its modal, search input, results, highlight, loading indicator, and help text
   follow the active theme and the same transparent-background rule.

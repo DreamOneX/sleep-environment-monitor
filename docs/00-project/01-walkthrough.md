@@ -4799,3 +4799,58 @@ Milestone commit message:
 ```text
 fix: preserve server tui table cursor and metrics
 ```
+
+## Milestone 84: Server TUI Trend Charts
+
+This milestone replaces the right-side `TRENDS` table with dedicated chart
+panels for each live metric.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to document that TUI trends now render temperature, humidity, lux, and
+  relative sound dB as multi-line chart panels with latest, average, minimum,
+  maximum, and sample count.
+
+Implementation:
+
+- Replaced the `#trends` `DataTable` with four `Static` chart panels:
+  temperature, humidity, light, and sound.
+- Added Catppuccin and graphite border styling for the chart panels, plus
+  transparent-mode background handling.
+- Added compact chart rendering with a fixed-width, four-row ASCII plot and
+  summary lines for latest, average, min, max, and sample count.
+- Kept measurement table cursor preservation scoped to the measurements table;
+  trend charts no longer use table refreshes.
+
+Validation commands run:
+
+```bash
+cd server
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_tui.py
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+cd ..
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted TUI tests passed: 14 tests.
+- `uv run pytest` passed 113 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual tests cover trend chart
+  summary content and non-empty plot output.
+
+Milestone commit message:
+
+```text
+feat: add server tui trend charts
+```

@@ -128,6 +128,13 @@ class ServerTuiApp(App[None]):
         width: 1fr;
     }
 
+    .trend-chart {
+        height: 1fr;
+        min-height: 5;
+        margin-bottom: 1;
+        padding: 0 1;
+    }
+
     .panel-title {
         height: 1;
         text-style: bold;
@@ -176,6 +183,28 @@ class ServerTuiApp(App[None]):
         background: #313244;
         border: solid #45475a;
         color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha .trend-chart {
+        background: #181825;
+        border: solid #45475a;
+        color: #cdd6f4;
+    }
+
+    Screen.theme_catppuccin_mocha #trend-temperature {
+        border: solid #89dceb;
+    }
+
+    Screen.theme_catppuccin_mocha #trend-humidity {
+        border: solid #a6e3a1;
+    }
+
+    Screen.theme_catppuccin_mocha #trend-lux {
+        border: solid #f9e2af;
+    }
+
+    Screen.theme_catppuccin_mocha #trend-sound {
+        border: solid #f38ba8;
     }
 
     Screen.theme_catppuccin_mocha #metric-temperature {
@@ -331,6 +360,28 @@ class ServerTuiApp(App[None]):
         color: #d7e0ea;
     }
 
+    Screen.theme_graphite .trend-chart {
+        background: #111827;
+        border: solid #243244;
+        color: #d7e0ea;
+    }
+
+    Screen.theme_graphite #trend-temperature {
+        border: solid #22d3ee;
+    }
+
+    Screen.theme_graphite #trend-humidity {
+        border: solid #10b981;
+    }
+
+    Screen.theme_graphite #trend-lux {
+        border: solid #f59e0b;
+    }
+
+    Screen.theme_graphite #trend-sound {
+        border: solid #f43f5e;
+    }
+
     Screen.theme_graphite #metric-temperature {
         border: solid #22d3ee;
     }
@@ -460,6 +511,7 @@ class ServerTuiApp(App[None]):
     Screen.transparent #events,
     Screen.transparent #help-panel,
     Screen.transparent .metric,
+    Screen.transparent .trend-chart,
     Screen.transparent .panel-title,
     Screen.transparent DataTable {
         background: ansi_default;
@@ -543,7 +595,22 @@ class ServerTuiApp(App[None]):
                 yield DataTable(id="measurements")
             with Vertical(id="side-panel"):
                 yield Static("TRENDS", classes="panel-title")
-                yield DataTable(id="trends")
+                yield Static(
+                    _trend_chart("TEMP", [], "C"),
+                    id="trend-temperature",
+                    classes="trend-chart",
+                )
+                yield Static(
+                    _trend_chart("HUMIDITY", [], "%"),
+                    id="trend-humidity",
+                    classes="trend-chart",
+                )
+                yield Static(_trend_chart("LIGHT", [], "lx"), id="trend-lux", classes="trend-chart")
+                yield Static(
+                    _trend_chart("SOUND", [], "dB"),
+                    id="trend-sound",
+                    classes="trend-chart",
+                )
         yield Static("EVENTS", classes="panel-title")
         yield RichLog(id="events", highlight=False, markup=False, wrap=True)
         yield Static(self._help_text(), id="help-panel")
@@ -564,12 +631,6 @@ class ServerTuiApp(App[None]):
         measurements = self.query_one("#measurements", DataTable)
         measurements.cursor_type = "row"
         measurements.add_columns("Device", "Seq", "Temp", "RH", "Lux", "dB", "Dup")
-
-        trends = self.query_one("#trends", DataTable)
-        trends.cursor_type = "row"
-        trends.add_columns("Metric", "Trend")
-        for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel"):
-            trends.add_row(metric, "")
 
         events = self.query_one("#events", RichLog)
         events.write("tui ready")
@@ -706,14 +767,7 @@ class ServerTuiApp(App[None]):
             ],
         )
 
-        trends = self.query_one("#trends", DataTable)
-        _replace_table_rows(
-            trends,
-            [
-                (metric, _metric_trend(_recent_metric_values(self._recent_measurements, metric)))
-                for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel")
-            ],
-        )
+        self._update_trend_charts()
 
     def _help_text(self) -> str:
         """Returns compact or expanded operator help."""
@@ -746,6 +800,33 @@ class ServerTuiApp(App[None]):
         )
         self.query_one("#metric-sound", Static).update(
             _metric_card(
+                "SOUND",
+                _recent_metric_values(self._recent_measurements, "mic_db_rel"),
+                "dB",
+            )
+        )
+
+    def _update_trend_charts(self) -> None:
+        """Updates the right-side trend chart panels."""
+        self.query_one("#trend-temperature", Static).update(
+            _trend_chart(
+                "TEMP",
+                _recent_metric_values(self._recent_measurements, "temperature_c"),
+                "C",
+            )
+        )
+        self.query_one("#trend-humidity", Static).update(
+            _trend_chart(
+                "HUMIDITY",
+                _recent_metric_values(self._recent_measurements, "humidity_percent"),
+                "%",
+            )
+        )
+        self.query_one("#trend-lux", Static).update(
+            _trend_chart("LIGHT", _recent_metric_values(self._recent_measurements, "lux"), "lx")
+        )
+        self.query_one("#trend-sound", Static).update(
+            _trend_chart(
                 "SOUND",
                 _recent_metric_values(self._recent_measurements, "mic_db_rel"),
                 "dB",
@@ -842,6 +923,43 @@ def _metric_card(label: str, values: list[float], unit: str = "") -> str:
     )
 
 
+def _trend_chart(label: str, values: list[float], unit: str = "") -> str:
+    """Builds a compact multi-line chart for one metric."""
+    suffix = f" {unit}" if unit else ""
+    if not values:
+        return f"{label}\nlatest --{suffix} avg -- n=0\nmin -- max --\n(no samples)"
+    minimum = min(values)
+    maximum = max(values)
+    average = sum(values) / len(values)
+    latest = values[-1]
+    return (
+        f"{label}\n"
+        f"latest {_format_optional_number(latest)}{suffix} "
+        f"avg {_format_optional_number(average)} n={len(values)}\n"
+        f"min {_format_optional_number(minimum)} max {_format_optional_number(maximum)}\n"
+        f"{_ascii_chart(values, width=28, height=4)}"
+    )
+
+
+def _ascii_chart(values: list[float], *, width: int, height: int) -> str:
+    """Renders recent values as a fixed-size ASCII chart."""
+    if not values:
+        return ""
+    samples = values[-width:]
+    minimum = min(samples)
+    maximum = max(samples)
+    if minimum == maximum:
+        return "\n".join(
+            "─" * len(samples) if row == height - 1 else " " * len(samples) for row in range(height)
+        )
+    span = maximum - minimum
+    normalized = [round((value - minimum) / span * (height - 1)) for value in samples]
+    rows: list[str] = []
+    for row in reversed(range(height)):
+        rows.append("".join("█" if level >= row else " " for level in normalized))
+    return "\n".join(rows)
+
+
 def _format_optional_number(value: object) -> str:
     """Formats optional numeric table cells."""
     if value is None:
@@ -849,19 +967,3 @@ def _format_optional_number(value: object) -> str:
     if isinstance(value, int | float):
         return f"{value:.2f}"
     return str(value)
-
-
-def _metric_trend(values: list[float]) -> str:
-    """Builds one compact ASCII trend line."""
-    if not values:
-        return ""
-    if len(values) == 1:
-        return f"{values[0]:.2f}"
-    minimum = min(values)
-    maximum = max(values)
-    if minimum == maximum:
-        return f"{'=' * len(values)} {minimum:.2f}"
-    ramp = " .:-=+*#%@"
-    span = maximum - minimum
-    chars = [ramp[round((value - minimum) / span * (len(ramp) - 1))] for value in values]
-    return f"{''.join(chars)} {minimum:.2f}..{maximum:.2f}"

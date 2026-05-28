@@ -230,9 +230,11 @@ def test_server_tui_app_drains_measurement_events() -> None:
             app.drain_events()
             measurements = app.query_one("#measurements", DataTable)
             assert measurements.row_count == 1
-            assert app.query_one("#trends", DataTable).row_count == 4
             assert "now 21.50 C" in str(app.query_one("#metric-temperature", Static).content)
             assert "avg 21.50 n=1" in str(app.query_one("#metric-temperature", Static).content)
+            trend = str(app.query_one("#trend-temperature", Static).content)
+            assert "latest 21.50 C avg 21.50 n=1" in trend
+            assert "min 21.50 max 21.50" in trend
 
     asyncio.run(run())
 
@@ -282,6 +284,10 @@ def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> N
             assert measurements.cursor_coordinate.row == 2
             assert "now 24.00 C" in str(app.query_one("#metric-temperature", Static).content)
             assert "avg 22.00 n=5" in str(app.query_one("#metric-temperature", Static).content)
+            trend = str(app.query_one("#trend-temperature", Static).content)
+            assert "latest 24.00 C avg 22.00 n=5" in trend
+            assert "min 20.00 max 24.00" in trend
+            assert "█" in trend
 
     asyncio.run(run())
 

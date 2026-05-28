@@ -167,7 +167,8 @@ maintenance as `serve`, then presents the current process receive stream:
 - Top-line temperature, humidity, lux, and relative sound dB metric cards with
   current value, recent average, and sample count.
 - Recent accepted measurements.
-- Recent temperature, humidity, lux, and relative sound dB trends.
+- Recent temperature, humidity, lux, and relative sound dB chart panels with a
+  multi-line plot plus latest, average, minimum, maximum, and sample count.
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 - Built-in help for `s`, `q`, `Ctrl+C`, `c`, `r`, and `?`.

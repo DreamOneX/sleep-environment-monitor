@@ -4742,3 +4742,60 @@ Milestone commit message:
 ```text
 feat: add server tui service controls
 ```
+
+## Milestone 83: Server TUI Table And Metric Refresh Fix
+
+This milestone fixes two local TUI usability regressions: measurement table
+refreshes reset the cursor to the first row, and metric cards did not expose
+useful live context.
+
+Documentation update:
+
+- Updated [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  to document that top-line metric cards show current value, recent average,
+  and sample count.
+
+Implementation:
+
+- Reworked measurement and trend table refreshes through a helper that
+  snapshots cursor coordinate and scroll position before replacing rows, then
+  restores the cursor and scroll target after the update.
+- Changed metric cards from a decorative one-value strip into three-line cards
+  showing `now`, recent `avg`, and `n` sample count over the recent measurement
+  window.
+- Increased the metric row/card height so the new metric content is visible
+  inside bordered cards.
+- Preserved the existing local Catppuccin scrollbar and DataTable cursor style
+  edits already present in `tui.py`.
+
+Validation commands run:
+
+```bash
+cd server
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_tui.py
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+cd ..
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted TUI tests passed: 14 tests.
+- `uv run pytest` passed 113 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual tests cover table cursor
+  preservation and metric card current/average/sample content.
+
+Milestone commit message:
+
+```text
+fix: preserve server tui table cursor and metrics
+```

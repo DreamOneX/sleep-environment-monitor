@@ -231,7 +231,57 @@ def test_server_tui_app_drains_measurement_events() -> None:
             measurements = app.query_one("#measurements", DataTable)
             assert measurements.row_count == 1
             assert app.query_one("#trends", DataTable).row_count == 4
-            assert "21.50 C" in str(app.query_one("#metric-temperature", Static).content)
+            assert "now 21.50 C" in str(app.query_one("#metric-temperature", Static).content)
+            assert "avg 21.50 n=1" in str(app.query_one("#metric-temperature", Static).content)
+
+    asyncio.run(run())
+
+
+def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> None:
+    async def run() -> None:
+        events: queue.Queue[ServerEvent] = queue.Queue()
+        app = ServerTuiApp(AppConfig(), start_runtime=False, event_queue=events)
+        async with app.run_test():
+            for sequence in range(4):
+                events.put(
+                    ServerEvent(
+                        "measurement",
+                        {
+                            "device_id": "device-1",
+                            "sequence": sequence,
+                            "duplicate": False,
+                            "temperature_c": 20.0 + sequence,
+                            "humidity_percent": 40.0 + sequence,
+                            "lux": 10.0 + sequence,
+                            "mic_db_rel": 30.0 + sequence,
+                        },
+                    )
+                )
+            app.drain_events()
+
+            measurements = app.query_one("#measurements", DataTable)
+            measurements.move_cursor(row=2, column=0, animate=False, scroll=False)
+
+            events.put(
+                ServerEvent(
+                    "measurement",
+                    {
+                        "device_id": "device-1",
+                        "sequence": 4,
+                        "duplicate": False,
+                        "temperature_c": 24.0,
+                        "humidity_percent": 44.0,
+                        "lux": 14.0,
+                        "mic_db_rel": 34.0,
+                    },
+                )
+            )
+            app.drain_events()
+
+            assert measurements.row_count == 5
+            assert measurements.cursor_coordinate.row == 2
+            assert "now 24.00 C" in str(app.query_one("#metric-temperature", Static).content)
+            assert "avg 22.00 n=5" in str(app.query_one("#metric-temperature", Static).content)
 
     asyncio.run(run())
 

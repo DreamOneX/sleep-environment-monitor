@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.color import Color
 from textual.command import CommandPalette
 from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Footer, Header, RichLog, Static
 
 from sleep_env_server.config import AppConfig
@@ -74,6 +75,22 @@ class ServerTuiApp(App[None]):
     """Full-screen local operator UI for the ingestion server."""
 
     CSS = """
+
+    * {
+        scrollbar-size-horizontal: 0;
+        scrollbar-size-vertical: 1;
+
+        scrollbar-background: #11111b;        /* crust */
+        scrollbar-background-hover: #181825;  /* mantle */
+        scrollbar-background-active: #1e1e2e; /* base */
+
+        scrollbar-color: #45475a;        /* surface1 */
+        scrollbar-color-hover: #585b70;  /* surface2 */
+        scrollbar-color-active: #b4befe; /* lavender */
+
+        scrollbar-corner-color: #11111b;
+    }
+
     Screen {
         layout: vertical;
     }
@@ -85,13 +102,13 @@ class ServerTuiApp(App[None]):
     }
 
     #metrics {
-        height: 4;
+        height: 6;
         padding: 0 1;
     }
 
     .metric {
         width: 1fr;
-        height: 3;
+        height: 5;
         margin-right: 1;
         padding: 0 1;
         content-align: left middle;
@@ -275,6 +292,13 @@ class ServerTuiApp(App[None]):
     CommandPalette.theme_catppuccin_mocha > .command-palette--highlight {
         color: #f9e2af;
         text-style: bold underline;
+    }
+
+    DataTable > .datatable--cursor,
+    DataTable > .datatable--fixed-cursor,
+    DataTable > .datatable--header-cursor {
+       color: #f38ba8;      /* red */
+       text-style: bold;
     }
 
     Screen.theme_graphite {
@@ -509,12 +533,10 @@ class ServerTuiApp(App[None]):
         yield Header(show_clock=True)
         yield Static(self._status_text(), id="status")
         with Horizontal(id="metrics"):
-            yield Static(_metric_card("TEMP", None, "C"), id="metric-temperature", classes="metric")
-            yield Static(
-                _metric_card("HUMIDITY", None, "%"), id="metric-humidity", classes="metric"
-            )
-            yield Static(_metric_card("LIGHT", None, "lx"), id="metric-lux", classes="metric")
-            yield Static(_metric_card("SOUND", None, "dB"), id="metric-sound", classes="metric")
+            yield Static(_metric_card("TEMP", [], "C"), id="metric-temperature", classes="metric")
+            yield Static(_metric_card("HUMIDITY", []), id="metric-humidity", classes="metric")
+            yield Static(_metric_card("LIGHT", [], "lx"), id="metric-lux", classes="metric")
+            yield Static(_metric_card("SOUND", [], "dB"), id="metric-sound", classes="metric")
         with Horizontal(id="main"):
             with Vertical(id="measurements-panel"):
                 yield Static("MEASUREMENTS", classes="panel-title")
@@ -666,29 +688,32 @@ class ServerTuiApp(App[None]):
             return
 
         self._recent_measurements.append(event.fields)
-        self._update_metric_cards(event.fields)
+        self._update_metric_cards()
         measurements = self.query_one("#measurements", DataTable)
-        measurements.clear()
-        for item in list(self._recent_measurements)[-20:]:
-            measurements.add_row(
-                str(item.get("device_id", "")),
-                str(item.get("sequence", "")),
-                _format_optional_number(item.get("temperature_c")),
-                _format_optional_number(item.get("humidity_percent")),
-                _format_optional_number(item.get("lux")),
-                _format_optional_number(item.get("mic_db_rel")),
-                str(item.get("duplicate", "")),
-            )
+        _replace_table_rows(
+            measurements,
+            [
+                (
+                    str(item.get("device_id", "")),
+                    str(item.get("sequence", "")),
+                    _format_optional_number(item.get("temperature_c")),
+                    _format_optional_number(item.get("humidity_percent")),
+                    _format_optional_number(item.get("lux")),
+                    _format_optional_number(item.get("mic_db_rel")),
+                    str(item.get("duplicate", "")),
+                )
+                for item in list(self._recent_measurements)[-20:]
+            ],
+        )
 
         trends = self.query_one("#trends", DataTable)
-        trends.clear()
-        for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel"):
-            values = [
-                float(value)
-                for item in self._recent_measurements
-                if (value := item.get(metric)) is not None
-            ]
-            trends.add_row(metric, _metric_trend(values[-24:]))
+        _replace_table_rows(
+            trends,
+            [
+                (metric, _metric_trend(_recent_metric_values(self._recent_measurements, metric)))
+                for metric in ("temperature_c", "humidity_percent", "lux", "mic_db_rel")
+            ],
+        )
 
     def _help_text(self) -> str:
         """Returns compact or expanded operator help."""
@@ -700,17 +725,31 @@ class ServerTuiApp(App[None]):
             )
         return "s start/stop | q quit | c clear events | r refresh | ? help"
 
-    def _update_metric_cards(self, item: dict[str, Any]) -> None:
-        """Updates the top metric strip from the latest accepted measurement."""
+    def _update_metric_cards(self) -> None:
+        """Updates the top metric strip from recent accepted measurements."""
         self.query_one("#metric-temperature", Static).update(
-            _metric_card("TEMP", item.get("temperature_c"), "C")
+            _metric_card(
+                "TEMP",
+                _recent_metric_values(self._recent_measurements, "temperature_c"),
+                "C",
+            )
         )
         self.query_one("#metric-humidity", Static).update(
-            _metric_card("HUMIDITY", item.get("humidity_percent"), "%")
+            _metric_card(
+                "HUMIDITY",
+                _recent_metric_values(self._recent_measurements, "humidity_percent"),
+                "%",
+            )
         )
-        self.query_one("#metric-lux", Static).update(_metric_card("LIGHT", item.get("lux"), "lx"))
+        self.query_one("#metric-lux", Static).update(
+            _metric_card("LIGHT", _recent_metric_values(self._recent_measurements, "lux"), "lx")
+        )
         self.query_one("#metric-sound", Static).update(
-            _metric_card("SOUND", item.get("mic_db_rel"), "dB")
+            _metric_card(
+                "SOUND",
+                _recent_metric_values(self._recent_measurements, "mic_db_rel"),
+                "dB",
+            )
         )
 
 
@@ -755,10 +794,52 @@ def _format_event(event: ServerEvent) -> str:
     return event.name
 
 
-def _metric_card(label: str, value: object, unit: str) -> str:
+def _replace_table_rows(table: DataTable, rows: list[tuple[str, ...]]) -> None:
+    """Replaces table rows without snapping cursor or scroll back to origin."""
+    cursor = table.cursor_coordinate
+    scroll_x = table.scroll_x
+    scroll_y = table.scroll_y
+    table.clear()
+    table.add_rows(rows)
+    if rows:
+        table.move_cursor(
+            row=min(cursor.row, len(rows) - 1),
+            column=cursor.column,
+            animate=False,
+            scroll=False,
+        )
+    else:
+        table.cursor_coordinate = Coordinate(0, 0)
+    table.set_scroll(scroll_x, scroll_y)
+
+
+def _recent_metric_values(
+    measurements: deque[dict[str, Any]],
+    metric: str,
+    *,
+    limit: int = 24,
+) -> list[float]:
+    """Returns recent numeric values for one metric."""
+    return [
+        float(value)
+        for item in list(measurements)[-limit:]
+        if (value := item.get(metric)) is not None
+    ]
+
+
+def _metric_card(label: str, values: list[float], unit: str = "") -> str:
     """Formats one top-strip metric card."""
-    formatted = "--" if value is None else _format_optional_number(value)
-    return f"{label}\n{formatted} {unit}"
+    if not values:
+        suffix = f" {unit}" if unit else ""
+        return f"{label}\nnow --{suffix}\navg --"
+    latest = values[-1]
+    average = sum(values) / len(values)
+    suffix = f" {unit}" if unit else ""
+    return (
+        f"{label}\n"
+        f"now {_format_optional_number(latest)}{suffix}\n"
+        f"avg {_format_optional_number(average)} n={len(values)}"
+    )
 
 
 def _format_optional_number(value: object) -> str:

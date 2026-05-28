@@ -164,7 +164,8 @@ plain logs by default, JSONL logs with `--json-log`, or Rich logs with
 the same HTTP API, UDP discovery responder, storage, backfill, and retention
 maintenance as `serve`, then presents the current process receive stream:
 
-- Top-line temperature, humidity, lux, and relative sound dB metric cards.
+- Top-line temperature, humidity, lux, and relative sound dB metric cards with
+  current value, recent average, and sample count.
 - Recent accepted measurements.
 - Recent temperature, humidity, lux, and relative sound dB trends.
 - Duplicate status for displayed rows.

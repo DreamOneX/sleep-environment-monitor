@@ -121,7 +121,7 @@ def test_explicit_config_file_is_loaded(tmp_path: Path) -> None:
     assert config.tui.theme == "catppuccin-mocha"
     assert config.tui.transparent is False
     assert config.tui.autostart is True
-    assert config.tui.measurements_limit == 200
+    assert config.tui.measurements_limit == 500
     assert config.storage.required_for_ack is False
     assert config.storage.jsonl.enabled is True
     assert config.history_cli.tail_count == 5

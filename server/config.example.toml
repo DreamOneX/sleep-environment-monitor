@@ -13,7 +13,7 @@ dashboard = true
 theme = "catppuccin-mocha"
 transparent = false
 autostart = true
-measurements_limit = 200
+measurements_limit = 500
 
 [storage]
 enabled = true

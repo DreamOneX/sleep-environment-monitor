@@ -164,13 +164,10 @@ plain logs by default, JSONL logs with `--json-log`, or Rich logs with
 the same HTTP API, UDP discovery responder, storage, backfill, and retention
 maintenance as `serve`, then presents the current process receive stream:
 
-- Top-line temperature, humidity, lux, and relative sound dB metric cards with
-  current value, recent average, and sample count.
 - Recent accepted measurements with a human-readable server receive time, plus
-  metric columns styled with the same colors as the metric cards.
+  metric columns styled with the same colors as the trend charts.
 - Recent temperature, humidity, lux, and relative sound dB chart panels with a
-  compact title line, latest, average, minimum, maximum, sample count, and a
-  multi-line plot.
+  compact one-line summary and a multi-line plot.
 - Duplicate status for displayed rows.
 - Bounded startup, upload, storage, discovery, and shutdown diagnostics.
 - Built-in help for `s`, `q`, `Ctrl+C`, `c`, `r`, and `?`.
@@ -194,8 +191,8 @@ TUI visual configuration lives under `[tui]`:
   retention maintenance when the TUI opens. Set it to `false`, or use
   `sleep-env-server tui --no-autostart`, to open the TUI stopped and control the
   service with `s`.
-- `measurements_limit = 200` controls how many accepted measurements are kept
-  in the live TUI table and chart window.
+- `measurements_limit = 500` controls how many recent measurements the TUI keeps
+  in memory for the measurements table and chart calculations.
 - The built-in Textual command palette is treated as part of the TUI surface:
   its modal, search input, results, highlight, loading indicator, and help text
   follow the active theme and the same transparent-background rule.

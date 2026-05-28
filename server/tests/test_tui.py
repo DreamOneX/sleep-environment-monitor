@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import queue
 
+import pytest
 from textual.command import CommandPalette
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, RichLog, Static
 
 from sleep_env_server.config import AppConfig, ServerConfig, TuiConfig
@@ -29,6 +31,8 @@ def test_server_tui_app_smoke_startup_and_quit() -> None:
             assert "theme catppuccin-mocha/solid" in str(status.content)
             assert app.screen.has_class("theme_catppuccin_mocha")
             assert len(app.query_one("#measurements", DataTable).ordered_columns) == 8
+            with pytest.raises(NoMatches):
+                app.query_one("#metrics", Static)
             assert app.query_one("#events", RichLog) is not None
             assert app.query_one("#help-panel", Static) is not None
             await pilot.press("q")
@@ -240,8 +244,6 @@ def test_server_tui_app_drains_measurement_events() -> None:
             assert getattr(row[4], "style", None) == "#a6e3a1"
             assert getattr(row[5], "style", None) == "#f9e2af"
             assert getattr(row[6], "style", None) == "#f38ba8"
-            assert "now 21.50 C" in str(app.query_one("#metric-temperature", Static).content)
-            assert "avg 21.50 n=1" in str(app.query_one("#metric-temperature", Static).content)
             trend = str(app.query_one("#trend-temperature", Static).content)
             assert "TEMP latest 21.50 C avg 21.50 n=1 | min 21.50 max 21.50" in trend
 
@@ -293,8 +295,6 @@ def test_server_tui_app_preserves_table_cursor_during_measurement_updates() -> N
 
             assert measurements.row_count == 5
             assert measurements.cursor_coordinate.row == 2
-            assert "now 24.00 C" in str(app.query_one("#metric-temperature", Static).content)
-            assert "avg 22.00 n=5" in str(app.query_one("#metric-temperature", Static).content)
             trend = str(app.query_one("#trend-temperature", Static).content)
             assert "TEMP latest 24.00 C avg 22.00 n=5 | min 20.00 max 24.00" in trend
             assert "█" in trend

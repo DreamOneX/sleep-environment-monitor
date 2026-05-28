@@ -120,19 +120,6 @@ class ServerTuiApp(App[None]):
         content-align: left middle;
     }
 
-    #metrics {
-        height: 6;
-        padding: 0 1;
-    }
-
-    .metric {
-        width: 1fr;
-        height: 5;
-        margin-right: 1;
-        padding: 0 1;
-        content-align: left middle;
-    }
-
     #main {
         height: 1fr;
         padding: 0 1;
@@ -149,8 +136,8 @@ class ServerTuiApp(App[None]):
 
     .trend-chart {
         height: 1fr;
-        min-height: 5;
-        margin-bottom: 1;
+        min-height: 7;
+        margin-bottom: 0;
         padding: 0 1;
     }
 
@@ -191,17 +178,10 @@ class ServerTuiApp(App[None]):
         color: #cdd6f4;
     }
 
-    Screen.theme_catppuccin_mocha #metrics,
     Screen.theme_catppuccin_mocha #main,
     Screen.theme_catppuccin_mocha .panel-title,
     Screen.theme_catppuccin_mocha #help-panel {
         background: #1e1e2e;
-    }
-
-    Screen.theme_catppuccin_mocha .metric {
-        background: #313244;
-        border: solid #45475a;
-        color: #cdd6f4;
     }
 
     Screen.theme_catppuccin_mocha .trend-chart {
@@ -223,22 +203,6 @@ class ServerTuiApp(App[None]):
     }
 
     Screen.theme_catppuccin_mocha #trend-sound {
-        border: solid #f38ba8;
-    }
-
-    Screen.theme_catppuccin_mocha #metric-temperature {
-        border: solid #89dceb;
-    }
-
-    Screen.theme_catppuccin_mocha #metric-humidity {
-        border: solid #a6e3a1;
-    }
-
-    Screen.theme_catppuccin_mocha #metric-lux {
-        border: solid #f9e2af;
-    }
-
-    Screen.theme_catppuccin_mocha #metric-sound {
         border: solid #f38ba8;
     }
 
@@ -366,17 +330,10 @@ class ServerTuiApp(App[None]):
         color: #d7e0ea;
     }
 
-    Screen.theme_graphite #metrics,
     Screen.theme_graphite #main,
     Screen.theme_graphite .panel-title,
     Screen.theme_graphite #help-panel {
         background: #0b0f14;
-    }
-
-    Screen.theme_graphite .metric {
-        background: #111827;
-        border: solid #243244;
-        color: #d7e0ea;
     }
 
     Screen.theme_graphite .trend-chart {
@@ -398,22 +355,6 @@ class ServerTuiApp(App[None]):
     }
 
     Screen.theme_graphite #trend-sound {
-        border: solid #f43f5e;
-    }
-
-    Screen.theme_graphite #metric-temperature {
-        border: solid #22d3ee;
-    }
-
-    Screen.theme_graphite #metric-humidity {
-        border: solid #10b981;
-    }
-
-    Screen.theme_graphite #metric-lux {
-        border: solid #f59e0b;
-    }
-
-    Screen.theme_graphite #metric-sound {
         border: solid #f43f5e;
     }
 
@@ -525,11 +466,9 @@ class ServerTuiApp(App[None]):
     Screen.transparent HorizontalGroup,
     Screen.transparent KeyGroup,
     Screen.transparent #status,
-    Screen.transparent #metrics,
     Screen.transparent #main,
     Screen.transparent #events,
     Screen.transparent #help-panel,
-    Screen.transparent .metric,
     Screen.transparent .trend-chart,
     Screen.transparent .panel-title,
     Screen.transparent DataTable {
@@ -605,11 +544,6 @@ class ServerTuiApp(App[None]):
         """Builds the static TUI layout."""
         yield Header(show_clock=True)
         yield Static(self._status_text(), id="status")
-        with Horizontal(id="metrics"):
-            yield Static(_metric_card("TEMP", [], "C"), id="metric-temperature", classes="metric")
-            yield Static(_metric_card("HUMIDITY", []), id="metric-humidity", classes="metric")
-            yield Static(_metric_card("LIGHT", [], "lx"), id="metric-lux", classes="metric")
-            yield Static(_metric_card("SOUND", [], "dB"), id="metric-sound", classes="metric")
         with Horizontal(id="main"):
             with Vertical(id="measurements-panel"):
                 yield Static("MEASUREMENTS", classes="panel-title")
@@ -770,7 +704,6 @@ class ServerTuiApp(App[None]):
             return
 
         self._recent_measurements.append(event.fields)
-        self._update_metric_cards()
         measurements = self.query_one("#measurements", DataTable)
         _replace_table_rows(
             measurements,
@@ -788,33 +721,6 @@ class ServerTuiApp(App[None]):
                 "serve remains the scriptable log mode"
             )
         return "s start/stop | q quit | c clear events | r refresh | ? help"
-
-    def _update_metric_cards(self) -> None:
-        """Updates the top metric strip from recent accepted measurements."""
-        self.query_one("#metric-temperature", Static).update(
-            _metric_card(
-                "TEMP",
-                _recent_metric_values(self._recent_measurements, "temperature_c"),
-                "C",
-            )
-        )
-        self.query_one("#metric-humidity", Static).update(
-            _metric_card(
-                "HUMIDITY",
-                _recent_metric_values(self._recent_measurements, "humidity_percent"),
-                "%",
-            )
-        )
-        self.query_one("#metric-lux", Static).update(
-            _metric_card("LIGHT", _recent_metric_values(self._recent_measurements, "lux"), "lx")
-        )
-        self.query_one("#metric-sound", Static).update(
-            _metric_card(
-                "SOUND",
-                _recent_metric_values(self._recent_measurements, "mic_db_rel"),
-                "dB",
-            )
-        )
 
     def _update_trend_charts(self) -> None:
         """Updates the right-side trend chart panels."""
@@ -929,21 +835,6 @@ def _recent_metric_values(
     if limit is not None:
         items = items[-limit:]
     return [float(value) for item in items if (value := item.get(metric)) is not None]
-
-
-def _metric_card(label: str, values: list[float], unit: str = "") -> str:
-    """Formats one top-strip metric card."""
-    if not values:
-        suffix = f" {unit}" if unit else ""
-        return f"{label}\nnow --{suffix}\navg --"
-    latest = values[-1]
-    average = sum(values) / len(values)
-    suffix = f" {unit}" if unit else ""
-    return (
-        f"{label}\n"
-        f"now {_format_optional_number(latest)}{suffix}\n"
-        f"avg {_format_optional_number(average)} n={len(values)}"
-    )
 
 
 def _trend_chart(label: str, values: list[float], unit: str = "") -> str:

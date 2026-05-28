@@ -4914,3 +4914,61 @@ Milestone commit message:
 ```text
 feat: polish server tui measurement table
 ```
+
+## Milestone 86: Server TUI Trend-Only Metrics Layout
+
+This milestone removes the duplicated top metric-card strip and leaves the
+right-side trend charts as the single live metric summary surface.
+
+Documentation update:
+
+- Updated [../20-server/00-overview.md](../20-server/00-overview.md),
+  [../20-server/03-cli.md](../20-server/03-cli.md), and
+  [../20-server/04-persistence-configuration.md](../20-server/04-persistence-configuration.md)
+  so current TUI behavior describes service state, recent measurements with
+  human-readable receive time, metric-colored table columns, and metric trend
+  charts rather than a separate metric-card strip.
+- Updated [../../server/config.example.toml](../../server/config.example.toml)
+  with `measurements_limit = 500`.
+
+Implementation:
+
+- Removed the top `#metrics` layout strip, `.metric` styles, metric-card
+  widget creation, metric-card update path, and `_metric_card` helper.
+- Tightened trend chart panel spacing by removing bottom margin and increasing
+  minimum chart height so the compact header plus plot remain visible.
+- Changed the default `[tui].measurements_limit` from `200` to `500`.
+- Kept measurement table human-readable receive times and metric-colored cells.
+
+Validation commands run:
+
+```bash
+cd server
+env UV_CACHE_DIR=.cache/uv uv run pytest tests/test_config.py tests/test_tui.py
+env UV_CACHE_DIR=.cache/uv uv run pytest
+env UV_CACHE_DIR=.cache/uv uv run ruff check --diff .
+env UV_CACHE_DIR=.cache/uv uv run ruff format --check .
+cd ..
+git diff --check
+```
+
+Observed validation results:
+
+- Targeted config and TUI tests passed: 32 tests.
+- `uv run pytest` passed 116 server tests.
+- `uv run ruff check --diff .` completed without diagnostics.
+- `uv run ruff format --check .` reported all 21 server files formatted.
+- `git diff --check` completed without whitespace diagnostics.
+
+Manual verification:
+
+- Human-visible TUI inspection remains skipped under the current
+  no-human-cooperation assumption. Automated Textual tests verify that the
+  removed `#metrics` widget is absent and that trend charts continue to carry
+  metric summaries.
+
+Milestone commit message:
+
+```text
+fix: simplify server tui metric layout
+```
